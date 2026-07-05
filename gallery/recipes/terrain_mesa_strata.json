@@ -1,0 +1,44 @@
+{
+ "kind": "terrain",
+ "palette": "desert",
+ "shape": "mesa",
+ "seed": 5,
+ "water_level": 0,
+ "size": 48,
+ "resolution": 128,
+ "paths": [
+  {
+   "points": [
+    [
+     -23,
+     -20
+    ],
+    [
+     -8,
+     -4
+    ],
+    [
+     6,
+     2
+    ],
+    [
+     22,
+     18
+    ]
+   ],
+   "width": 2.5
+  }
+ ],
+ "texture": {
+  "pattern": "rock",
+  "scale": 9,
+  "seed": 3,
+  "normal_strength": 0.8,
+  "resolution": 1024,
+  "colors": [
+   "#8a6a4c",
+   "#b98f66",
+   "#d8b287"
+  ]
+ }
+}

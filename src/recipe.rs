@@ -87,7 +87,34 @@ pub struct TerrainParams {
     /// Diorama side walls + bottom. Turn OFF for tiled world chunks.
     #[serde(default = "d_true")]
     pub skirt: bool,
+    /// Hydraulic erosion strength 0..1 (deterministic droplet simulation).
+    /// Chunk-local — do not combine with seamless tiling.
+    #[serde(default)]
+    pub erosion: f32,
+    /// Number of rivers traced downhill from high springs (carved channel
+    /// + water ribbon). Chunk-local like erosion.
+    #[serde(default)]
+    pub rivers: u32,
+    /// Dirt paths/roads: splines flattened into the terrain.
+    #[serde(default)]
+    pub paths: Vec<PathSpec>,
+    /// Optional baked texture over the terrain (e.g. rock strata on cliffs).
+    #[serde(default)]
+    pub texture: Option<crate::texture::TextureSpec>,
+    /// Scatter density multiplier (1.0 = default coverage).
+    #[serde(default = "d_one")]
+    pub scatter_density: f32,
 }
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PathSpec {
+    /// Waypoints in local chunk XZ coordinates.
+    pub points: Vec<[f32; 2]>,
+    #[serde(default = "d_path_w")]
+    pub width: f32,
+}
+fn d_path_w() -> f32 { 2.0 }
+
 fn d_terrain_size() -> f32 { 48.0 }
 fn d_terrain_res() -> u32 { 110 }
 fn d_one() -> f32 { 1.0 }
@@ -160,6 +187,15 @@ pub struct CharacterParams {
     pub bulk: f32,
     #[serde(default = "d_true")]
     pub animate: bool,
+    /// short | ponytail | bun | bald (default: seeded pick)
+    #[serde(default)]
+    pub hair: Option<String>,
+    /// 0..=3 light→dark (default: seeded pick)
+    #[serde(default)]
+    pub skin_tone: Option<u32>,
+    /// Export facial morph targets (smile, blink, angry, surprised).
+    #[serde(default = "d_true")]
+    pub expressions: bool,
 }
 fn d_char_h() -> f32 { 1.7 }
 
@@ -301,6 +337,105 @@ mod tests {
     }
 
     #[test]
+    fn dsl_geometry_v2() {
+        // csg subtract carves, bevel/subdivide/curve all build valid meshes
+        let j = r##"{"kind":"custom","name":"geo","parts":[{"nodes":[
+          {"shape":"box","size":[2,2,2],"color":"#888888","bevel":0.2,
+           "csg":[{"op":"subtract","shape":"cylinder","radius":0.6,"height":3,
+                   "color":"#888888","transform":{"translate":[0,-1.5,0]}}]},
+          {"shape":"sphere","radius":0.5,"subdiv":1,"color":"#ffffff",
+           "subdivide":1,"smooth":true,"flat":false},
+          {"shape":"curve","points":[[2,0,0],[2.5,1,0],[2,2,0.5]],
+           "radius":[0.2,0.1],"samples":12,"color":"#aa6644"}
+        ]}]}"##;
+        let a = Recipe::parse(j).unwrap().build().unwrap();
+        a.validate().unwrap();
+        let m = &a.parts[0].mesh;
+        assert!(m.triangle_count() > 100);
+        // the cylinder bored a hole through the box floor: vertices exist
+        // on the cylinder wall inside the box
+        let wall = m
+            .positions
+            .iter()
+            .any(|p| (p.x * p.x + p.z * p.z).sqrt() < 0.65 && p.y.abs() < 0.9);
+        assert!(wall, "expected carved cylinder wall");
+        // bad csg op rejected
+        let bad = j.replace("\"op\":\"subtract\"", "\"op\":\"xor\"");
+        assert!(Recipe::parse(&bad).unwrap().build().is_err());
+    }
+
+    #[test]
+    fn dsl_easing_and_euler_keys() {
+        let j = r##"{"kind":"custom","name":"nod",
+          "bones":[{"name":"root"},{"name":"top","parent":"root","translation":[0,1,0]}],
+          "animations":[{"name":"nod","duration":1,
+            "channels":[{"bone":"top","path":"rotation","ease":"cubic_in_out",
+                         "keys_euler":[[0,0,0],[30,45,0],[0,0,0]]}]}],
+          "parts":[{"nodes":[{"shape":"box","size":[0.5,0.5,0.5],"color":"#ffffff","bone":"top"}]}]}"##;
+        let a = Recipe::parse(j).unwrap().build().unwrap();
+        let ch = &a.animations[0].channels[0];
+        // easing bakes to dense keys
+        assert!(ch.times.len() > 3);
+        match &ch.data {
+            crate::gltf::ChannelData::Rotation(qs) => {
+                assert_eq!(qs.len(), ch.times.len());
+                // multi-axis euler key produces a non-single-axis quaternion mid-clip
+                let mid = qs[qs.len() / 2];
+                assert!(mid.x.abs() > 0.01 && mid.y.abs() > 0.01);
+            }
+            _ => panic!("expected rotation channel"),
+        }
+        // bad ease rejected
+        let bad = j.replace("cubic_in_out", "bounce");
+        assert!(Recipe::parse(&bad).unwrap().build().is_err());
+    }
+
+    #[test]
+    fn character_v2_features() {
+        let a = Recipe::parse(r#"{"kind":"character","seed":4,"hair":"ponytail"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        let names: Vec<&str> = a.parts[0].mesh.morphs.iter().map(|m| m.name.as_str()).collect();
+        for e in ["smile", "blink", "angry", "surprised"] {
+            assert!(names.contains(&e), "missing morph {e}");
+        }
+        // expressions off removes morphs
+        let b = Recipe::parse(r#"{"kind":"character","seed":4,"expressions":false}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(b.parts[0].mesh.morphs.is_empty());
+        // hair styles change geometry
+        let bald = Recipe::parse(r#"{"kind":"character","seed":4,"hair":"bald"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(
+            a.parts[0].mesh.vertex_count() > bald.parts[0].mesh.vertex_count(),
+            "ponytail should add geometry over bald"
+        );
+    }
+
+    #[test]
+    fn character_ships_clip_library() {
+        let a = Recipe::parse(r#"{"kind":"character","seed":2}"#).unwrap().build().unwrap();
+        let names: Vec<&str> = a.animations.iter().map(|c| c.name.as_str()).collect();
+        for expected in ["idle", "walk", "run", "attack", "sit", "wave", "death", "dance"] {
+            assert!(names.contains(&expected), "missing clip {expected}");
+        }
+        // posing at mid-clip moves vertices
+        let posed = crate::anim::pose_asset(&a, "walk", 0.25).unwrap();
+        let moved = posed.parts[0]
+            .mesh
+            .positions
+            .iter()
+            .zip(&a.parts[0].mesh.positions)
+            .any(|(p, q)| p.distance(*q) > 0.01);
+        assert!(moved, "walk pose should deform the mesh");
+    }
+
+    #[test]
     fn terrain_tiles_seamlessly() {
         let mk = |ox: f32| {
             let j = format!(
@@ -327,6 +462,51 @@ mod tests {
             v
         };
         assert_eq!(edge(&a, 8.0), edge(&b, -8.0));
+    }
+
+    #[test]
+    fn terrain_v3_features() {
+        let j = r#"{"kind":"terrain","seed":7,"size":24,"resolution":48,"erosion":0.6,
+            "rivers":1,"water_level":0.1,
+            "paths":[{"points":[[-10,-10],[0,0],[10,10]],"width":2.0}]}"#;
+        let a = Recipe::parse(j).unwrap().build().unwrap();
+        a.validate().unwrap();
+        // deterministic (erosion + rivers + paths + instanced scatter)
+        let b = Recipe::parse(j).unwrap().build().unwrap();
+        assert_eq!(
+            crate::gltf::to_glb(&a),
+            crate::gltf::to_glb(&b),
+            "terrain v3 must stay byte-deterministic"
+        );
+        // scatter exports as GPU instances
+        assert!(!a.instanced.is_empty());
+        let glb = crate::gltf::to_glb(&a);
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let doc: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        let exts = doc["extensionsUsed"].as_array().unwrap();
+        assert!(exts.iter().any(|e| e == "EXT_mesh_gpu_instancing"));
+        let inst_node = doc["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["extensions"]["EXT_mesh_gpu_instancing"].is_object())
+            .expect("instanced node");
+        let attrs = &inst_node["extensions"]["EXT_mesh_gpu_instancing"]["attributes"];
+        for k in ["TRANSLATION", "ROTATION", "SCALE"] {
+            let acc = attrs[k].as_u64().unwrap() as usize;
+            assert!(doc["accessors"][acc]["count"].as_u64().unwrap() > 0);
+        }
+        // erosion actually changes the heightfield
+        let flat = Recipe::parse(&j.replace("\"erosion\":0.6", "\"erosion\":0.0"))
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_ne!(
+            a.parts[0].mesh.positions.len() == flat.parts[0].mesh.positions.len()
+                && a.parts[0].mesh.positions == flat.parts[0].mesh.positions,
+            true,
+            "erosion should alter geometry"
+        );
     }
 
     #[test]

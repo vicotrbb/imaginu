@@ -22,6 +22,22 @@ pub fn to_srgb8(c: Vec3) -> [u8; 3] {
     [f(c.x), f(c.y), f(c.z)]
 }
 
+/// sRGB-encoded 0..1 Vec3 -> linear (texture sampling).
+pub fn srgb_to_linear(c: Vec3) -> Vec3 {
+    let f = |c: f32| if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
+    Vec3::new(f(c.x), f(c.y), f(c.z))
+}
+
+/// Parse a `#rrggbb` hex string to linear RGB.
+pub fn hex(s: &str) -> Result<Vec3, String> {
+    let h = s.trim_start_matches('#');
+    if h.len() != 6 {
+        return Err(format!("bad hex color '{s}'"));
+    }
+    let v = u32::from_str_radix(h, 16).map_err(|e| format!("bad hex '{s}': {e}"))?;
+    Ok(srgb((v >> 16) as u8, (v >> 8) as u8, v as u8))
+}
+
 pub fn lerp(a: Vec3, b: Vec3, t: f32) -> Vec3 {
     a + (b - a) * t.clamp(0.0, 1.0)
 }

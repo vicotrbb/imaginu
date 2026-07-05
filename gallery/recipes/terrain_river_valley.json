@@ -1,0 +1,12 @@
+{
+ "kind": "terrain",
+ "palette": "verdant",
+ "shape": "valley",
+ "seed": 21,
+ "erosion": 0.6,
+ "rivers": 3,
+ "water_level": 0.07,
+ "size": 56,
+ "resolution": 160,
+ "scatter_density": 1.6
+}

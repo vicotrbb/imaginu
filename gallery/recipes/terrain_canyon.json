@@ -1,0 +1,8 @@
+{
+ "kind": "terrain",
+ "palette": "desert",
+ "shape": "canyon",
+ "seed": 9,
+ "terrace": 8,
+ "water_level": 0.12
+}

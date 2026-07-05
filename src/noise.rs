@@ -55,6 +55,50 @@ impl Noise2 {
         (nx0 + v * (nx1 - nx0)) * 1.9
     }
 
+    /// Gradient noise with the lattice wrapped modulo `px`/`py` — output is
+    /// exactly periodic with period `px`/`py` in x/y.
+    fn sample_tiled(&self, x: f32, y: f32, px: i32, py: i32) -> f32 {
+        let x0 = x.floor();
+        let y0 = y.floor();
+        let fx = x - x0;
+        let fy = y - y0;
+        let (ix, iy) = (x0 as i32, y0 as i32);
+        let wrap = |gx: i32, gy: i32| (gx.rem_euclid(px.max(1)), gy.rem_euclid(py.max(1)));
+        let fade = |t: f32| t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+        let (u, v) = (fade(fx), fade(fy));
+        let dot = |gx: i32, gy: i32, dx: f32, dy: f32| {
+            let (gx, gy) = wrap(gx, gy);
+            let g = self.grad(gx, gy);
+            g.x * dx + g.y * dy
+        };
+        let n00 = dot(ix, iy, fx, fy);
+        let n10 = dot(ix + 1, iy, fx - 1.0, fy);
+        let n01 = dot(ix, iy + 1, fx, fy - 1.0);
+        let n11 = dot(ix + 1, iy + 1, fx - 1.0, fy - 1.0);
+        let nx0 = n00 + u * (n10 - n00);
+        let nx1 = n01 + u * (n11 - n01);
+        (nx0 + v * (nx1 - nx0)) * 1.9
+    }
+
+    /// Seamlessly tiling fBm over the unit square: `u`/`v` in [0,1),
+    /// `fu`/`fv` integer base frequencies (doubled per octave, so every
+    /// octave stays exactly periodic). Uniform statistics across the tile —
+    /// unlike blend-based tiling, which dampens the middle.
+    pub fn fbm_tiled(&self, u: f32, v: f32, fu: u32, fv: u32, octaves: u32, gain: f32) -> f32 {
+        let mut amp = 1.0;
+        let mut sum = 0.0;
+        let mut norm = 0.0;
+        let (mut pu, mut pv) = (fu.max(1), fv.max(1));
+        for _ in 0..octaves {
+            sum += amp * self.sample_tiled(u * pu as f32, v * pv as f32, pu as i32, pv as i32);
+            norm += amp;
+            amp *= gain;
+            pu = (pu * 2).min(1 << 24);
+            pv = (pv * 2).min(1 << 24);
+        }
+        sum / norm
+    }
+
     /// Fractal Brownian motion, `octaves` layers, output roughly [-1, 1].
     pub fn fbm(&self, x: f32, y: f32, octaves: u32, lacunarity: f32, gain: f32) -> f32 {
         let mut amp = 1.0;

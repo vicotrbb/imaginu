@@ -4,6 +4,8 @@
 //! skeletal animation, physics metadata) for Babylon.js, plus a built-in
 //! software renderer for visual verification.
 
+pub mod anim;
+pub mod csg;
 pub mod generators;
 pub mod gltf;
 pub mod mesh;
@@ -11,3 +13,7 @@ pub mod noise;
 pub mod palette;
 pub mod recipe;
 pub mod render;
+pub mod skinning;
+pub mod subdiv;
+pub mod texture;
+pub mod uv;

@@ -65,9 +65,20 @@ fn rasterize(asset: &Asset, cam: &Camera, w: usize, h: usize) -> Framebuffer {
     let proj = Mat4::perspective_rh(cam.fov_y, aspect, 0.05, 500.0);
     let vp = proj * view_m;
 
-    for part in &asset.parts {
+    // expand GPU-instanced scatter into concrete meshes for rasterization
+    let mut expanded: Vec<crate::gltf::Part> = Vec::new();
+    for ip in &asset.instanced {
+        for (t, r, s) in &ip.transforms {
+            let mut m = ip.part.mesh.clone();
+            m.transform(Mat4::from_scale_rotation_translation(*s, *r, *t));
+            expanded.push(crate::gltf::Part { mesh: m, material: ip.part.material.clone() });
+        }
+    }
+
+    for part in asset.parts.iter().chain(expanded.iter()) {
         let m = &part.mesh;
         let mat = &part.material;
+        let tex = mat.texture.as_deref().filter(|_| m.has_uvs());
         // pre-transform to clip space
         let clip: Vec<Vec4> = m.positions.iter().map(|p| vp * p.extend(1.0)).collect();
         for tri in m.indices.chunks_exact(3) {
@@ -124,12 +135,35 @@ fn rasterize(asset: &Asset, cam: &Camera, w: usize, h: usize) -> Framebuffer {
                     };
                     let n = pc(m.normals[i0], m.normals[i1], m.normals[i2]).normalize_or(Vec3::Y);
                     let n = if mat.double_sided && area > 0.0 { -n } else { n };
-                    let albedo = pc(m.colors[i0], m.colors[i1], m.colors[i2]);
+                    let mut albedo = pc(m.colors[i0], m.colors[i1], m.colors[i2]);
                     let world = pc(m.positions[i0], m.positions[i1], m.positions[i2]);
                     let view = (cam.eye - world).normalize_or(Vec3::Y);
+                    let (mut sn, mut rough, mut metal) = (n, mat.roughness, mat.metallic);
+                    if let Some(t) = tex {
+                        let uvw = |a: f32, b: f32, c: f32| {
+                            (a * w0 * iw0 + b * w1 * iw1 + c * w2 * iw2) / iw
+                        };
+                        let u = uvw(m.uvs[i0].x, m.uvs[i1].x, m.uvs[i2].x);
+                        let v = uvw(m.uvs[i0].y, m.uvs[i1].y, m.uvs[i2].y);
+                        let (u, v) = (u.rem_euclid(1.0), v.rem_euclid(1.0));
+                        albedo *= crate::palette::srgb_to_linear(t.base_color.sample(u, v));
+                        let orm = t.orm.sample(u, v);
+                        albedo *= orm.x;
+                        rough = orm.y;
+                        metal = orm.z;
+                        // tangent-space normal mapping
+                        let t4 = pc(
+                            Vec3::new(m.tangents[i0].x, m.tangents[i0].y, m.tangents[i0].z),
+                            Vec3::new(m.tangents[i1].x, m.tangents[i1].y, m.tangents[i1].z),
+                            Vec3::new(m.tangents[i2].x, m.tangents[i2].y, m.tangents[i2].z),
+                        );
+                        let tn = (t4 - n * t4.dot(n)).normalize_or(n.any_orthonormal_vector());
+                        let bn = n.cross(tn) * m.tangents[i0].w;
+                        let nm = t.normal.sample(u, v) * 2.0 - Vec3::ONE;
+                        sn = (tn * nm.x + bn * nm.y + n * nm.z).normalize_or(n);
+                    }
                     fb.depth[idx] = z;
-                    fb.color[idx] =
-                        shade(n, albedo, mat.emissive, view, mat.metallic, mat.roughness);
+                    fb.color[idx] = shade(sn, albedo, mat.emissive, view, metal, rough);
                 }
             }
         }
@@ -177,6 +211,15 @@ pub fn auto_camera(asset: &Asset, yaw_deg: f32, pitch_deg: f32, zoom: f32) -> Ca
         let (l, h) = p.mesh.bounds();
         lo = lo.min(l);
         hi = hi.max(h);
+    }
+    for ip in &asset.instanced {
+        let (l, h) = ip.part.mesh.bounds();
+        let radius = l.length().max(h.length());
+        for (t, _, s) in &ip.transforms {
+            let pad = Vec3::splat(radius * s.max_element());
+            lo = lo.min(*t - pad);
+            hi = hi.max(*t + pad);
+        }
     }
     let center = (lo + hi) / 2.0;
     let radius = (hi - lo).length() / 2.0;

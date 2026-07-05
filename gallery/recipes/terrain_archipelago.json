@@ -1,0 +1,7 @@
+{
+ "kind": "terrain",
+ "palette": "verdant",
+ "shape": "archipelago",
+ "seed": 5,
+ "water_level": 0.42
+}

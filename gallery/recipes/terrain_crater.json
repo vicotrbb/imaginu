@@ -1,0 +1,7 @@
+{
+ "kind": "terrain",
+ "palette": "volcanic",
+ "shape": "crater",
+ "seed": 4,
+ "water_level": 0.25
+}
