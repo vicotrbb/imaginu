@@ -110,11 +110,37 @@ pub struct Asset {
     pub skeleton: Option<Skeleton>,
     pub animations: Vec<AnimationClip>,
     pub physics: Option<Physics>,
+    /// Decimated LOD levels (coarsest last), exported via `MSFT_lod`.
+    pub lods: Vec<Vec<Part>>,
 }
 
 impl Asset {
     pub fn static_mesh(name: &str, parts: Vec<Part>, physics: Option<Physics>) -> Self {
-        Self { name: name.into(), parts, skeleton: None, animations: Vec::new(), physics }
+        Self {
+            name: name.into(),
+            parts,
+            skeleton: None,
+            animations: Vec::new(),
+            physics,
+            lods: Vec::new(),
+        }
+    }
+
+    /// Generate `n` decimated LOD levels (each ~35% of the previous).
+    pub fn generate_lods(&mut self, n: u32) {
+        self.lods.clear();
+        for i in 1..=n.min(4) {
+            let ratio = 0.35f32.powi(i as i32);
+            let parts: Vec<Part> = self
+                .parts
+                .iter()
+                .map(|p| Part {
+                    mesh: crate::subdiv::decimate(&p.mesh, ratio),
+                    material: p.material.clone(),
+                })
+                .collect();
+            self.lods.push(parts);
+        }
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -174,14 +200,21 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
 
     let mut meshes_json: Vec<Value> = Vec::new();
     let mut materials_json: Vec<Value> = Vec::new();
-    let mut primitives: Vec<Value> = Vec::new();
     let mut images_json: Vec<Value> = Vec::new();
     let mut textures_json: Vec<Value> = Vec::new();
     // dedup: identical texture specs share one image set
     let mut tex_by_key: Vec<(String, [usize; 3])> = Vec::new();
     let skinned = asset.skeleton.is_some();
 
-    for part in &asset.parts {
+    // mesh 0 = full-detail parts; meshes 1.. = LOD levels
+    let mut groups: Vec<(String, &[Part])> = vec![(asset.name.clone(), asset.parts.as_slice())];
+    for (i, lod) in asset.lods.iter().enumerate() {
+        groups.push((format!("{}_LOD{}", asset.name, i + 1), lod.as_slice()));
+    }
+
+    for (group_name, group_parts) in &groups {
+    let mut primitives: Vec<Value> = Vec::new();
+    for part in group_parts.iter() {
         let m = &part.mesh;
         // glTF forbids zero-count accessors; skip empty parts
         if m.positions.is_empty() || m.indices.is_empty() {
@@ -343,15 +376,16 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     }
 
     let mut mesh_obj = Map::new();
-    mesh_obj.insert("name".into(), json!(asset.name));
+    mesh_obj.insert("name".into(), json!(group_name));
     mesh_obj.insert("primitives".into(), Value::Array(primitives));
     // morph metadata comes from the first part that has targets
-    if let Some(part) = asset.parts.iter().find(|p| !p.mesh.morphs.is_empty()) {
+    if let Some(part) = group_parts.iter().find(|p| !p.mesh.morphs.is_empty()) {
         let names: Vec<&str> = part.mesh.morphs.iter().map(|m| m.name.as_str()).collect();
         mesh_obj.insert("weights".into(), json!(vec![0.0; names.len()]));
         mesh_obj.insert("extras".into(), json!({"targetNames": names}));
     }
     meshes_json.push(Value::Object(mesh_obj));
+    } // end mesh groups
 
     // Nodes: mesh node (+ joint hierarchy if skinned)
     let mut nodes: Vec<Value> = Vec::new();
@@ -362,11 +396,29 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     let mut mesh_node = Map::new();
     mesh_node.insert("name".into(), json!(asset.name));
     mesh_node.insert("mesh".into(), json!(0));
+    let mut extras = Map::new();
     if let Some(p) = &asset.physics {
-        mesh_node.insert("extras".into(), json!({"imaginu_physics": physics_json(p)}));
+        extras.insert("imaginu_physics".into(), physics_json(p));
+    }
+    if !asset.lods.is_empty() {
+        // LOD nodes occupy indices 1..=n; MSFT_lod lists them coarsest-last
+        let ids: Vec<usize> = (1..=asset.lods.len()).collect();
+        mesh_node.insert("extensions".into(), json!({"MSFT_lod": {"ids": ids}}));
+        // screen coverage hints: halve per level
+        let cov: Vec<f32> = (0..=asset.lods.len()).map(|i| 0.5f32.powi(i as i32 + 1)).collect();
+        extras.insert("MSFT_screencoverage".into(), json!(cov));
+    }
+    if !extras.is_empty() {
+        mesh_node.insert("extras".into(), Value::Object(extras));
     }
     nodes.push(Value::Object(mesh_node));
     scene_nodes.push(0);
+    for i in 0..asset.lods.len() {
+        let mut n = Map::new();
+        n.insert("name".into(), json!(format!("{}_LOD{}", asset.name, i + 1)));
+        n.insert("mesh".into(), json!(i + 1));
+        nodes.push(Value::Object(n));
+    }
 
     if let Some(skel) = &asset.skeleton {
         let joint_base = nodes.len();
@@ -413,9 +465,11 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
             "inverseBindMatrices": a_ibm,
             "joints": (0..skel.joints.len()).map(|i| joint_base + i).collect::<Vec<_>>(),
         }));
-        // attach skin to mesh node
-        if let Value::Object(n) = &mut nodes[0] {
-            n.insert("skin".into(), json!(0));
+        // attach skin to the mesh node and any LOD nodes
+        for node in nodes.iter_mut().take(1 + asset.lods.len()) {
+            if let Value::Object(n) = node {
+                n.insert("skin".into(), json!(0));
+            }
         }
 
         for clip in &asset.animations {
@@ -494,6 +548,9 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     if !animations_json.is_empty() {
         root.insert("animations".into(), Value::Array(animations_json));
     }
+    if !asset.lods.is_empty() {
+        root.insert("extensionsUsed".into(), json!(["MSFT_lod"]));
+    }
 
     let mut json_bytes = serde_json::to_vec(&Value::Object(root)).unwrap();
     while json_bytes.len() % 4 != 0 {
@@ -554,6 +611,31 @@ mod tests {
     #[test]
     fn deterministic_bytes() {
         assert_eq!(to_glb(&sample_asset()), to_glb(&sample_asset()));
+    }
+
+    #[test]
+    fn lods_export_msft_lod() {
+        let mut asset = Asset::static_mesh(
+            "rock",
+            vec![Part {
+                mesh: crate::mesh::icosphere(1.0, 3, Vec3::ONE),
+                material: Material::default(),
+            }],
+            None,
+        );
+        asset.generate_lods(2);
+        assert_eq!(asset.lods.len(), 2);
+        assert!(asset.lods[1][0].mesh.triangle_count() < asset.lods[0][0].mesh.triangle_count());
+        let glb = to_glb(&asset);
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let doc: Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        assert_eq!(doc["meshes"].as_array().unwrap().len(), 3);
+        assert_eq!(doc["nodes"][0]["extensions"]["MSFT_lod"]["ids"], json!([1, 2]));
+        assert_eq!(doc["extensionsUsed"][0], "MSFT_lod");
+        assert_eq!(doc["nodes"][1]["mesh"], 1);
+        assert_eq!(doc["meshes"][1]["name"], "rock_LOD1");
+        // scene only references the root node
+        assert_eq!(doc["scenes"][0]["nodes"], json!([0]));
     }
 
     #[test]

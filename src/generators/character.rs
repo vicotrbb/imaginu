@@ -654,6 +654,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             friction: 0.4,
             restitution: 0.0,
         }),
+        lods: Vec::new(),
     }
 }
 

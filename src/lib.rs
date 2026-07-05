@@ -5,6 +5,7 @@
 //! software renderer for visual verification.
 
 pub mod anim;
+pub mod csg;
 pub mod generators;
 pub mod gltf;
 pub mod mesh;

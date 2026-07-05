@@ -310,6 +310,34 @@ mod tests {
     }
 
     #[test]
+    fn dsl_geometry_v2() {
+        // csg subtract carves, bevel/subdivide/curve all build valid meshes
+        let j = r##"{"kind":"custom","name":"geo","parts":[{"nodes":[
+          {"shape":"box","size":[2,2,2],"color":"#888888","bevel":0.2,
+           "csg":[{"op":"subtract","shape":"cylinder","radius":0.6,"height":3,
+                   "color":"#888888","transform":{"translate":[0,-1.5,0]}}]},
+          {"shape":"sphere","radius":0.5,"subdiv":1,"color":"#ffffff",
+           "subdivide":1,"smooth":true,"flat":false},
+          {"shape":"curve","points":[[2,0,0],[2.5,1,0],[2,2,0.5]],
+           "radius":[0.2,0.1],"samples":12,"color":"#aa6644"}
+        ]}]}"##;
+        let a = Recipe::parse(j).unwrap().build().unwrap();
+        a.validate().unwrap();
+        let m = &a.parts[0].mesh;
+        assert!(m.triangle_count() > 100);
+        // the cylinder bored a hole through the box floor: vertices exist
+        // on the cylinder wall inside the box
+        let wall = m
+            .positions
+            .iter()
+            .any(|p| (p.x * p.x + p.z * p.z).sqrt() < 0.65 && p.y.abs() < 0.9);
+        assert!(wall, "expected carved cylinder wall");
+        // bad csg op rejected
+        let bad = j.replace("\"op\":\"subtract\"", "\"op\":\"xor\"");
+        assert!(Recipe::parse(&bad).unwrap().build().is_err());
+    }
+
+    #[test]
     fn dsl_easing_and_euler_keys() {
         let j = r##"{"kind":"custom","name":"nod",
           "bones":[{"name":"root"},{"name":"top","parent":"root","translation":[0,1,0]}],

@@ -155,6 +155,26 @@ pub enum ShapeSpec {
         #[serde(default)]
         point: f32,
     },
+    /// Smooth Catmull-Rom curve swept as a tube (pipes, arcs, tentacles).
+    Curve {
+        points: Vec<[f32; 3]>,
+        radius: Vec<f32>,
+        #[serde(default = "d_segments")]
+        segments: u32,
+        /// path samples along the curve
+        #[serde(default = "d_samples")]
+        samples: u32,
+    },
+}
+fn d_samples() -> u32 { 24 }
+
+/// A boolean operation applied to a node: carve or fuse another node.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CsgSpec {
+    /// subtract | union | intersect
+    pub op: String,
+    #[serde(flatten)]
+    pub node: Box<NodeSpec>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -184,6 +204,18 @@ pub struct NodeSpec {
     /// bending). Omit for rigid binding via `bone`.
     #[serde(default)]
     pub skin: Option<String>,
+    /// Loop-subdivide N times (1-4). With `smooth`, rounds the surface.
+    #[serde(default)]
+    pub subdivide: u32,
+    /// Smooth the subdivision (organic rounding) instead of just refining.
+    #[serde(default)]
+    pub smooth: bool,
+    /// Chamfer width on box/prism edges.
+    #[serde(default)]
+    pub bevel: f32,
+    /// Boolean ops applied in order: carve windows, fuse shapes.
+    #[serde(default)]
+    pub csg: Vec<CsgSpec>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -301,13 +333,57 @@ pub struct CustomParams {
 
 // ---------- interpreter ----------
 
-fn build_shape(spec: &ShapeSpec, color: Vec3) -> Result<Mesh, String> {
+/// Evaluate a Catmull-Rom spline through `pts` at global t in [0,1].
+fn catmull_rom(pts: &[Vec3], t: f32) -> Vec3 {
+    let n = pts.len();
+    let seg_count = (n - 1) as f32;
+    let x = (t.clamp(0.0, 1.0) * seg_count).min(seg_count - 1e-4);
+    let i = x as usize;
+    let u = x - i as f32;
+    let p0 = pts[i.saturating_sub(1)];
+    let p1 = pts[i];
+    let p2 = pts[i + 1];
+    let p3 = pts[(i + 2).min(n - 1)];
+    0.5 * ((2.0 * p1)
+        + (-p0 + p2) * u
+        + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * u * u
+        + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * u * u * u)
+}
+
+/// Chamfer a box by intersecting with 45°-rotated cutters on each axis pair.
+fn beveled_box(half: Vec3, bevel: f32, color: Vec3) -> Mesh {
+    let mut m = cuboid(Vec3::ZERO, half, color);
+    let b = bevel.min(half.min_element() * 0.9);
+    let big = half.max_element() * 3.0;
+    let cutters = [
+        // rotated about Z: cuts the 4 edges parallel to Z
+        (Mat4::from_rotation_z(core::f32::consts::FRAC_PI_4), (half.x + half.y - b) / core::f32::consts::SQRT_2, Vec3::new(0.0, 0.0, big)),
+        (Mat4::from_rotation_x(core::f32::consts::FRAC_PI_4), (half.y + half.z - b) / core::f32::consts::SQRT_2, Vec3::new(big, 0.0, 0.0)),
+        (Mat4::from_rotation_y(core::f32::consts::FRAC_PI_4), (half.z + half.x - b) / core::f32::consts::SQRT_2, Vec3::new(0.0, big, 0.0)),
+    ];
+    for (rot, u, keep) in cutters {
+        let ext = Vec3::new(
+            if keep.x > 0.0 { big } else { u },
+            if keep.y > 0.0 { big } else { u },
+            if keep.z > 0.0 { big } else { u },
+        );
+        let mut cutter = cuboid(Vec3::ZERO, ext, color);
+        cutter.transform(rot);
+        m = crate::csg::intersect(&m, &cutter);
+    }
+    m
+}
+
+fn build_shape(spec: &ShapeSpec, color: Vec3, bevel: f32) -> Result<Mesh, String> {
     Ok(match spec {
-        ShapeSpec::Box { size } => cuboid(
-            Vec3::ZERO,
-            Vec3::from_array(*size) / 2.0,
-            color,
-        ),
+        ShapeSpec::Box { size } => {
+            let half = Vec3::from_array(*size) / 2.0;
+            if bevel > 0.0 {
+                beveled_box(half, bevel, color)
+            } else {
+                cuboid(Vec3::ZERO, half, color)
+            }
+        }
         ShapeSpec::Sphere { radius, subdiv } => icosphere(*radius, (*subdiv).min(4), color),
         ShapeSpec::Lathe { profile, segments } => {
             if profile.len() < 2 {
@@ -374,14 +450,58 @@ fn build_shape(spec: &ShapeSpec, color: Vec3) -> Result<Mesh, String> {
                     m.add_flat_tri(top[i], top[j], Vec3::new(0.0, *height, 0.0), color);
                 }
             }
+            if bevel > 0.0 && *point <= 0.0 {
+                // chamfer top/bottom rims with a 45° lathe cutter
+                let b = bevel.min(height * 0.45).min(radius * 0.9);
+                let e = radius.min(height * 0.4); // 45° flank extension
+                let cutter = lathe(
+                    &[
+                        (radius - b, -0.01),
+                        (radius - b + e, e - 0.01),
+                        (radius - b + e, *height - e + 0.01),
+                        (radius - b, *height + 0.01),
+                    ],
+                    24,
+                    |_, _| color,
+                );
+                m = crate::csg::intersect(&m, &cutter);
+            }
             m
+        }
+        ShapeSpec::Curve { points, radius, segments, samples } => {
+            if points.len() < 2 {
+                return Err("curve needs >= 2 points".into());
+            }
+            let pts: Vec<Vec3> = points.iter().map(|p| Vec3::from_array(*p)).collect();
+            let samples = (*samples).clamp(2, 512);
+            let path: Vec<(Vec3, f32)> = (0..=samples)
+                .map(|i| {
+                    let t = i as f32 / samples as f32;
+                    let r = if radius.is_empty() {
+                        0.1
+                    } else {
+                        // interpolate the radius list along the curve
+                        let x = t * (radius.len() - 1) as f32;
+                        let k = (x as usize).min(radius.len() - 1);
+                        let u = x - k as f32;
+                        let next = radius[(k + 1).min(radius.len() - 1)];
+                        radius[k] * (1.0 - u) + next * u
+                    };
+                    (catmull_rom(&pts, t), r)
+                })
+                .collect();
+            tube(&path, *segments, |_| color)
         }
     })
 }
 
 fn build_node(node: &NodeSpec, seed: u64, uv_scale: Option<f32>) -> Result<Mesh, String> {
     let color = node.color.to_linear()?;
-    let mut m = build_shape(&node.shape, color)?;
+    let mut m = build_shape(&node.shape, color, node.bevel.max(0.0))?;
+
+    if node.subdivide > 0 {
+        m = crate::subdiv::subdivide_n(&m, node.subdivide.min(4), node.smooth);
+    }
 
     if let Some(d) = &node.displace {
         let n = Noise2::new(seed ^ d.seed.wrapping_add(0x51ED));
@@ -436,6 +556,17 @@ fn build_node(node: &NodeSpec, seed: u64, uv_scale: Option<f32>) -> Result<Mesh,
             }
         }
     }
+    // boolean ops on the placed geometry (children carry their own transforms)
+    for c in &node.csg {
+        let other = build_node(&c.node, seed, None)?;
+        out = match c.op.as_str() {
+            "subtract" => crate::csg::subtract(&out, &other),
+            "union" => crate::csg::union(&out, &other),
+            "intersect" => crate::csg::intersect(&out, &other),
+            op => return Err(format!("unknown csg op '{op}' (subtract|union|intersect)")),
+        };
+    }
+
     // UVs are projected on the final placed geometry so `scale` is in
     // world units regardless of node transforms.
     if let Some(scale) = uv_scale {
@@ -696,5 +827,6 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
         skeleton,
         animations,
         physics,
+        lods: Vec::new(),
     })
 }

@@ -153,6 +153,75 @@ pub fn subdivide_n(src: &Mesh, n: u32, smooth: bool) -> Mesh {
     m
 }
 
+/// Reduce triangle count to roughly `ratio` of the original via vertex
+/// clustering on a uniform grid (deterministic; good enough for LODs).
+pub fn decimate(src: &Mesh, ratio: f32) -> Mesh {
+    let target = ((src.triangle_count() as f32) * ratio.clamp(0.02, 1.0)) as usize;
+    let (lo, hi) = src.bounds();
+    let diag = (hi - lo).length().max(1e-6);
+    let mut cell = diag / 96.0;
+    for _ in 0..24 {
+        let m = cluster(src, lo, cell);
+        if m.triangle_count() <= target.max(4) {
+            return m;
+        }
+        cell *= 1.35;
+    }
+    cluster(src, lo, diag / 2.0)
+}
+
+fn cluster(src: &Mesh, lo: Vec3, cell: f32) -> Mesh {
+    use std::collections::HashMap;
+    let key = |p: Vec3| -> (i32, i32, i32) {
+        (
+            ((p.x - lo.x) / cell).floor() as i32,
+            ((p.y - lo.y) / cell).floor() as i32,
+            ((p.z - lo.z) / cell).floor() as i32,
+        )
+    };
+    // assign cluster ids in vertex order → deterministic output ordering
+    let mut ids: HashMap<(i32, i32, i32), u32> = HashMap::new();
+    let mut remap = Vec::with_capacity(src.positions.len());
+    let mut count: Vec<u32> = Vec::new();
+    let mut m = Mesh::new();
+    for (vi, &p) in src.positions.iter().enumerate() {
+        let k = key(p);
+        let id = *ids.entry(k).or_insert_with(|| {
+            m.positions.push(Vec3::ZERO);
+            m.normals.push(Vec3::ZERO);
+            m.colors.push(Vec3::ZERO);
+            if src.is_skinned() {
+                m.joints.push(src.joints[vi]);
+                m.weights.push(src.weights[vi]);
+            }
+            if src.has_uvs() {
+                m.uvs.push(src.uvs[vi]);
+                m.tangents.push(src.tangents[vi]);
+            }
+            count.push(0);
+            (m.positions.len() - 1) as u32
+        });
+        m.positions[id as usize] += p;
+        m.normals[id as usize] += src.normals[vi];
+        m.colors[id as usize] += src.colors[vi];
+        count[id as usize] += 1;
+        remap.push(id);
+    }
+    for (i, c) in count.iter().enumerate() {
+        let inv = 1.0 / *c as f32;
+        m.positions[i] *= inv;
+        m.colors[i] *= inv;
+        m.normals[i] = m.normals[i].normalize_or(Vec3::Y);
+    }
+    for t in src.indices.chunks_exact(3) {
+        let (a, b, c) = (remap[t[0] as usize], remap[t[1] as usize], remap[t[2] as usize]);
+        if a != b && b != c && a != c {
+            m.indices.extend_from_slice(&[a, b, c]);
+        }
+    }
+    m
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,6 +243,19 @@ mod tests {
         let (lo, hi) = s.bounds();
         assert!(hi.x <= 1.0 + 1e-5 && lo.x >= -1.0 - 1e-5);
         assert!(hi.x - lo.x > 1.2, "should not collapse: {:?}", hi - lo);
+    }
+
+    #[test]
+    fn decimate_reduces_and_stays_valid() {
+        let m = icosphere(1.0, 4, Vec3::ONE); // 5120 tris
+        let d = decimate(&m, 0.2);
+        d.validate().unwrap();
+        assert!(d.triangle_count() <= m.triangle_count() / 4);
+        assert!(d.triangle_count() > 16);
+        // deterministic
+        let d2 = decimate(&m, 0.2);
+        assert_eq!(d.positions, d2.positions);
+        assert_eq!(d.indices, d2.indices);
     }
 
     #[test]

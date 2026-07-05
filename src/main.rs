@@ -23,6 +23,9 @@ enum Cmd {
         /// Also render a PNG preview next to the GLB
         #[arg(long)]
         preview: bool,
+        /// Emit N decimated LOD levels into the GLB (MSFT_lod extension)
+        #[arg(long, default_value_t = 0)]
+        lods: u32,
     },
     /// Render turntable PNGs (4 angles) of a recipe, without keeping the GLB.
     /// With --animation, renders 4 clip phases (t = 0, ¼, ½, ¾) instead.
@@ -91,9 +94,12 @@ fn main() {
 
 fn run() -> Result<(), String> {
     match Cli::parse().cmd {
-        Cmd::Generate { recipe, out, preview } => {
+        Cmd::Generate { recipe, out, preview, lods } => {
             let r = load_recipe(&recipe)?;
-            let asset = r.build()?;
+            let mut asset = r.build()?;
+            if lods > 0 {
+                asset.generate_lods(lods);
+            }
             let glb = imaginu::gltf::to_glb(&asset);
             std::fs::write(&out, &glb).map_err(|e| e.to_string())?;
             let tris: usize = asset.parts.iter().map(|p| p.mesh.triangle_count()).sum();
@@ -301,6 +307,13 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
      {"shape":"tube","path":[[0,0,0],[0,1,0.3],[0,2,0]],"radius":[0.2,0.15,0.05],
       "color":"#665544"},
      {"shape":"prism","sides":6,"radius":0.3,"height":1,"point":0.4,"color":"#66ffee"},
+     {"shape":"curve","points":[[0,0,0],[1,1,0],[2,1,1]],"radius":[0.2,0.05],
+      "samples":24,"color":"#775533"},
+     {"shape":"box","size":[4,3,2],"color":"#999999","bevel":0.1,
+      "subdivide":0,"smooth":false,
+      "csg":[{"op":"subtract","shape":"cylinder","radius":1,"height":3,
+              "color":"#999999","transform":{"rotate_deg":[-90,0,0],
+                                             "translate":[0,0,1.5]}}]},
      {"shape":"box","size":[0.2,1,0.2],"color":"#ffffff","bone":"arm",
       "transform":{"translate":[0,1,0],"rotate_deg":[0,45,0],"scale":[1,1,1]},
       "repeat":{"count":8,"radius":2.0,"orient":true}}]}]}
@@ -312,6 +325,11 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  // node.uv picks the projection: box (default) | cylinder | planar
  // node "skin":"smooth" = automatic multi-joint weights over all bones
  // (seamless organic bending); "bone":"name" = rigid binding.
+ // geometry v2: "bevel":w chamfers box/prism edges; "subdivide":n (+"smooth")
+ // rounds organically; "csg":[{"op":"subtract|union|intersect", <node>}]
+ // carves arches/windows/holes; "curve" sweeps a Catmull-Rom tube.
+ // LODs: imaginu generate <recipe> --lods 3 embeds decimated levels
+ // (MSFT_lod + screencoverage extras; Babylon switches automatically).
 
 Output GLB embeds physics metadata at nodes[0].extras.imaginu_physics:
 {collider:{type:box|sphere|capsule|trimesh|heightfield,...},mass,friction,restitution}
