@@ -8,24 +8,88 @@ use crate::gltf::{Asset, Collider, Material, Part, Physics};
 use crate::mesh::{Mesh, to_flat_shaded};
 use crate::noise::Noise2;
 use crate::palette::{Palette, ramp, vary};
-use crate::recipe::TerrainParams;
+use crate::recipe::{TerrainParams, TerrainShape};
 
 use super::{Rand, range, rng};
 
 pub fn generate(p: &TerrainParams, pal: &Palette) -> Asset {
     let mut r = rng(p.seed);
     let n = Noise2::new(p.seed);
-    let res = p.resolution.clamp(16, 512) as usize;
-    let size = p.size.max(4.0);
-    let amp = size * 0.16 * p.mountainousness.clamp(0.05, 3.0);
+    let res = p.resolution.clamp(16, 1024) as usize;
+    let size = p.size.clamp(4.0, 4096.0);
+    let shape = p.shape;
+    let amp = size * 0.16
+        * p.mountainousness.clamp(0.05, 3.0)
+        * if shape == TerrainShape::Mountains { 1.5 } else { 1.0 };
+    // noise frequency fixed in world units so adjacent chunks tile seamlessly
+    let freq = 3.0 / size.min(96.0).max(24.0);
+    let (ox, oz) = (p.offset_x, p.offset_z);
 
     let height = |x: f32, z: f32| -> f32 {
-        let (u, v) = (x / size * 3.0, z / size * 3.0);
+        let (wx, wz) = (x + ox, z + oz);
+        let (u, v) = (wx * freq, wz * freq);
         let base = n.warped_fbm(u, v, 6, 0.9);
         let ridge = n.ridged(u * 0.8 + 13.7, v * 0.8 + 4.2, 5) - 0.65;
-        // ridges dominate where the base terrain is already high
         let mask = ((base + 0.35) * 1.4).clamp(0.0, 1.0);
-        (base * 0.6 + ridge * mask * 0.9) * amp
+        let ridge_w = match shape {
+            TerrainShape::Mountains => 1.4,
+            TerrainShape::Dunes => 0.0,
+            _ => 0.9,
+        };
+        let mut h = (base * 0.6 + ridge * mask * ridge_w) * amp;
+        if shape == TerrainShape::Dunes {
+            // long anisotropic ridges
+            let d = 1.0 - (n.sample(u * 0.7 + v * 2.4, v * 0.5).abs());
+            h = (base * 0.25 + d * 0.75) * amp * 0.5;
+        }
+        // macro-shape masks in LOCAL chunk coordinates
+        let rx = x / (size * 0.5);
+        let rz = z / (size * 0.5);
+        let r = (rx * rx + rz * rz).sqrt();
+        match shape {
+            TerrainShape::Island => {
+                let fall = ((r - 0.55) * 2.6).clamp(0.0, 1.0);
+                h -= fall * fall * amp * 2.2;
+                h += (1.0 - r).clamp(0.0, 1.0) * amp * 0.5;
+            }
+            TerrainShape::Archipelago => {
+                let m = n.fbm((wx + 311.0) * freq * 0.6, (wz + 97.0) * freq * 0.6, 3, 2.0, 0.5);
+                h -= amp * 0.9;
+                h += (m + 0.25).max(0.0) * amp * 2.4;
+            }
+            TerrainShape::Canyon => {
+                // deep channel wandering along X
+                let curve = n.fbm(wx * freq * 0.5 + 41.0, 7.7, 3, 2.0, 0.5) * size * 0.22;
+                let d = ((z - curve).abs() / (size * 0.16)).min(1.0);
+                let carve = 1.0 - d * d;
+                h += amp * 0.9; // raised plateau
+                h -= carve * amp * 2.4;
+            }
+            TerrainShape::Mesa => {
+                let m = n.fbm((wx + 87.0) * freq * 0.7, (wz + 13.0) * freq * 0.7, 3, 2.0, 0.5);
+                let plate = ((m + 0.15) * 5.0).clamp(0.0, 1.0);
+                h = h * 0.25 + plate * amp * 1.15;
+            }
+            TerrainShape::Crater => {
+                let rim = (-((r - 0.62) * (r - 0.62)) / 0.012).exp();
+                h += rim * amp * 1.5;
+                if r < 0.62 {
+                    h -= (1.0 - (r / 0.62).powi(2)) * amp * 1.3;
+                }
+            }
+            TerrainShape::Valley => {
+                let d = (rz.abs()).min(1.0);
+                h += (d * d) * amp * 1.4 - amp * 0.5;
+            }
+            _ => {}
+        }
+        if p.terrace > 0.5 {
+            let step = amp * 2.0 / p.terrace;
+            let q = (h / step).floor() * step;
+            // soften riser edges slightly
+            h = q + ((h - q) / step).powf(3.0) * step;
+        }
+        h
     };
 
     // heightfield grid
@@ -84,7 +148,7 @@ pub fn generate(p: &TerrainParams, pal: &Palette) -> Asset {
     let mut ground = to_flat_shaded(&smooth);
     // diorama skirt: closed earthen sides + bottom so the chunk reads as a
     // hand-crafted slab instead of a floating sheet
-    {
+    if p.skirt {
         let base_y = h_min - amp * 0.35 - size * 0.02;
         let soil = pal.terrain[4] * 0.45;
         let edge = |i: usize| i as f32 / res as f32 * size - size / 2.0;

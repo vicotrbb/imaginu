@@ -30,3 +30,18 @@ counts match, physics extras present, determinism (same recipe+seed → same byt
 
 Bug found by validation: empty foliage part in dead tree produced zero-count
 accessors — exporter now skips empty parts.
+
+## Round 4 — generality upgrade (same rubric)
+
+| asset | score | notes |
+|---|---|---|
+| terrain: island | 4.5 | radial falloff, snow cap, water ring, diorama base |
+| terrain: canyon (terraced) | 4.0 | carved channel, strata walls, river |
+| terrain: crater | 4.3 | volcanic caldera with lava moat |
+| terrain: archipelago | 4.0 | scattered islets |
+| custom: windmill | 4.0 | pure-DSL build; animated hub, emissive lamp |
+
+Bug found by visual review: custom nodes without an explicit `transform`
+collapsed to a point (derived `Default` zeroed `scale`); fixed with a manual
+`Default` and pinned by a regression test. Seamless chunk tiling is verified
+numerically (identical edge vertices) in `terrain_tiles_seamlessly`.

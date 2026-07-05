@@ -98,12 +98,16 @@ fn run() -> Result<(), String> {
     }
 }
 
-const SCHEMA_HELP: &str = r#"imaginu recipe cheat-sheet (JSON, all fields except "kind" optional):
+const SCHEMA_HELP: &str = r##"imaginu recipe cheat-sheet (JSON, all fields except "kind" optional):
 
 palettes: verdant | autumn | arctic | volcanic | desert | mystic
 
 {"kind":"terrain","palette":"verdant","seed":1,"size":48,"resolution":110,
- "mountainousness":1.0,"water_level":0.28,"scatter":true}
+ "mountainousness":1.0,"water_level":0.28,"scatter":true,
+ "shape":"hills|mountains|island|archipelago|canyon|mesa|crater|valley|dunes",
+ "terrace":0,"skirt":true,"offset_x":0,"offset_z":0}
+ // any size (4..4096). For seamless world tiles: skirt=false and offset_x/z
+ // = chunk world position; adjacent chunks share identical edge heights.
 
 {"kind":"tree","style":"oak|pine|palm|dead","height":6,"seed":1}
 
@@ -118,6 +122,31 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
 {"kind":"character","class":"villager|warrior|mage|rogue","height":1.7,
  "bulk":1.0,"animate":true,"seed":1}
 
+{"kind":"custom","name":"anything","seed":1,
+ "physics":{"collider":"auto|box|sphere|capsule|trimesh","mass":0,
+            "friction":0.6,"restitution":0},
+ "bones":[{"name":"root"},{"name":"arm","parent":"root","translation":[0,2,0]}],
+ "animations":[{"name":"spin","duration":2,"channels":[
+   {"bone":"arm","path":"rotation","axis":[0,0,1],"keys":[0,180,360]},
+   {"bone":"root","path":"translation","axis":[0,1,0],"keys":[0,0.4,0]}]}],
+ "parts":[{"material":{"metallic":0,"roughness":0.9,
+                       "emissive":"#ffaa33","emissive_strength":1.5},
+   "nodes":[
+     {"shape":"box","size":[1,1,1],"color":"#8a6242"},
+     {"shape":"sphere","radius":1,"subdiv":2,"color":[0.5,0.7,0.9],
+      "displace":{"amplitude":0.2,"frequency":2},"flat":true},
+     {"shape":"lathe","profile":[[0.5,0],[0.3,1]],"segments":12,"color":"#fff0d0",
+      "color_top":"#803020"},
+     {"shape":"cylinder","radius":0.5,"height":2,"color":"#999999"},
+     {"shape":"cone","radius":1,"height":2,"color":"#777777"},
+     {"shape":"tube","path":[[0,0,0],[0,1,0.3],[0,2,0]],"radius":[0.2,0.15,0.05],
+      "color":"#665544"},
+     {"shape":"prism","sides":6,"radius":0.3,"height":1,"point":0.4,"color":"#66ffee"},
+     {"shape":"box","size":[0.2,1,0.2],"color":"#ffffff","bone":"arm",
+      "transform":{"translate":[0,1,0],"rotate_deg":[0,45,0],"scale":[1,1,1]},
+      "repeat":{"count":8,"radius":2.0,"orient":true}}]}]}
+ // every node: optional transform/displace/flat/repeat/bone/color_top
+
 Output GLB embeds physics metadata at nodes[0].extras.imaginu_physics:
 {collider:{type:box|sphere|capsule|trimesh|heightfield,...},mass,friction,restitution}
-Characters include a 17-joint skeleton with "idle" and "walk" clips."#;
+Characters include a 17-joint skeleton with "idle" and "walk" clips."##;

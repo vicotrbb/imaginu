@@ -40,8 +40,31 @@ All fields except `kind` are optional. Same recipe + seed → byte-identical GLB
 | `building` | `width`, `floors` (1–3) | timber-framed cottage, box collider |
 | `prop` | `prop`: `barrel` `crate` `lantern` `campfire`, `size` | lantern/campfire glow (emissive) |
 | `character` | `class`: `villager` `warrior` `mage` `rogue`, `height`, `bulk`, `animate` | 17-joint skeleton, skinned, `idle` + `walk` clips |
+| `custom` | see below | **build anything**: declarative geometry DSL |
 
 Palettes: `verdant`, `autumn`, `arctic`, `volcanic`, `desert`, `mystic`.
+
+### Terrains: any size, any shape, seamless worlds
+
+`terrain` supports `shape` masks — `hills`, `mountains`, `island`,
+`archipelago`, `canyon`, `mesa`, `crater`, `valley`, `dunes` — plus `terrace`
+(stepped strata), sizes up to 4096 units / 1024×1024 resolution, and
+**seamless tiling**: set `skirt: false` and give each chunk its world
+`offset_x`/`offset_z`; noise is sampled in world space, so adjacent chunks
+share bit-identical edge heights (covered by a unit test). Your world can be
+as big as you want, one GLB chunk at a time.
+
+### `custom`: build anything
+
+A declarative scene DSL for arbitrary objects — primitives (`box`, `sphere`,
+`lathe`, `cylinder`, `cone`, `tube`, `prism`), per-node `transform`
+(translate/rotate/scale), noise `displace`, vertical color gradients, radial
+and linear `repeat` arrays, `flat`/smooth shading, arbitrary **bones** with
+rigid binding, arbitrary keyframe **animations** (rotation about any axis,
+translation paths), emissive materials, and any physics collider (`auto` fits
+a box to the result). See [examples/windmill.json](examples/windmill.json) —
+a windmill with spinning blades and a glowing lamp — and run
+`imaginu schema` for the full cheat-sheet.
 
 ## Babylon.js integration
 
