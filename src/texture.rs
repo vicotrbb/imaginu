@@ -70,6 +70,13 @@ pub enum PaintLayer {
         #[serde(default = "d_half")]
         strength: f32,
     },
+    /// Vertical band at `u` (0..1 around the arc) — front-edge trim on
+    /// open coats (u 0 and 1 are the opening edges).
+    UBand {
+        u: f32,
+        width: f32,
+        color: String,
+    },
 }
 fn d_stripe_w() -> f32 { 0.5 }
 fn d_fold_count() -> u32 { 9 }
@@ -324,6 +331,7 @@ enum PL {
     MotifGrid { motif: Motif, color: Vec3, scale: f32, v0: f32, v1: f32 },
     Folds { strength: f32, count: f32 },
     Weathering { strength: f32 },
+    UBand { u: f32, width: f32, color: Vec3 },
 }
 
 #[derive(Clone, Copy)]
@@ -391,6 +399,9 @@ fn parse_layers(layers: &[PaintLayer]) -> Result<Vec<PL>, String> {
                 }
                 PaintLayer::Weathering { strength } => {
                     PL::Weathering { strength: strength.clamp(0.0, 1.0) }
+                }
+                PaintLayer::UBand { u, width, color } => {
+                    PL::UBand { u: *u, width: width.max(0.005), color: hex(color)? }
                 }
             })
         })
@@ -526,6 +537,13 @@ fn apply_layers(pat: &Pat, layers: &[PL], u: f32, v: f32, s: &mut Sample) {
                 let dirt = (g * 0.55 + hem * 0.6) * strength;
                 s.albedo *= 1.0 - 0.35 * dirt.clamp(0.0, 1.0);
                 s.rough = (s.rough + 0.15 * dirt).min(1.0);
+            }
+            PL::UBand { u: u0, width, color } => {
+                if (u - u0).abs() <= *width / 2.0 {
+                    s.albedo = *color;
+                    s.rough = 0.7;
+                    s.height = 0.58;
+                }
             }
         }
     }

@@ -28,6 +28,12 @@ pub fn srgb_to_linear(c: Vec3) -> Vec3 {
     Vec3::new(f(c.x), f(c.y), f(c.z))
 }
 
+/// Linear RGB -> `#rrggbb` (for building TextureSpecs from palette colors).
+pub fn to_hex(c: Vec3) -> String {
+    let [r, g, b] = to_srgb8(c);
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
 /// Parse a `#rrggbb` hex string to linear RGB.
 pub fn hex(s: &str) -> Result<Vec3, String> {
     let h = s.trim_start_matches('#');

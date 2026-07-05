@@ -386,6 +386,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     let rig = build_rig(h, sw);
     let w = wardrobe(&mut r, pal, p.class, p.skin_tone);
     let jw = |i: usize| rig.world[i];
+    let dressed = p.outfit.as_deref().is_some_and(|s| s != "plain");
     let hair_styles = ["short", "ponytail", "bun", "bald"];
     let hair_style = p
         .hair
@@ -432,7 +433,8 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     }
     torso.recompute_smooth_normals();
     core.merge(&crate::subdiv::subdivide(&torso, false));
-    // belt: elliptical ring hugging the lathe waist
+    // belt: elliptical ring hugging the lathe waist (hidden under outfits)
+    if !dressed {
     let belt_y = jw(HIPS).y + h * 0.030;
     let belt_r = h * 0.090 * bulk;
     let mut belt = lathe(
@@ -455,6 +457,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     ));
     buckle.bind_all_to_joint(HIPS as u16);
     body.merge(&buckle);
+    }
 
     // head: shaped skull + facial features (with morph targets) + hair
     let head_r = h * 0.075;
@@ -502,7 +505,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         hand.bind_all_to_joint(hj as u16);
         body.merge(&hand);
         // pauldrons: warriors only — the smooth torso needs no sleeve puffs
-        if p.class == CharacterClass::Warrior {
+        if p.class == CharacterClass::Warrior && !dressed {
             let mut pad = icosphere(arm_r0 * 1.55, 2, w.shirt * 0.7);
             for v in pad.positions.iter_mut() {
                 if v.y < 0.0 {
@@ -559,7 +562,8 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             );
             hat.bind_all_to_joint(HEAD as u16);
             body.merge(&hat);
-            // flowing robe skirt from the hips
+            // flowing robe skirt from the hips (superseded by outfits)
+            if !dressed {
             let mut robe = to_flat_shaded(&lathe(
                 &[
                     (h * 0.145 * bulk, -h * 0.30),
@@ -573,8 +577,9 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             robe.translate(jw(HIPS));
             robe.bind_all_to_joint(HIPS as u16);
             body.merge(&robe);
+            }
         }
-        CharacterClass::Warrior => {
+        CharacterClass::Warrior if !dressed => {
             // wrap-around cuirass following the torso's rounded section
             let mut plate = lathe(
                 &[
@@ -615,7 +620,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             hood.bind_all_to_joint(HEAD as u16);
             body.merge(&hood);
         }
-        CharacterClass::Villager => {}
+        _ => {}
     }
 
     // smooth-skin the torso core and fold it into the body
@@ -640,12 +645,26 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
 
     body.validate().expect("character mesh invalid");
 
+    let mut parts = vec![Part {
+        mesh: body,
+        material: Material { roughness: 0.85, ..Default::default() },
+    }];
+    if dressed {
+        let ctx = GarmentCtx {
+            rig: &rig,
+            h,
+            bulk,
+            w: &w,
+            orn: p.ornamentation.clamp(0.0, 1.0),
+            motif: p.trim_motif.clone().unwrap_or_else(|| "meander".into()),
+            seed: p.seed,
+        };
+        parts.extend(outfit_parts(&ctx, p.outfit.as_deref().unwrap_or("robe")));
+    }
+
     Asset {
         name: "character".into(),
-        parts: vec![Part {
-            mesh: body,
-            material: Material { roughness: 0.85, ..Default::default() },
-        }],
+        parts,
         skeleton: Some(rig.skeleton),
         animations,
         physics: Some(Physics {
@@ -657,6 +676,297 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         lods: Vec::new(),
         instanced: Vec::new(),
     }
+}
+
+// ---------- outfit system: lofted, painted garment stacks ----------
+
+struct GarmentCtx<'a> {
+    rig: &'a Rig,
+    h: f32,
+    bulk: f32,
+    w: &'a Wardrobe,
+    orn: f32,
+    motif: String,
+    seed: u64,
+}
+
+fn garment_tex(
+    base: Vec3,
+    seed: u64,
+    folds: f32,
+    layers: Vec<crate::texture::PaintLayer>,
+) -> Option<std::sync::Arc<crate::texture::BakedTexture>> {
+    use crate::texture::{PaintLayer, TextureSpec, bake};
+    let mut paint = vec![PaintLayer::Folds { strength: folds, count: 11 }];
+    paint.extend(layers);
+    let spec = TextureSpec {
+        pattern: "none".into(),
+        base: Some(crate::palette::to_hex(base)),
+        paint,
+        scale: 1.0,
+        seed,
+        normal_strength: 1.0,
+        resolution: 512,
+        colors: Vec::new(),
+    };
+    bake(&spec).ok().map(std::sync::Arc::new)
+}
+
+fn hem_band(motif: &str, trim: Vec3, gold: Vec3, orn: f32) -> Vec<crate::texture::PaintLayer> {
+    use crate::texture::PaintLayer;
+    let mut v = vec![PaintLayer::Band {
+        v: 0.0,
+        height: 0.07 + orn * 0.04,
+        color: crate::palette::to_hex(trim),
+        motif: (orn > 0.25).then(|| motif.to_string()),
+        motif_color: Some(crate::palette::to_hex(gold)),
+        motif_scale: 1.0,
+    }];
+    if orn > 0.4 {
+        v.push(PaintLayer::Band {
+            v: 0.08 + orn * 0.04,
+            height: 0.015,
+            color: crate::palette::to_hex(gold),
+        motif: None,
+            motif_color: None,
+            motif_scale: 1.0,
+        });
+    }
+    v
+}
+
+/// Build a skinned, painted garment part.
+fn garment(
+    ctx: &GarmentCtx,
+    stations: &[crate::mesh::LoftStation],
+    arc: f32,
+    segs: &[(usize, usize)],
+    base: Vec3,
+    folds: f32,
+    layers: Vec<crate::texture::PaintLayer>,
+) -> Part {
+    let mut m = crate::mesh::loft(stations, 28, arc, 180.0, |_| Vec3::ONE);
+    crate::skinning::smooth_bind(&mut m, &segs_of(ctx.rig, segs), 2.2);
+    Part {
+        mesh: m,
+        material: Material {
+            roughness: 0.85,
+            double_sided: true,
+            texture: garment_tex(base, ctx.seed, folds, layers),
+            ..Default::default()
+        },
+    }
+}
+
+fn segs_of(rig: &Rig, pairs: &[(usize, usize)]) -> Vec<crate::skinning::BoneSeg> {
+    segs(rig, pairs)
+}
+
+fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
+    use crate::mesh::LoftStation;
+    use crate::texture::PaintLayer;
+    let (h, bulk) = (ctx.h, ctx.bulk);
+    let w = ctx.w;
+    let jw = |i: usize| ctx.rig.world[i];
+    let gold = srgb(216, 176, 88);
+    let trim = w.accent * 0.75;
+    let ground = lerp(w.shirt, srgb(232, 221, 196), 0.55); // cream-shifted
+    let rich = lerp(w.shirt, w.accent, 0.35) * 0.9;
+    let st = |y: f32, rx: f32, rz: f32| LoftStation {
+        center: Vec3::new(0.0, y, 0.0),
+        rx: rx * bulk,
+        rz: rz * bulk,
+    };
+    let body_segs: &[(usize, usize)] = &[
+        (HIPS, SPINE),
+        (SPINE, CHEST),
+        (CHEST, NECK),
+        (THIGH_L, SHIN_L),
+        (THIGH_R, SHIN_R),
+        (SHIN_L, FOOT_L),
+        (SHIN_R, FOOT_R),
+    ];
+    let mut parts = Vec::new();
+
+    // under-robe: closed, hem -> chest; radii must clear the elliptical
+    // torso lathe (x = r * 1.28) or it pokes through
+    let hem_y = if style == "tunic" { h * 0.26 } else { h * 0.055 };
+    let hem_rx = if style == "tunic" { h * 0.15 } else { h * 0.165 };
+    let under = [
+        st(hem_y, hem_rx, hem_rx * 0.85),
+        st(h * 0.33, h * 0.138, h * 0.115),
+        st(jw(HIPS).y, h * 0.128, h * 0.102),
+        st(jw(SPINE).y + h * 0.02, h * 0.120, h * 0.096),
+        st(jw(CHEST).y + h * 0.05, h * 0.138, h * 0.100),
+    ];
+    parts.push(garment(
+        ctx,
+        &under,
+        360.0,
+        body_segs,
+        ground,
+        0.7,
+        hem_band(&ctx.motif, trim, gold, ctx.orn),
+    ));
+
+    if style == "robe" || style == "coat" {
+        // open outer coat: mid-shin -> neck, front opening
+        let coat = [
+            st(h * 0.16, h * 0.195, h * 0.16),
+            st(h * 0.30, h * 0.158, h * 0.13),
+            st(jw(HIPS).y, h * 0.140, h * 0.112),
+            st(jw(SPINE).y + h * 0.02, h * 0.132, h * 0.106),
+            st(jw(CHEST).y + h * 0.04, h * 0.150, h * 0.110),
+            st(jw(NECK).y + h * 0.005, h * 0.090, h * 0.074),
+        ];
+        let mut layers = hem_band(&ctx.motif, trim, gold, ctx.orn);
+        layers.push(PaintLayer::UBand {
+            u: 0.025,
+            width: 0.05,
+            color: crate::palette::to_hex(trim),
+        });
+        layers.push(PaintLayer::UBand {
+            u: 0.975,
+            width: 0.05,
+            color: crate::palette::to_hex(trim),
+        });
+        if ctx.orn > 0.55 {
+            // small, low-contrast stamps read as brocade, not wallpaper
+            layers.push(PaintLayer::MotifGrid {
+                motif: ctx.motif.clone(),
+                color: crate::palette::to_hex(lerp(rich, trim, 0.45)),
+                scale: 3.2,
+                v_min: 0.34,
+                v_max: 0.68,
+            });
+        }
+        let coat_segs: &[(usize, usize)] = &[
+            (HIPS, SPINE),
+            (SPINE, CHEST),
+            (CHEST, NECK),
+            (THIGH_L, SHIN_L),
+            (THIGH_R, SHIN_R),
+        ];
+        parts.push(garment(ctx, &coat, 295.0, coat_segs, rich, 1.0, layers));
+
+        // wide hanging sleeves over the arms
+        for (aj, fj, hj) in [(ARM_L, FOREARM_L, HAND_L), (ARM_R, FOREARM_R, HAND_R)] {
+            let ax = jw(aj).x;
+            let wrist_y = jw(hj).y + h * 0.01;
+            let stations = [
+                LoftStation {
+                    center: Vec3::new(ax, wrist_y, 0.0),
+                    rx: h * 0.062 * bulk,
+                    rz: h * 0.058 * bulk,
+                },
+                LoftStation {
+                    center: Vec3::new(ax, jw(fj).y, 0.0),
+                    rx: h * 0.048 * bulk,
+                    rz: h * 0.046 * bulk,
+                },
+                LoftStation {
+                    // swallow the shoulder ball completely
+                    center: Vec3::new(ax, jw(aj).y + h * 0.045, 0.0),
+                    rx: h * 0.058 * bulk,
+                    rz: h * 0.056 * bulk,
+                },
+                // converge to close the shoulder opening
+                LoftStation {
+                    center: Vec3::new(ax, jw(aj).y + h * 0.062, 0.0),
+                    rx: h * 0.012,
+                    rz: h * 0.012,
+                },
+            ];
+            let mut m = crate::mesh::loft(&stations, 16, 360.0, 0.0, |_| Vec3::ONE);
+            crate::skinning::smooth_bind(
+                &mut m,
+                &segs_of(ctx.rig, &[(aj, fj), (fj, hj)]),
+                2.5,
+            );
+            parts.push(Part {
+                mesh: m,
+                material: Material {
+                    roughness: 0.85,
+                    double_sided: true,
+                    texture: garment_tex(
+                        rich,
+                        ctx.seed ^ aj as u64,
+                        0.6,
+                        hem_band(&ctx.motif, trim, gold, ctx.orn * 0.8),
+                    ),
+                    ..Default::default()
+                },
+            });
+        }
+
+        // sash at the waist + hanging front tail
+        let sash_y = jw(HIPS).y + h * 0.055;
+        let sash = [
+            st(sash_y - h * 0.028, h * 0.146, h * 0.118),
+            st(sash_y + h * 0.028, h * 0.140, h * 0.114),
+        ];
+        parts.push(garment(
+            ctx,
+            &sash,
+            360.0,
+            &[(HIPS, SPINE)],
+            w.accent * 0.8,
+            0.3,
+            vec![PaintLayer::Stripes {
+                count: 3,
+                width: 0.18,
+                color: crate::palette::to_hex(gold),
+                axis: Some("v".into()),
+            }],
+        ));
+        let tail = [
+            st(h * 0.24, h * 0.16, h * 0.138),
+            st(sash_y - h * 0.02, h * 0.144, h * 0.117),
+        ];
+        parts.push(garment(
+            ctx,
+            &tail,
+            42.0,
+            &[(HIPS, SPINE), (THIGH_L, SHIN_L), (THIGH_R, SHIN_R)],
+            w.accent * 0.8,
+            0.4,
+            hem_band(&ctx.motif, trim * 0.9, gold, ctx.orn),
+        ));
+
+        // mantle collar draped over the shoulders
+        let mantle = [
+            st(jw(CHEST).y + h * 0.035, h * 0.160, h * 0.122),
+            st(jw(NECK).y + h * 0.025, h * 0.054, h * 0.050),
+        ];
+        parts.push(garment(
+            ctx,
+            &mantle,
+            360.0,
+            &[(CHEST, NECK), (NECK, HEAD)],
+            ground * 0.96,
+            0.35,
+            hem_band(&ctx.motif, trim, gold, ctx.orn),
+        ));
+    } else if style == "tunic" {
+        // belted knee tunic over the under-robe... under-robe IS the tunic:
+        // shorten look with a belt sash only
+        let sash_y = jw(HIPS).y + h * 0.045;
+        let sash = [
+            st(sash_y - h * 0.022, h * 0.132, h * 0.106),
+            st(sash_y + h * 0.022, h * 0.128, h * 0.104),
+        ];
+        parts.push(garment(
+            ctx,
+            &sash,
+            360.0,
+            &[(HIPS, SPINE)],
+            w.boots * 0.8,
+            0.2,
+            Vec::new(),
+        ));
+    }
+
+    parts
 }
 
 fn keys(n: usize, dur: f32) -> Vec<f32> {

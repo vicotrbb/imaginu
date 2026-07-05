@@ -196,7 +196,18 @@ pub struct CharacterParams {
     /// Export facial morph targets (smile, blink, angry, surprised).
     #[serde(default = "d_true")]
     pub expressions: bool,
+    /// Painted garment stack: robe (layered under-robe + open coat + sash +
+    /// mantle) | tunic (belted knee tunic) | plain (bare v2 body).
+    #[serde(default)]
+    pub outfit: Option<String>,
+    /// 0..1 — how much painted trim/motif detail garments get.
+    #[serde(default = "d_ornament")]
+    pub ornamentation: f32,
+    /// Trim motif for garment borders: meander|zigzag|dots|diamonds|scroll|runes.
+    #[serde(default)]
+    pub trim_motif: Option<String>,
 }
+fn d_ornament() -> f32 { 0.6 }
 fn d_char_h() -> f32 { 1.7 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -415,6 +426,25 @@ mod tests {
             a.parts[0].mesh.vertex_count() > bald.parts[0].mesh.vertex_count(),
             "ponytail should add geometry over bald"
         );
+    }
+
+    #[test]
+    fn character_outfits() {
+        let j = r#"{"kind":"character","seed":9,"outfit":"robe","ornamentation":0.7}"#;
+        let a = Recipe::parse(j).unwrap().build().unwrap();
+        a.validate().unwrap();
+        // body + under-robe + coat + 2 sleeves + sash + tail + mantle
+        assert!(a.parts.len() >= 7, "robe outfit should add garment parts: {}", a.parts.len());
+        // garments carry painted textures and skin weights
+        let dressed_parts = a.parts.iter().filter(|p| p.material.texture.is_some()).count();
+        assert!(dressed_parts >= 5);
+        assert!(a.parts[1].mesh.is_skinned());
+        // deterministic incl. baked garment paint
+        let b = Recipe::parse(j).unwrap().build().unwrap();
+        assert_eq!(crate::gltf::to_glb(&a), crate::gltf::to_glb(&b));
+        // plain stays single-part
+        let p = Recipe::parse(r#"{"kind":"character","seed":9}"#).unwrap().build().unwrap();
+        assert_eq!(p.parts.len(), 1);
     }
 
     #[test]

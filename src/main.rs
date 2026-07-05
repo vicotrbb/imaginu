@@ -441,7 +441,12 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
 
 {"kind":"character","class":"villager|warrior|mage|rogue","height":1.7,
  "bulk":1.0,"animate":true,"seed":1,
- "hair":"short|ponytail|bun|bald","skin_tone":0,"expressions":true}
+ "hair":"short|ponytail|bun|bald","skin_tone":0,"expressions":true,
+ "outfit":"robe|tunic|plain","ornamentation":0.6,
+ "trim_motif":"meander|zigzag|dots|diamonds|scroll|runes"}
+ // outfits: lofted painted garment stacks (under-robe, open coat, hanging
+ // sleeves, sash + tail, mantle) with hem/cuff trim bands, brocade motifs,
+ // painted cloth folds - skinned to the skeleton, deform with every clip
  // smooth subdivision bodies, mitten hands, faces (eyes/brows/nose/mouth),
  // facial morph targets: smile, blink, angry, surprised (glTF blend shapes)
 
