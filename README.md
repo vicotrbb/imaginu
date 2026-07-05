@@ -41,7 +41,7 @@ All fields except `kind` are optional. Same recipe + seed → byte-identical GLB
 
 | kind | key params | notes |
 |---|---|---|
-| `terrain` | `size`, `resolution`, `mountainousness`, `water_level`, `scatter` | diorama slab with biomes, water/lava, scattered vegetation; heightfield collider |
+| `terrain` | `size`, `resolution`, `mountainousness`, `water_level`, `scatter`, `erosion`, `rivers`, `paths`, `texture` | diorama slab with biomes, hydraulic erosion, carved rivers, dirt paths, cliff strata textures, GPU-instanced scatter; heightfield collider |
 | `tree` | `style`: `oak` `pine` `palm` `dead`, `height` | capsule collider |
 | `rock` | `size`, `jaggedness` | boulder + satellite stones, moss on top |
 | `crystal` | `size`, `count` | emissive faceted shards on a rock base |

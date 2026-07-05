@@ -87,7 +87,34 @@ pub struct TerrainParams {
     /// Diorama side walls + bottom. Turn OFF for tiled world chunks.
     #[serde(default = "d_true")]
     pub skirt: bool,
+    /// Hydraulic erosion strength 0..1 (deterministic droplet simulation).
+    /// Chunk-local — do not combine with seamless tiling.
+    #[serde(default)]
+    pub erosion: f32,
+    /// Number of rivers traced downhill from high springs (carved channel
+    /// + water ribbon). Chunk-local like erosion.
+    #[serde(default)]
+    pub rivers: u32,
+    /// Dirt paths/roads: splines flattened into the terrain.
+    #[serde(default)]
+    pub paths: Vec<PathSpec>,
+    /// Optional baked texture over the terrain (e.g. rock strata on cliffs).
+    #[serde(default)]
+    pub texture: Option<crate::texture::TextureSpec>,
+    /// Scatter density multiplier (1.0 = default coverage).
+    #[serde(default = "d_one")]
+    pub scatter_density: f32,
 }
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PathSpec {
+    /// Waypoints in local chunk XZ coordinates.
+    pub points: Vec<[f32; 2]>,
+    #[serde(default = "d_path_w")]
+    pub width: f32,
+}
+fn d_path_w() -> f32 { 2.0 }
+
 fn d_terrain_size() -> f32 { 48.0 }
 fn d_terrain_res() -> u32 { 110 }
 fn d_one() -> f32 { 1.0 }
@@ -435,6 +462,51 @@ mod tests {
             v
         };
         assert_eq!(edge(&a, 8.0), edge(&b, -8.0));
+    }
+
+    #[test]
+    fn terrain_v3_features() {
+        let j = r#"{"kind":"terrain","seed":7,"size":24,"resolution":48,"erosion":0.6,
+            "rivers":1,"water_level":0.1,
+            "paths":[{"points":[[-10,-10],[0,0],[10,10]],"width":2.0}]}"#;
+        let a = Recipe::parse(j).unwrap().build().unwrap();
+        a.validate().unwrap();
+        // deterministic (erosion + rivers + paths + instanced scatter)
+        let b = Recipe::parse(j).unwrap().build().unwrap();
+        assert_eq!(
+            crate::gltf::to_glb(&a),
+            crate::gltf::to_glb(&b),
+            "terrain v3 must stay byte-deterministic"
+        );
+        // scatter exports as GPU instances
+        assert!(!a.instanced.is_empty());
+        let glb = crate::gltf::to_glb(&a);
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let doc: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        let exts = doc["extensionsUsed"].as_array().unwrap();
+        assert!(exts.iter().any(|e| e == "EXT_mesh_gpu_instancing"));
+        let inst_node = doc["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["extensions"]["EXT_mesh_gpu_instancing"].is_object())
+            .expect("instanced node");
+        let attrs = &inst_node["extensions"]["EXT_mesh_gpu_instancing"]["attributes"];
+        for k in ["TRANSLATION", "ROTATION", "SCALE"] {
+            let acc = attrs[k].as_u64().unwrap() as usize;
+            assert!(doc["accessors"][acc]["count"].as_u64().unwrap() > 0);
+        }
+        // erosion actually changes the heightfield
+        let flat = Recipe::parse(&j.replace("\"erosion\":0.6", "\"erosion\":0.0"))
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_ne!(
+            a.parts[0].mesh.positions.len() == flat.parts[0].mesh.positions.len()
+                && a.parts[0].mesh.positions == flat.parts[0].mesh.positions,
+            true,
+            "erosion should alter geometry"
+        );
     }
 
     #[test]

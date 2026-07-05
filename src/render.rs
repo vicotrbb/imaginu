@@ -65,7 +65,17 @@ fn rasterize(asset: &Asset, cam: &Camera, w: usize, h: usize) -> Framebuffer {
     let proj = Mat4::perspective_rh(cam.fov_y, aspect, 0.05, 500.0);
     let vp = proj * view_m;
 
-    for part in &asset.parts {
+    // expand GPU-instanced scatter into concrete meshes for rasterization
+    let mut expanded: Vec<crate::gltf::Part> = Vec::new();
+    for ip in &asset.instanced {
+        for (t, r, s) in &ip.transforms {
+            let mut m = ip.part.mesh.clone();
+            m.transform(Mat4::from_scale_rotation_translation(*s, *r, *t));
+            expanded.push(crate::gltf::Part { mesh: m, material: ip.part.material.clone() });
+        }
+    }
+
+    for part in asset.parts.iter().chain(expanded.iter()) {
         let m = &part.mesh;
         let mat = &part.material;
         let tex = mat.texture.as_deref().filter(|_| m.has_uvs());
@@ -201,6 +211,15 @@ pub fn auto_camera(asset: &Asset, yaw_deg: f32, pitch_deg: f32, zoom: f32) -> Ca
         let (l, h) = p.mesh.bounds();
         lo = lo.min(l);
         hi = hi.max(h);
+    }
+    for ip in &asset.instanced {
+        let (l, h) = ip.part.mesh.bounds();
+        let radius = l.length().max(h.length());
+        for (t, _, s) in &ip.transforms {
+            let pad = Vec3::splat(radius * s.max_element());
+            lo = lo.min(*t - pad);
+            hi = hi.max(*t + pad);
+        }
     }
     let center = (lo + hi) / 2.0;
     let radius = (hi - lo).length() / 2.0;

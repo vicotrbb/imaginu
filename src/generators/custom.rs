@@ -828,5 +828,6 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
         animations,
         physics,
         lods: Vec::new(),
+        instanced: Vec::new(),
     })
 }

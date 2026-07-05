@@ -655,6 +655,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             restitution: 0.0,
         }),
         lods: Vec::new(),
+        instanced: Vec::new(),
     }
 }
 

@@ -103,6 +103,15 @@ pub struct Physics {
     pub restitution: f32,
 }
 
+/// A mesh stamped many times via `EXT_mesh_gpu_instancing` (dense scatter
+/// at a fraction of the file size and draw calls).
+#[derive(Clone, Debug)]
+pub struct InstancedPart {
+    pub part: Part,
+    /// (translation, rotation, scale) per instance.
+    pub transforms: Vec<(Vec3, Quat, Vec3)>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Asset {
     pub name: String,
@@ -112,6 +121,8 @@ pub struct Asset {
     pub physics: Option<Physics>,
     /// Decimated LOD levels (coarsest last), exported via `MSFT_lod`.
     pub lods: Vec<Vec<Part>>,
+    /// GPU-instanced scatter meshes.
+    pub instanced: Vec<InstancedPart>,
 }
 
 impl Asset {
@@ -123,6 +134,7 @@ impl Asset {
             animations: Vec::new(),
             physics,
             lods: Vec::new(),
+            instanced: Vec::new(),
         }
     }
 
@@ -210,6 +222,11 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     let mut groups: Vec<(String, &[Part])> = vec![(asset.name.clone(), asset.parts.as_slice())];
     for (i, lod) in asset.lods.iter().enumerate() {
         groups.push((format!("{}_LOD{}", asset.name, i + 1), lod.as_slice()));
+    }
+    // instanced scatter meshes follow the LOD meshes
+    let inst_mesh_base = groups.len();
+    for (i, ip) in asset.instanced.iter().enumerate() {
+        groups.push((format!("{}_scatter{}", asset.name, i), std::slice::from_ref(&ip.part)));
     }
 
     for (group_name, group_parts) in &groups {
@@ -419,6 +436,45 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
         n.insert("mesh".into(), json!(i + 1));
         nodes.push(Value::Object(n));
     }
+    // instanced scatter nodes (EXT_mesh_gpu_instancing)
+    for (i, ip) in asset.instanced.iter().enumerate() {
+        let t_flat: Vec<f32> =
+            ip.transforms.iter().flat_map(|(t, _, _)| [t.x, t.y, t.z]).collect();
+        let r_flat: Vec<f32> = ip
+            .transforms
+            .iter()
+            .flat_map(|(_, r, _)| [r.x, r.y, r.z, r.w])
+            .collect();
+        let s_flat: Vec<f32> =
+            ip.transforms.iter().flat_map(|(_, _, s)| [s.x, s.y, s.z]).collect();
+        let n_inst = ip.transforms.len();
+        let vt = push_view(&mut bin, &f32s_to_bytes(&t_flat), None);
+        accessors.push(json!({
+            "bufferView": vt, "componentType": 5126, "count": n_inst, "type": "VEC3",
+        }));
+        let a_t = accessors.len() - 1;
+        let vr = push_view(&mut bin, &f32s_to_bytes(&r_flat), None);
+        accessors.push(json!({
+            "bufferView": vr, "componentType": 5126, "count": n_inst, "type": "VEC4",
+        }));
+        let a_r = accessors.len() - 1;
+        let vs = push_view(&mut bin, &f32s_to_bytes(&s_flat), None);
+        accessors.push(json!({
+            "bufferView": vs, "componentType": 5126, "count": n_inst, "type": "VEC3",
+        }));
+        let a_s = accessors.len() - 1;
+        let mut n = Map::new();
+        n.insert("name".into(), json!(format!("{}_scatter{}", asset.name, i)));
+        n.insert("mesh".into(), json!(inst_mesh_base + i));
+        n.insert(
+            "extensions".into(),
+            json!({"EXT_mesh_gpu_instancing": {"attributes": {
+                "TRANSLATION": a_t, "ROTATION": a_r, "SCALE": a_s,
+            }}}),
+        );
+        scene_nodes.push(nodes.len());
+        nodes.push(Value::Object(n));
+    }
 
     if let Some(skel) = &asset.skeleton {
         let joint_base = nodes.len();
@@ -548,8 +604,15 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     if !animations_json.is_empty() {
         root.insert("animations".into(), Value::Array(animations_json));
     }
+    let mut exts: Vec<&str> = Vec::new();
     if !asset.lods.is_empty() {
-        root.insert("extensionsUsed".into(), json!(["MSFT_lod"]));
+        exts.push("MSFT_lod");
+    }
+    if !asset.instanced.is_empty() {
+        exts.push("EXT_mesh_gpu_instancing");
+    }
+    if !exts.is_empty() {
+        root.insert("extensionsUsed".into(), json!(exts));
     }
 
     let mut json_bytes = serde_json::to_vec(&Value::Object(root)).unwrap();

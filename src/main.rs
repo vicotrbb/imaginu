@@ -260,11 +260,19 @@ const SCHEMA_HELP: &str = r##"imaginu recipe cheat-sheet (JSON, all fields excep
 palettes: verdant | autumn | arctic | volcanic | desert | mystic
 
 {"kind":"terrain","palette":"verdant","seed":1,"size":48,"resolution":110,
- "mountainousness":1.0,"water_level":0.28,"scatter":true,
+ "mountainousness":1.0,"water_level":0.28,"scatter":true,"scatter_density":1.0,
  "shape":"hills|mountains|island|archipelago|canyon|mesa|crater|valley|dunes",
- "terrace":0,"skirt":true,"offset_x":0,"offset_z":0}
+ "terrace":0,"skirt":true,"offset_x":0,"offset_z":0,
+ "erosion":0.6,"rivers":2,
+ "paths":[{"points":[[-20,-18],[0,0],[20,15]],"width":2.5}],
+ "texture":{"pattern":"rock","scale":9,"colors":["#8a6a4c","#d8b287"]}}
  // any size (4..4096). For seamless world tiles: skirt=false and offset_x/z
  // = chunk world position; adjacent chunks share identical edge heights.
+ // erosion (hydraulic droplets) + rivers (carved, with water ribbons) are
+ // chunk-local: don't combine them with seamless tiling. paths = flattened
+ // dirt splines. texture drapes a baked material (strata on cliffs).
+ // scatter exports as GPU instances (EXT_mesh_gpu_instancing): dense
+ // forests at a fraction of the file size.
 
 {"kind":"tree","style":"oak|pine|palm|dead","height":6,"seed":1}
 
