@@ -16,6 +16,15 @@ pub struct Mesh {
     pub uvs: Vec<Vec2>,
     /// Optional tangents (xyz + handedness w), required with normal maps.
     pub tangents: Vec<Vec4>,
+    /// glTF morph targets (blend shapes): per-vertex position deltas.
+    pub morphs: Vec<MorphTarget>,
+}
+
+/// A named blend shape: position deltas, one per vertex (mostly zero).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MorphTarget {
+    pub name: String,
+    pub deltas: Vec<Vec3>,
 }
 
 impl Mesh {
@@ -93,6 +102,11 @@ impl Mesh {
             let v = m.transform_vector3(Vec3::new(t.x, t.y, t.z)).normalize_or(Vec3::X);
             *t = Vec4::new(v.x, v.y, v.z, t.w);
         }
+        for mt in &mut self.morphs {
+            for d in &mut mt.deltas {
+                *d = m.transform_vector3(*d);
+            }
+        }
     }
 
     pub fn translate(&mut self, v: Vec3) {
@@ -131,6 +145,24 @@ impl Mesh {
                 self.uvs.extend(std::iter::repeat(Vec2::ZERO).take(extra));
                 self.tangents
                     .extend(std::iter::repeat(Vec4::new(1.0, 0.0, 0.0, 1.0)).take(extra));
+            }
+        }
+        if !self.morphs.is_empty() || !other.morphs.is_empty() {
+            let total = base as usize + other.positions.len();
+            // union by name: pad missing regions with zero deltas
+            for m in &mut self.morphs {
+                m.deltas.resize(base as usize, Vec3::ZERO);
+                match other.morphs.iter().find(|o| o.name == m.name) {
+                    Some(o) => m.deltas.extend_from_slice(&o.deltas),
+                    None => m.deltas.resize(total, Vec3::ZERO),
+                }
+            }
+            for o in &other.morphs {
+                if !self.morphs.iter().any(|m| m.name == o.name) {
+                    let mut deltas = vec![Vec3::ZERO; base as usize];
+                    deltas.extend_from_slice(&o.deltas);
+                    self.morphs.push(MorphTarget { name: o.name.clone(), deltas });
+                }
             }
         }
     }
@@ -180,6 +212,11 @@ impl Mesh {
         }
         if self.has_uvs() && (self.uvs.len() != n || self.tangents.len() != n) {
             return Err("uv/tangent attribute count mismatch".into());
+        }
+        for m in &self.morphs {
+            if m.deltas.len() != n {
+                return Err(format!("morph '{}' delta count mismatch", m.name));
+            }
         }
         Ok(())
     }
@@ -286,6 +323,14 @@ pub fn to_flat_shaded(src: &Mesh) -> Mesh {
         m.uvs = src.indices.iter().map(|&i| src.uvs[i as usize]).collect();
         m.tangents = src.indices.iter().map(|&i| src.tangents[i as usize]).collect();
     }
+    m.morphs = src
+        .morphs
+        .iter()
+        .map(|mt| MorphTarget {
+            name: mt.name.clone(),
+            deltas: src.indices.iter().map(|&i| mt.deltas[i as usize]).collect(),
+        })
+        .collect();
     m
 }
 

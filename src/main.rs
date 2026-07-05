@@ -41,6 +41,9 @@ enum Cmd {
         /// Single explicit clip time (seconds) instead of the 4 phases
         #[arg(long)]
         at: Option<f32>,
+        /// Apply a morph target (e.g. smile, blink, angry, surprised) at full weight
+        #[arg(long)]
+        expression: Option<String>,
     },
     /// Render a loop-perfect turntable video of an asset (for showcasing).
     Showcase {
@@ -110,9 +113,24 @@ fn run() -> Result<(), String> {
             }
             Ok(())
         }
-        Cmd::Render { recipe, out_dir, width, height, animation, at } => {
+        Cmd::Render { recipe, out_dir, width, height, animation, at, expression } => {
             let r = load_recipe(&recipe)?;
-            let asset = r.build()?;
+            let mut asset = r.build()?;
+            if let Some(expr) = &expression {
+                let mut found = false;
+                for part in &mut asset.parts {
+                    if let Some(m) = part.mesh.morphs.iter().find(|m| m.name == *expr) {
+                        let deltas = m.deltas.clone();
+                        for (p, d) in part.mesh.positions.iter_mut().zip(&deltas) {
+                            *p += *d;
+                        }
+                        found = true;
+                    }
+                }
+                if !found {
+                    return Err(format!("no morph target '{expr}' in this asset"));
+                }
+            }
             std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
             match &animation {
                 None => {
@@ -253,7 +271,10 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
 {"kind":"prop","prop":"barrel|crate|lantern|campfire","size":1.0,"seed":1}
 
 {"kind":"character","class":"villager|warrior|mage|rogue","height":1.7,
- "bulk":1.0,"animate":true,"seed":1}
+ "bulk":1.0,"animate":true,"seed":1,
+ "hair":"short|ponytail|bun|bald","skin_tone":0,"expressions":true}
+ // smooth subdivision bodies, mitten hands, faces (eyes/brows/nose/mouth),
+ // facial morph targets: smile, blink, angry, surprised (glTF blend shapes)
 
 {"kind":"custom","name":"anything","seed":1,
  "physics":{"collider":"auto|box|sphere|capsule|trimesh","mass":0,

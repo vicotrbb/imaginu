@@ -316,15 +316,42 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
             }));
         }
 
-        primitives.push(json!({
-            "attributes": Value::Object(attrs),
-            "indices": a_idx,
-            "material": materials_json.len() - 1,
-            "mode": 4,
-        }));
+        let mut prim = Map::new();
+        prim.insert("attributes".into(), Value::Object(attrs));
+        prim.insert("indices".into(), json!(a_idx));
+        prim.insert("material".into(), json!(materials_json.len() - 1));
+        prim.insert("mode".into(), json!(4));
+        if !m.morphs.is_empty() {
+            let mut targets = Vec::new();
+            for mt in &m.morphs {
+                let flat: Vec<f32> = mt.deltas.iter().flat_map(|d| [d.x, d.y, d.z]).collect();
+                let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+                for d in &mt.deltas {
+                    lo = lo.min(*d);
+                    hi = hi.max(*d);
+                }
+                let v = push_view(&mut bin, &f32s_to_bytes(&flat), Some(34962));
+                accessors.push(json!({
+                    "bufferView": v, "componentType": 5126, "count": mt.deltas.len(),
+                    "type": "VEC3", "min": [lo.x, lo.y, lo.z], "max": [hi.x, hi.y, hi.z],
+                }));
+                targets.push(json!({"POSITION": accessors.len() - 1}));
+            }
+            prim.insert("targets".into(), Value::Array(targets));
+        }
+        primitives.push(Value::Object(prim));
     }
 
-    meshes_json.push(json!({"name": asset.name, "primitives": primitives}));
+    let mut mesh_obj = Map::new();
+    mesh_obj.insert("name".into(), json!(asset.name));
+    mesh_obj.insert("primitives".into(), Value::Array(primitives));
+    // morph metadata comes from the first part that has targets
+    if let Some(part) = asset.parts.iter().find(|p| !p.mesh.morphs.is_empty()) {
+        let names: Vec<&str> = part.mesh.morphs.iter().map(|m| m.name.as_str()).collect();
+        mesh_obj.insert("weights".into(), json!(vec![0.0; names.len()]));
+        mesh_obj.insert("extras".into(), json!({"targetNames": names}));
+    }
+    meshes_json.push(Value::Object(mesh_obj));
 
     // Nodes: mesh node (+ joint hierarchy if skinned)
     let mut nodes: Vec<Value> = Vec::new();
@@ -527,6 +554,31 @@ mod tests {
     #[test]
     fn deterministic_bytes() {
         assert_eq!(to_glb(&sample_asset()), to_glb(&sample_asset()));
+    }
+
+    #[test]
+    fn morph_targets_export() {
+        let mut mesh = cuboid(Vec3::ZERO, Vec3::ONE, Vec3::ONE);
+        mesh.morphs = vec![crate::mesh::MorphTarget {
+            name: "smile".into(),
+            deltas: vec![Vec3::new(0.0, 0.1, 0.0); mesh.vertex_count()],
+        }];
+        let asset = Asset::static_mesh(
+            "m",
+            vec![Part { mesh, material: Material::default() }],
+            None,
+        );
+        let glb = to_glb(&asset);
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let doc: Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        let mesh_j = &doc["meshes"][0];
+        assert_eq!(mesh_j["extras"]["targetNames"][0], "smile");
+        assert_eq!(mesh_j["weights"][0], 0.0);
+        let target = &mesh_j["primitives"][0]["targets"][0];
+        let acc = target["POSITION"].as_u64().unwrap() as usize;
+        let pos_acc =
+            mesh_j["primitives"][0]["attributes"]["POSITION"].as_u64().unwrap() as usize;
+        assert_eq!(doc["accessors"][acc]["count"], doc["accessors"][pos_acc]["count"]);
     }
 
     #[test]

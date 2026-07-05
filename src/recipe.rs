@@ -160,6 +160,15 @@ pub struct CharacterParams {
     pub bulk: f32,
     #[serde(default = "d_true")]
     pub animate: bool,
+    /// short | ponytail | bun | bald (default: seeded pick)
+    #[serde(default)]
+    pub hair: Option<String>,
+    /// 0..=3 light→dark (default: seeded pick)
+    #[serde(default)]
+    pub skin_tone: Option<u32>,
+    /// Export facial morph targets (smile, blink, angry, surprised).
+    #[serde(default = "d_true")]
+    pub expressions: bool,
 }
 fn d_char_h() -> f32 { 1.7 }
 
@@ -324,6 +333,33 @@ mod tests {
         // bad ease rejected
         let bad = j.replace("cubic_in_out", "bounce");
         assert!(Recipe::parse(&bad).unwrap().build().is_err());
+    }
+
+    #[test]
+    fn character_v2_features() {
+        let a = Recipe::parse(r#"{"kind":"character","seed":4,"hair":"ponytail"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        let names: Vec<&str> = a.parts[0].mesh.morphs.iter().map(|m| m.name.as_str()).collect();
+        for e in ["smile", "blink", "angry", "surprised"] {
+            assert!(names.contains(&e), "missing morph {e}");
+        }
+        // expressions off removes morphs
+        let b = Recipe::parse(r#"{"kind":"character","seed":4,"expressions":false}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(b.parts[0].mesh.morphs.is_empty());
+        // hair styles change geometry
+        let bald = Recipe::parse(r#"{"kind":"character","seed":4,"hair":"bald"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(
+            a.parts[0].mesh.vertex_count() > bald.parts[0].mesh.vertex_count(),
+            "ponytail should add geometry over bald"
+        );
     }
 
     #[test]

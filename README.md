@@ -47,7 +47,7 @@ All fields except `kind` are optional. Same recipe + seed → byte-identical GLB
 | `crystal` | `size`, `count` | emissive faceted shards on a rock base |
 | `building` | `width`, `floors` (1–3) | timber-framed cottage, box collider |
 | `prop` | `prop`: `barrel` `crate` `lantern` `campfire`, `size` | lantern/campfire glow (emissive) |
-| `character` | `class`: `villager` `warrior` `mage` `rogue`, `height`, `bulk`, `animate` | 17-joint skeleton, skinned, `idle` + `walk` clips |
+| `character` | `class`: `villager` `warrior` `mage` `rogue`, `height`, `bulk`, `hair`, `skin_tone`, `animate` | smooth-skinned subdivision body, face + morph expressions, 8 clips (`idle` `walk` `run` `attack` `sit` `wave` `death` `dance`) |
 | `custom` | see below | **build anything**: declarative geometry DSL |
 
 Palettes: `verdant`, `autumn`, `arctic`, `volcanic`, `desert`, `mystic`.
