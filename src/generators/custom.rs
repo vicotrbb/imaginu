@@ -249,6 +249,12 @@ pub struct ChannelSpec {
     /// explicit xyz translation keyframes (overrides axis/keys)
     #[serde(default)]
     pub keys_xyz: Vec<[f32; 3]>,
+    /// rotation keyframes as euler XYZ degrees (multi-axis; overrides axis/keys)
+    #[serde(default)]
+    pub keys_euler: Vec<[f32; 3]>,
+    /// easing curve baked into the keys: cubic_in | cubic_out | cubic_in_out
+    #[serde(default)]
+    pub ease: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -443,6 +449,62 @@ fn build_node(node: &NodeSpec, seed: u64, uv_scale: Option<f32>) -> Result<Mesh,
     Ok(out)
 }
 
+/// Bake an easing curve into dense linear keyframes (glTF samplers stay
+/// LINEAR, so easing is resampled rather than encoded).
+fn bake_easing(
+    name: &str,
+    times: &[f32],
+    data: ChannelData,
+) -> Result<(Vec<f32>, ChannelData), String> {
+    let ease: fn(f32) -> f32 = match name {
+        "linear" => |t| t,
+        "cubic_in" => |t| t * t * t,
+        "cubic_out" => |t| 1.0 - (1.0 - t).powi(3),
+        "cubic_in_out" => |t| {
+            if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 }
+        },
+        other => {
+            return Err(format!(
+                "unknown ease '{other}' (linear|cubic_in|cubic_out|cubic_in_out)"
+            ));
+        }
+    };
+    let dur = *times.last().unwrap();
+    let dense = 24usize;
+    let out_times: Vec<f32> = (0..=dense).map(|i| i as f32 / dense as f32 * dur).collect();
+    // sample the original channel at the eased phase
+    let sample_seg = |t: f32| -> (usize, usize, f32) {
+        let mut i = 0;
+        while i + 1 < times.len() && times[i + 1] < t {
+            i += 1;
+        }
+        let j = (i + 1).min(times.len() - 1);
+        let span = times[j] - times[i];
+        (i, j, if span > 1e-9 { (t - times[i]) / span } else { 0.0 })
+    };
+    let out_data = match data {
+        ChannelData::Rotation(qs) => ChannelData::Rotation(
+            out_times
+                .iter()
+                .map(|&t| {
+                    let (i, j, u) = sample_seg(ease(t / dur) * dur);
+                    qs[i].slerp(qs[j], u)
+                })
+                .collect(),
+        ),
+        ChannelData::Translation(vs) => ChannelData::Translation(
+            out_times
+                .iter()
+                .map(|&t| {
+                    let (i, j, u) = sample_seg(ease(t / dur) * dur);
+                    vs[i].lerp(vs[j], u)
+                })
+                .collect(),
+        ),
+    };
+    Ok((out_times, out_data))
+}
+
 pub fn generate(p: &CustomParams) -> Result<Asset, String> {
     // bones -> skeleton
     let mut skeleton = None;
@@ -525,7 +587,7 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
             let bi = *bone_index
                 .get(ch.bone.as_str())
                 .ok_or_else(|| format!("unknown bone '{}' in animation", ch.bone))?;
-            let nk = ch.keys.len().max(ch.keys_xyz.len());
+            let nk = ch.keys.len().max(ch.keys_xyz.len()).max(ch.keys_euler.len());
             if nk < 2 {
                 return Err(format!("channel on '{}' needs >= 2 keys", ch.bone));
             }
@@ -537,14 +599,30 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
                 .unwrap_or(Vec3::ZERO);
             let data = match ch.path.as_str() {
                 "rotation" => {
-                    let axis = Vec3::from_array(ch.axis.unwrap_or([0.0, 1.0, 0.0]))
-                        .normalize_or(Vec3::Y);
-                    ChannelData::Rotation(
-                        ch.keys
-                            .iter()
-                            .map(|deg| Quat::from_axis_angle(axis, deg.to_radians()))
-                            .collect(),
-                    )
+                    if !ch.keys_euler.is_empty() {
+                        ChannelData::Rotation(
+                            ch.keys_euler
+                                .iter()
+                                .map(|e| {
+                                    Quat::from_euler(
+                                        EulerRot::XYZ,
+                                        e[0].to_radians(),
+                                        e[1].to_radians(),
+                                        e[2].to_radians(),
+                                    )
+                                })
+                                .collect(),
+                        )
+                    } else {
+                        let axis = Vec3::from_array(ch.axis.unwrap_or([0.0, 1.0, 0.0]))
+                            .normalize_or(Vec3::Y);
+                        ChannelData::Rotation(
+                            ch.keys
+                                .iter()
+                                .map(|deg| Quat::from_axis_angle(axis, deg.to_radians()))
+                                .collect(),
+                        )
+                    }
                 }
                 "translation" => {
                     if !ch.keys_xyz.is_empty() {
@@ -563,6 +641,10 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
                     }
                 }
                 other => return Err(format!("unknown channel path '{other}'")),
+            };
+            let (times, data) = match &ch.ease {
+                None => (times, data),
+                Some(name) => bake_easing(name, &times, data)?,
             };
             channels.push(Channel { joint: bi, times, data });
         }

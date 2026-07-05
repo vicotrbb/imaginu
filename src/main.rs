@@ -25,6 +25,7 @@ enum Cmd {
         preview: bool,
     },
     /// Render turntable PNGs (4 angles) of a recipe, without keeping the GLB.
+    /// With --animation, renders 4 clip phases (t = 0, ¼, ½, ¾) instead.
     Render {
         recipe: String,
         /// Output directory for PNGs
@@ -34,6 +35,12 @@ enum Cmd {
         width: usize,
         #[arg(long, default_value_t = 640)]
         height: usize,
+        /// Pose the asset with this animation clip
+        #[arg(long)]
+        animation: Option<String>,
+        /// Single explicit clip time (seconds) instead of the 4 phases
+        #[arg(long)]
+        at: Option<f32>,
     },
     /// Render a loop-perfect turntable video of an asset (for showcasing).
     Showcase {
@@ -55,6 +62,9 @@ enum Cmd {
         /// Keep the rendered PNG frames next to the video
         #[arg(long)]
         keep_frames: bool,
+        /// Play this animation clip (fixed ¾ camera) instead of a turntable
+        #[arg(long)]
+        animation: Option<String>,
     },
     /// Print the recipe JSON schema cheat-sheet (for AI agents).
     Schema,
@@ -100,22 +110,65 @@ fn run() -> Result<(), String> {
             }
             Ok(())
         }
-        Cmd::Render { recipe, out_dir, width, height } => {
+        Cmd::Render { recipe, out_dir, width, height, animation, at } => {
             let r = load_recipe(&recipe)?;
             let asset = r.build()?;
             std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
-            for (i, yaw) in [25.0f32, 115.0, 205.0, 295.0].iter().enumerate() {
-                let cam = auto_camera(&asset, *yaw, 20.0, 1.0);
-                let path = out_dir.join(format!("{}_{}.png", asset.name, i));
-                render_png(&asset, &cam, width, height, &path).map_err(|e| e.to_string())?;
-                println!("wrote {}", path.display());
+            match &animation {
+                None => {
+                    for (i, yaw) in [25.0f32, 115.0, 205.0, 295.0].iter().enumerate() {
+                        let cam = auto_camera(&asset, *yaw, 20.0, 1.0);
+                        let path = out_dir.join(format!("{}_{}.png", asset.name, i));
+                        render_png(&asset, &cam, width, height, &path)
+                            .map_err(|e| e.to_string())?;
+                        println!("wrote {}", path.display());
+                    }
+                }
+                Some(clip_name) => {
+                    let clip = asset
+                        .animations
+                        .iter()
+                        .find(|c| c.name == *clip_name)
+                        .ok_or_else(|| format!("no clip '{clip_name}'"))?;
+                    let dur = imaginu::anim::clip_duration(clip);
+                    let times: Vec<f32> = match at {
+                        Some(t) => vec![t],
+                        None => (0..4).map(|i| i as f32 / 4.0 * dur).collect(),
+                    };
+                    // camera framed on the bind pose so frames don't jump
+                    let cam = auto_camera(&asset, 35.0, 12.0, 1.0);
+                    for (i, t) in times.iter().enumerate() {
+                        let posed = imaginu::anim::pose_asset(&asset, clip_name, *t)?;
+                        let path =
+                            out_dir.join(format!("{}_{}_{}.png", asset.name, clip_name, i));
+                        render_png(&posed, &cam, width, height, &path)
+                            .map_err(|e| e.to_string())?;
+                        println!("wrote {} (t={t:.2}s)", path.display());
+                    }
+                }
             }
             Ok(())
         }
-        Cmd::Showcase { recipe, out, size, duration, fps, pitch, keep_frames } => {
+        Cmd::Showcase { recipe, out, size, duration, fps, pitch, keep_frames, animation } => {
             let r = load_recipe(&recipe)?;
             let asset = r.build()?;
-            let frames = ((duration.clamp(1.0, 30.0)) * fps.clamp(10, 60) as f32) as usize;
+            let fps = fps.clamp(10, 60);
+            let mut duration = duration.clamp(1.0, 30.0);
+            let clip_dur = match &animation {
+                Some(name) => {
+                    let clip = asset
+                        .animations
+                        .iter()
+                        .find(|c| c.name == *name)
+                        .ok_or_else(|| format!("no clip '{name}'"))?;
+                    let d = imaginu::anim::clip_duration(clip).max(0.1);
+                    // round video length to whole clip loops so it loops clean
+                    duration = (duration / d).round().max(1.0) * d;
+                    Some(d)
+                }
+                None => None,
+            };
+            let frames = (duration * fps as f32) as usize;
             let dir = out.with_extension("frames");
             std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
             let (cam_pitch, zoom) = if asset.name == "terrain" {
@@ -125,10 +178,23 @@ fn run() -> Result<(), String> {
             };
             eprint!("rendering {frames} frames ");
             for f in 0..frames {
-                let yaw = f as f32 / frames as f32 * 360.0;
-                let cam = auto_camera(&asset, yaw, cam_pitch, zoom);
                 let path = dir.join(format!("frame_{f:04}.png"));
-                render_png(&asset, &cam, size, size, &path).map_err(|e| e.to_string())?;
+                match (&animation, clip_dur) {
+                    (Some(name), Some(d)) => {
+                        let t = (f as f32 / fps as f32) % d;
+                        let posed = imaginu::anim::pose_asset(&asset, name, t)?;
+                        // fixed ¾ camera framed on the bind pose
+                        let cam = auto_camera(&asset, 35.0, cam_pitch.min(15.0), zoom);
+                        render_png(&posed, &cam, size, size, &path)
+                            .map_err(|e| e.to_string())?;
+                    }
+                    _ => {
+                        let yaw = f as f32 / frames as f32 * 360.0;
+                        let cam = auto_camera(&asset, yaw, cam_pitch, zoom);
+                        render_png(&asset, &cam, size, size, &path)
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
                 if f % 10 == 0 {
                     eprint!(".");
                 }
@@ -195,6 +261,8 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  "bones":[{"name":"root"},{"name":"arm","parent":"root","translation":[0,2,0]}],
  "animations":[{"name":"spin","duration":2,"channels":[
    {"bone":"arm","path":"rotation","axis":[0,0,1],"keys":[0,180,360]},
+   {"bone":"arm","path":"rotation","keys_euler":[[0,0,0],[30,45,0],[0,0,0]],
+    "ease":"cubic_in_out"},
    {"bone":"root","path":"translation","axis":[0,1,0],"keys":[0,0.4,0]}]}],
  "parts":[{"material":{"metallic":0,"roughness":0.9,
                        "emissive":"#ffaa33","emissive_strength":1.5,
@@ -226,4 +294,9 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
 
 Output GLB embeds physics metadata at nodes[0].extras.imaginu_physics:
 {collider:{type:box|sphere|capsule|trimesh|heightfield,...},mass,friction,restitution}
-Characters include a 17-joint skeleton with "idle" and "walk" clips."##;
+Characters include a 17-joint skeleton, smooth multi-joint skinning, and clips:
+idle, walk, run, attack, sit, wave, death, dance.
+Channel easing: "ease":"cubic_in|cubic_out|cubic_in_out" (baked to dense keys);
+multi-axis rotation via "keys_euler":[[x,y,z]deg,...].
+See animation frames: imaginu render <recipe> --animation walk [--at 0.5]
+Film a clip:         imaginu showcase <recipe> --animation dance -o dance.mp4"##;

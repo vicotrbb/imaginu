@@ -301,6 +301,50 @@ mod tests {
     }
 
     #[test]
+    fn dsl_easing_and_euler_keys() {
+        let j = r##"{"kind":"custom","name":"nod",
+          "bones":[{"name":"root"},{"name":"top","parent":"root","translation":[0,1,0]}],
+          "animations":[{"name":"nod","duration":1,
+            "channels":[{"bone":"top","path":"rotation","ease":"cubic_in_out",
+                         "keys_euler":[[0,0,0],[30,45,0],[0,0,0]]}]}],
+          "parts":[{"nodes":[{"shape":"box","size":[0.5,0.5,0.5],"color":"#ffffff","bone":"top"}]}]}"##;
+        let a = Recipe::parse(j).unwrap().build().unwrap();
+        let ch = &a.animations[0].channels[0];
+        // easing bakes to dense keys
+        assert!(ch.times.len() > 3);
+        match &ch.data {
+            crate::gltf::ChannelData::Rotation(qs) => {
+                assert_eq!(qs.len(), ch.times.len());
+                // multi-axis euler key produces a non-single-axis quaternion mid-clip
+                let mid = qs[qs.len() / 2];
+                assert!(mid.x.abs() > 0.01 && mid.y.abs() > 0.01);
+            }
+            _ => panic!("expected rotation channel"),
+        }
+        // bad ease rejected
+        let bad = j.replace("cubic_in_out", "bounce");
+        assert!(Recipe::parse(&bad).unwrap().build().is_err());
+    }
+
+    #[test]
+    fn character_ships_clip_library() {
+        let a = Recipe::parse(r#"{"kind":"character","seed":2}"#).unwrap().build().unwrap();
+        let names: Vec<&str> = a.animations.iter().map(|c| c.name.as_str()).collect();
+        for expected in ["idle", "walk", "run", "attack", "sit", "wave", "death", "dance"] {
+            assert!(names.contains(&expected), "missing clip {expected}");
+        }
+        // posing at mid-clip moves vertices
+        let posed = crate::anim::pose_asset(&a, "walk", 0.25).unwrap();
+        let moved = posed.parts[0]
+            .mesh
+            .positions
+            .iter()
+            .zip(&a.parts[0].mesh.positions)
+            .any(|(p, q)| p.distance(*q) > 0.01);
+        assert!(moved, "walk pose should deform the mesh");
+    }
+
+    #[test]
     fn terrain_tiles_seamlessly() {
         let mk = |ox: f32| {
             let j = format!(
