@@ -299,6 +299,73 @@ pub fn tube(path: &[(Vec3, f32)], segments: u32, color: impl Fn(usize) -> Vec3) 
     m
 }
 
+/// One cross-section of a [`loft`]: an ellipse (rx, rz) centered at `center`.
+#[derive(Clone, Copy, Debug)]
+pub struct LoftStation {
+    pub center: Vec3,
+    pub rx: f32,
+    pub rz: f32,
+}
+
+/// Sweep elliptical cross-sections along a spine — the garment primitive.
+/// `arc_deg < 360` leaves the shell open (front-open robes); `arc_offset_deg`
+/// rotates where the opening sits. Generates *structured UVs*: u runs around
+/// the arc (0..1), v runs along the stations (0 = first station = hem), so
+/// paint layers can target hems/cuffs/collars by v. Smooth normals; open
+/// shells should use a double-sided material.
+pub fn loft(
+    stations: &[LoftStation],
+    segments: u32,
+    arc_deg: f32,
+    arc_offset_deg: f32,
+    color: impl Fn(usize) -> Vec3,
+) -> Mesh {
+    let mut m = Mesh::new();
+    let segs = segments.max(3) as usize;
+    let arc = arc_deg.clamp(10.0, 360.0).to_radians();
+    let closed = arc_deg >= 359.9;
+    let offset = arc_offset_deg.to_radians();
+    // one duplicated seam column on closed lofts so uv u=0..1 has no wrap jump
+    let cols = segs + 1;
+    for (si, st) in stations.iter().enumerate() {
+        let v = si as f32 / (stations.len() - 1).max(1) as f32;
+        for c in 0..cols {
+            let t = c as f32 / segs as f32;
+            let a = offset + t * arc - arc / 2.0 + core::f32::consts::FRAC_PI_2;
+            let p = st.center + Vec3::new(a.cos() * st.rx, 0.0, a.sin() * st.rz);
+            let n = Vec3::new(a.cos() / st.rx.max(1e-4), 0.0, a.sin() / st.rz.max(1e-4))
+                .normalize_or(Vec3::Z);
+            m.push_vertex(p, n, color(si));
+            m.uvs.push(Vec2::new(t, v));
+            let tan = Vec3::new(-a.sin(), 0.0, a.cos()).normalize_or(Vec3::X);
+            m.tangents.push(Vec4::new(tan.x, tan.y, tan.z, 1.0));
+        }
+    }
+    for si in 0..stations.len() - 1 {
+        for c in 0..segs {
+            let a = (si * cols + c) as u32;
+            let b = a + 1;
+            let d = ((si + 1) * cols + c) as u32;
+            let e = d + 1;
+            m.push_tri(a, b, e);
+            m.push_tri(a, e, d);
+        }
+    }
+    m.recompute_smooth_normals();
+    if closed {
+        // the duplicated seam column shares positions but not indices —
+        // average its normals so no shading seam shows
+        for si in 0..stations.len() {
+            let a = si * cols;
+            let b = si * cols + segs;
+            let n = (m.normals[a] + m.normals[b]).normalize_or(Vec3::Z);
+            m.normals[a] = n;
+            m.normals[b] = n;
+        }
+    }
+    m
+}
+
 /// Rebuild with per-face vertices and face normals (faceted low-poly look).
 pub fn to_flat_shaded(src: &Mesh) -> Mesh {
     let mut m = Mesh::new();
@@ -427,6 +494,30 @@ mod tests {
             m.validate().unwrap();
             assert!(m.triangle_count() > 0);
         }
+    }
+
+    #[test]
+    fn loft_structured_uvs() {
+        let stations = [
+            LoftStation { center: Vec3::ZERO, rx: 1.2, rz: 0.9 },
+            LoftStation { center: Vec3::Y, rx: 0.8, rz: 0.7 },
+            LoftStation { center: Vec3::Y * 2.0, rx: 0.5, rz: 0.5 },
+        ];
+        let closed = loft(&stations, 12, 360.0, 0.0, |_| Vec3::ONE);
+        closed.validate().unwrap();
+        assert_eq!(closed.uvs.len(), closed.positions.len());
+        // v goes hem (0) to top (1)
+        assert_eq!(closed.uvs[0].y, 0.0);
+        assert_eq!(closed.uvs.last().unwrap().y, 1.0);
+        // u spans the full 0..1 range including the duplicated seam column
+        assert_eq!(closed.uvs[0].x, 0.0);
+        assert_eq!(closed.uvs[12].x, 1.0);
+        // open arc leaves a gap: first/last column positions differ
+        let open = loft(&stations, 12, 300.0, 0.0, |_| Vec3::ONE);
+        assert!(open.positions[0].distance(open.positions[12]) > 0.3);
+        // closed seam columns coincide with matching normals
+        assert!(closed.positions[0].distance(closed.positions[12]) < 1e-5);
+        assert!(closed.normals[0].distance(closed.normals[12]) < 1e-5);
     }
 
     #[test]
