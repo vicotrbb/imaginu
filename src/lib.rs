@@ -11,3 +11,5 @@ pub mod noise;
 pub mod palette;
 pub mod recipe;
 pub mod render;
+pub mod texture;
+pub mod uv;

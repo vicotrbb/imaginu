@@ -177,6 +177,9 @@ pub struct NodeSpec {
     /// Bone name this node is rigidly bound to (requires `bones`).
     #[serde(default)]
     pub bone: Option<String>,
+    /// UV projection when the part has a texture: box (default) | cylinder | planar.
+    #[serde(default)]
+    pub uv: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -191,6 +194,10 @@ pub struct MaterialSpec {
     pub emissive_strength: Option<f32>,
     #[serde(default)]
     pub double_sided: bool,
+    /// Baked procedural texture (applies to every node in the part; node
+    /// colors multiply the texture — use "#ffffff" for the pure pattern).
+    #[serde(default)]
+    pub texture: Option<crate::texture::TextureSpec>,
 }
 fn d_rough() -> f32 { 0.9 }
 
@@ -202,6 +209,7 @@ impl Default for MaterialSpec {
             emissive: None,
             emissive_strength: None,
             double_sided: false,
+            texture: None,
         }
     }
 }
@@ -361,7 +369,7 @@ fn build_shape(spec: &ShapeSpec, color: Vec3) -> Result<Mesh, String> {
     })
 }
 
-fn build_node(node: &NodeSpec, seed: u64) -> Result<Mesh, String> {
+fn build_node(node: &NodeSpec, seed: u64, uv_scale: Option<f32>) -> Result<Mesh, String> {
     let color = node.color.to_linear()?;
     let mut m = build_shape(&node.shape, color)?;
 
@@ -418,6 +426,16 @@ fn build_node(node: &NodeSpec, seed: u64) -> Result<Mesh, String> {
             }
         }
     }
+    // UVs are projected on the final placed geometry so `scale` is in
+    // world units regardless of node transforms.
+    if let Some(scale) = uv_scale {
+        match node.uv.as_deref().unwrap_or("box") {
+            "box" => crate::uv::box_project(&mut out, scale),
+            "cylinder" => crate::uv::cylindrical_project(&mut out, scale),
+            "planar" => crate::uv::planar_project(&mut out, scale),
+            other => return Err(format!("unknown uv projection '{other}' (box|cylinder|planar)")),
+        }
+    }
     Ok(out)
 }
 
@@ -449,9 +467,14 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
 
     let mut parts = Vec::new();
     for ps in &p.parts {
+        let baked = match &ps.material.texture {
+            Some(spec) => Some(std::sync::Arc::new(crate::texture::bake(spec)?)),
+            None => None,
+        };
+        let uv_scale = ps.material.texture.as_ref().map(|t| t.scale);
         let mut mesh = Mesh::new();
         for node in &ps.nodes {
-            let mut m = build_node(node, p.seed)?;
+            let mut m = build_node(node, p.seed, uv_scale)?;
             if let Some(bone) = &node.bone {
                 let bi = *bone_index
                     .get(bone.as_str())
@@ -473,6 +496,7 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
                 roughness: ps.material.roughness.clamp(0.03, 1.0),
                 emissive,
                 double_sided: ps.material.double_sided,
+                texture: baked,
             },
         });
     }

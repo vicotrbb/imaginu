@@ -4,20 +4,31 @@
 
 use glam::{Mat4, Quat, Vec3};
 use serde_json::{Map, Value, json};
+use std::sync::Arc;
 
 use crate::mesh::Mesh;
+use crate::texture::BakedTexture;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Material {
     pub metallic: f32,
     pub roughness: f32,
     pub emissive: Vec3,
     pub double_sided: bool,
+    /// Baked procedural texture set (baseColor + normal + ORM). When set,
+    /// the mesh must carry UVs/tangents; factors multiply the textures.
+    pub texture: Option<Arc<BakedTexture>>,
 }
 
 impl Default for Material {
     fn default() -> Self {
-        Self { metallic: 0.0, roughness: 0.9, emissive: Vec3::ZERO, double_sided: false }
+        Self {
+            metallic: 0.0,
+            roughness: 0.9,
+            emissive: Vec3::ZERO,
+            double_sided: false,
+            texture: None,
+        }
     }
 }
 
@@ -164,6 +175,10 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     let mut meshes_json: Vec<Value> = Vec::new();
     let mut materials_json: Vec<Value> = Vec::new();
     let mut primitives: Vec<Value> = Vec::new();
+    let mut images_json: Vec<Value> = Vec::new();
+    let mut textures_json: Vec<Value> = Vec::new();
+    // dedup: identical texture specs share one image set
+    let mut tex_by_key: Vec<(String, [usize; 3])> = Vec::new();
     let skinned = asset.skeleton.is_some();
 
     for part in &asset.parts {
@@ -235,15 +250,71 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
         }
 
         let mat = &part.material;
-        materials_json.push(json!({
-            "pbrMetallicRoughness": {
-                "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
-                "metallicFactor": mat.metallic,
-                "roughnessFactor": mat.roughness,
-            },
-            "emissiveFactor": [mat.emissive.x, mat.emissive.y, mat.emissive.z],
-            "doubleSided": mat.double_sided,
-        }));
+        let textured = mat.texture.is_some() && m.has_uvs();
+        if textured {
+            let tex = mat.texture.as_ref().unwrap();
+            // TEXCOORD_0
+            let uv_flat: Vec<f32> = m.uvs.iter().flat_map(|t| [t.x, t.y]).collect();
+            let vuv = push_view(&mut bin, &f32s_to_bytes(&uv_flat), Some(34962));
+            accessors.push(json!({
+                "bufferView": vuv, "componentType": 5126, "count": m.uvs.len(), "type": "VEC2",
+            }));
+            attrs.insert("TEXCOORD_0".into(), json!(accessors.len() - 1));
+            // TANGENT
+            let tan_flat: Vec<f32> =
+                m.tangents.iter().flat_map(|t| [t.x, t.y, t.z, t.w]).collect();
+            let vtan = push_view(&mut bin, &f32s_to_bytes(&tan_flat), Some(34962));
+            accessors.push(json!({
+                "bufferView": vtan, "componentType": 5126,
+                "count": m.tangents.len(), "type": "VEC4",
+            }));
+            attrs.insert("TANGENT".into(), json!(accessors.len() - 1));
+            // images + textures (deduped by spec key)
+            let triple = match tex_by_key.iter().find(|(k, _)| *k == tex.key) {
+                Some((_, t)) => *t,
+                None => {
+                    let mut mk = |img: &crate::texture::Rgb8Image,
+                                  bin: &mut Vec<u8>|
+                     -> usize {
+                        let v = push_view(bin, &img.to_png_bytes(), None);
+                        images_json.push(json!({"bufferView": v, "mimeType": "image/png"}));
+                        textures_json
+                            .push(json!({"source": images_json.len() - 1, "sampler": 0}));
+                        textures_json.len() - 1
+                    };
+                    let t = [
+                        mk(&tex.base_color, &mut bin),
+                        mk(&tex.normal, &mut bin),
+                        mk(&tex.orm, &mut bin),
+                    ];
+                    tex_by_key.push((tex.key.clone(), t));
+                    t
+                }
+            };
+            materials_json.push(json!({
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+                    "baseColorTexture": {"index": triple[0], "texCoord": 0},
+                    "metallicRoughnessTexture": {"index": triple[2], "texCoord": 0},
+                    "metallicFactor": 1.0,
+                    "roughnessFactor": 1.0,
+                },
+                "normalTexture": {"index": triple[1], "texCoord": 0},
+                "occlusionTexture": {"index": triple[2], "texCoord": 0},
+                "emissiveFactor": [mat.emissive.x, mat.emissive.y, mat.emissive.z],
+                "doubleSided": mat.double_sided,
+            }));
+        } else {
+            materials_json.push(json!({
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+                    "metallicFactor": mat.metallic,
+                    "roughnessFactor": mat.roughness,
+                },
+                "emissiveFactor": [mat.emissive.x, mat.emissive.y, mat.emissive.z],
+                "doubleSided": mat.double_sided,
+            }));
+        }
 
         primitives.push(json!({
             "attributes": Value::Object(attrs),
@@ -378,6 +449,15 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     root.insert("nodes".into(), Value::Array(nodes));
     root.insert("meshes".into(), Value::Array(meshes_json));
     root.insert("materials".into(), Value::Array(materials_json));
+    if !textures_json.is_empty() {
+        root.insert("images".into(), Value::Array(images_json));
+        root.insert("textures".into(), Value::Array(textures_json));
+        // one shared trilinear repeat sampler
+        root.insert(
+            "samplers".into(),
+            json!([{"magFilter": 9729, "minFilter": 9987, "wrapS": 10497, "wrapT": 10497}]),
+        );
+    }
     root.insert("accessors".into(), Value::Array(accessors));
     root.insert("bufferViews".into(), Value::Array(buffer_views));
     root.insert("buffers".into(), json!([{"byteLength": bin.len()}]));
@@ -447,5 +527,46 @@ mod tests {
     #[test]
     fn deterministic_bytes() {
         assert_eq!(to_glb(&sample_asset()), to_glb(&sample_asset()));
+    }
+
+    #[test]
+    fn textured_glb_structure() {
+        let spec = crate::texture::TextureSpec {
+            pattern: "wood".into(),
+            scale: 1.0,
+            seed: 1,
+            normal_strength: 1.0,
+            resolution: 64,
+            colors: Vec::new(),
+        };
+        let baked = std::sync::Arc::new(crate::texture::bake(&spec).unwrap());
+        let mut mesh = cuboid(Vec3::ZERO, Vec3::ONE, Vec3::ONE);
+        crate::uv::box_project(&mut mesh, 1.0);
+        let asset = Asset::static_mesh(
+            "tex",
+            vec![Part {
+                mesh,
+                material: Material { texture: Some(baked), ..Default::default() },
+            }],
+            None,
+        );
+        let glb = to_glb(&asset);
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let doc: Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        assert_eq!(doc["images"].as_array().unwrap().len(), 3);
+        assert_eq!(doc["textures"].as_array().unwrap().len(), 3);
+        let prim = &doc["meshes"][0]["primitives"][0];
+        let uv_acc = prim["attributes"]["TEXCOORD_0"].as_u64().unwrap() as usize;
+        let pos_acc = prim["attributes"]["POSITION"].as_u64().unwrap() as usize;
+        assert_eq!(doc["accessors"][uv_acc]["count"], doc["accessors"][pos_acc]["count"]);
+        assert!(prim["attributes"]["TANGENT"].is_u64());
+        let m = &doc["materials"][0];
+        assert!(m["pbrMetallicRoughness"]["baseColorTexture"]["index"].is_u64());
+        assert!(m["normalTexture"]["index"].is_u64());
+        // embedded PNG magic at the image bufferView offset
+        let bv = doc["images"][0]["bufferView"].as_u64().unwrap() as usize;
+        let off = doc["bufferViews"][bv]["byteOffset"].as_u64().unwrap() as usize;
+        let bin_start = 20 + json_len + 8;
+        assert_eq!(&glb[bin_start + off + 1..bin_start + off + 4], b"PNG");
     }
 }

@@ -197,7 +197,10 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
    {"bone":"arm","path":"rotation","axis":[0,0,1],"keys":[0,180,360]},
    {"bone":"root","path":"translation","axis":[0,1,0],"keys":[0,0.4,0]}]}],
  "parts":[{"material":{"metallic":0,"roughness":0.9,
-                       "emissive":"#ffaa33","emissive_strength":1.5},
+                       "emissive":"#ffaa33","emissive_strength":1.5,
+                       "texture":{"pattern":"wood|rock|fabric|metal|plaster|noise",
+                                  "scale":1.0,"seed":1,"normal_strength":1.0,
+                                  "resolution":1024,"colors":["#5a3c26","#9c7248"]}},
    "nodes":[
      {"shape":"box","size":[1,1,1],"color":"#8a6242"},
      {"shape":"sphere","radius":1,"subdiv":2,"color":[0.5,0.7,0.9],
@@ -212,7 +215,12 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
      {"shape":"box","size":[0.2,1,0.2],"color":"#ffffff","bone":"arm",
       "transform":{"translate":[0,1,0],"rotate_deg":[0,45,0],"scale":[1,1,1]},
       "repeat":{"count":8,"radius":2.0,"orient":true}}]}]}
- // every node: optional transform/displace/flat/repeat/bone/color_top
+ // every node: optional transform/displace/flat/repeat/bone/color_top/uv
+ // material.texture bakes a seamless procedural PBR texture set (baseColor +
+ // normal map + occlusion/roughness/metallic PNGs) into the GLB. scale =
+ // world units per tile; colors = optional dark->light #hex ramp override.
+ // node colors MULTIPLY the texture - use "#ffffff" to show it unchanged.
+ // node.uv picks the projection: box (default) | cylinder | planar
 
 Output GLB embeds physics metadata at nodes[0].extras.imaginu_physics:
 {collider:{type:box|sphere|capsule|trimesh|heightfield,...},mass,friction,restitution}

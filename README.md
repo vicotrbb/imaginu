@@ -92,8 +92,14 @@ if (phys) {
 scene.getAnimationGroupByName("walk")?.start(true);
 ```
 
-Assets use **vertex-color PBR** (no textures): tiny files, zero texture requests,
-and a cohesive stylized look across every asset the AI generates.
+Assets default to **vertex-color PBR** (tiny files, zero texture requests). For
+a higher-fidelity look, any `custom` part can request a **baked procedural
+texture** — `{"texture": {"pattern": "wood|rock|fabric|metal|plaster|noise",
+"scale": 1.5, "colors": ["#5a3c26", "#9c7248"]}}` — and imaginu bakes a
+seamless baseColor + normal map + occlusion/roughness/metallic PNG set
+straight into the GLB (per-node `uv` projection: box, cylinder or planar;
+resolution up to 4096). Deterministic like everything else: same recipe+seed →
+identical bytes. See [examples/tavern.json](examples/tavern.json).
 
 ## Architecture
 
