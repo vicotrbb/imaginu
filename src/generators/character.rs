@@ -139,13 +139,35 @@ fn wardrobe(r: &mut Rand, pal: &Palette, class: CharacterClass) -> Wardrobe {
     }
 }
 
-/// Limb segment: tapered tube from joint toward child, rigid-bound.
-fn limb(from: Vec3, to: Vec3, r0: f32, r1: f32, color: Vec3, joint: usize) -> Mesh {
-    let mut m = tube(&[(from, r0), (from + (to - from) * 0.98, r1)], 7, |_| color);
-    let mut m2 = to_flat_shaded(&m);
-    std::mem::swap(&mut m, &mut m2);
-    m.bind_all_to_joint(joint as u16);
-    m
+/// Limb segment: tapered tube from joint toward child (unbound — the body
+/// core is smooth-skinned as a whole).
+fn limb(from: Vec3, to: Vec3, r0: f32, r1: f32, color: Vec3) -> Mesh {
+    let m = tube(&[(from, r0), (from + (to - from) * 0.98, r1)], 7, |_| color);
+    to_flat_shaded(&m)
+}
+
+/// Influence segments for smooth binding: joint → its child joint along
+/// each limb/torso chain. Head/hands/feet stay rigid separately.
+fn bone_segments(rig: &Rig) -> Vec<crate::skinning::BoneSeg> {
+    use crate::skinning::BoneSeg;
+    let jw = |i: usize| rig.world[i];
+    [
+        (HIPS, SPINE),
+        (SPINE, CHEST),
+        (CHEST, NECK),
+        (NECK, HEAD),
+        (ARM_L, FOREARM_L),
+        (FOREARM_L, HAND_L),
+        (ARM_R, FOREARM_R),
+        (FOREARM_R, HAND_R),
+        (THIGH_L, SHIN_L),
+        (SHIN_L, FOOT_L),
+        (THIGH_R, SHIN_R),
+        (SHIN_R, FOOT_R),
+    ]
+    .iter()
+    .map(|&(j, child)| BoneSeg { joint: j as u16, a: jw(j), b: jw(child) })
+    .collect()
 }
 
 pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
@@ -158,31 +180,27 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     let jw = |i: usize| rig.world[i];
 
     let mut body = Mesh::new();
+    // smooth-skinned body core: torso + limbs accumulate here unbound
+    let mut core = Mesh::new();
 
     // pelvis
-    let mut pelvis = to_flat_shaded(&cuboid(
+    core.merge(&to_flat_shaded(&cuboid(
         jw(HIPS) + Vec3::new(0.0, -h * 0.015, 0.0),
         Vec3::new(h * 0.095 * bulk, h * 0.05, h * 0.062 * bulk),
         w.pants,
-    ));
-    pelvis.bind_all_to_joint(HIPS as u16);
-    body.merge(&pelvis);
+    )));
 
     // torso: lower (spine) + upper (chest, broader)
-    let mut lower = to_flat_shaded(&cuboid(
+    core.merge(&to_flat_shaded(&cuboid(
         jw(SPINE) + Vec3::new(0.0, h * 0.05, 0.0),
         Vec3::new(h * 0.09 * bulk, h * 0.068, h * 0.06 * bulk),
         w.shirt * 0.92,
-    ));
-    lower.bind_all_to_joint(SPINE as u16);
-    body.merge(&lower);
-    let mut upper = to_flat_shaded(&cuboid(
+    )));
+    core.merge(&to_flat_shaded(&cuboid(
         jw(CHEST) + Vec3::new(0.0, h * 0.042, 0.0),
         Vec3::new(sw * 0.9, h * 0.066, h * 0.066 * bulk),
         w.shirt,
-    ));
-    upper.bind_all_to_joint(CHEST as u16);
-    body.merge(&upper);
+    )));
     // belt
     let mut belt = to_flat_shaded(&cuboid(
         jw(HIPS) + Vec3::new(0.0, h * 0.025, 0.0),
@@ -241,13 +259,11 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         body.merge(&eye);
     }
     // neck
-    let mut neck = to_flat_shaded(&tube(
+    core.merge(&to_flat_shaded(&tube(
         &[(jw(NECK) - Vec3::Y * h * 0.01, h * 0.028), (jw(NECK) + Vec3::Y * h * 0.035, h * 0.026)],
         6,
         |_| w.skin,
-    ));
-    neck.bind_all_to_joint(NECK as u16);
-    body.merge(&neck);
+    )));
 
     // arms
     let arm_r0 = h * 0.036 * bulk;
@@ -256,8 +272,8 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         _ => w.skin,
     };
     for (aj, fj, hj) in [(ARM_L, FOREARM_L, HAND_L), (ARM_R, FOREARM_R, HAND_R)] {
-        body.merge(&limb(jw(aj), jw(fj), arm_r0, arm_r0 * 0.8, w.shirt, aj));
-        body.merge(&limb(jw(fj), jw(hj), arm_r0 * 0.78, arm_r0 * 0.62, forearm_col, fj));
+        core.merge(&limb(jw(aj), jw(fj), arm_r0, arm_r0 * 0.8, w.shirt));
+        core.merge(&limb(jw(fj), jw(hj), arm_r0 * 0.78, arm_r0 * 0.62, forearm_col));
         let mut hand = to_flat_shaded(&icosphere(arm_r0 * 0.85, 1, w.skin));
         hand.translate(jw(hj) - Vec3::Y * arm_r0 * 0.1);
         hand.bind_all_to_joint(hj as u16);
@@ -287,8 +303,8 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     // legs
     let leg_r = h * 0.05 * bulk;
     for (tj, sj, fj) in [(THIGH_L, SHIN_L, FOOT_L), (THIGH_R, SHIN_R, FOOT_R)] {
-        body.merge(&limb(jw(tj), jw(sj), leg_r, leg_r * 0.82, w.pants, tj));
-        body.merge(&limb(jw(sj), jw(fj), leg_r * 0.8, leg_r * 0.6, w.boots, sj));
+        core.merge(&limb(jw(tj), jw(sj), leg_r, leg_r * 0.82, w.pants));
+        core.merge(&limb(jw(sj), jw(fj), leg_r * 0.8, leg_r * 0.6, w.boots));
         let mut foot = to_flat_shaded(&cuboid(
             jw(fj) + Vec3::new(0.0, -h * 0.006, h * 0.032),
             Vec3::new(leg_r * 0.9, h * 0.022, h * 0.07),
@@ -367,6 +383,10 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         }
         CharacterClass::Villager => {}
     }
+
+    // smooth-skin the accumulated core and fold it into the body
+    crate::skinning::smooth_bind(&mut core, &bone_segments(&rig), 3.0);
+    body.merge(&core);
 
     let mut animations = Vec::new();
     if p.animate {

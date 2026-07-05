@@ -180,6 +180,10 @@ pub struct NodeSpec {
     /// UV projection when the part has a texture: box (default) | cylinder | planar.
     #[serde(default)]
     pub uv: Option<String>,
+    /// "smooth": auto multi-joint weights over the whole skeleton (seamless
+    /// bending). Omit for rigid binding via `bone`.
+    #[serde(default)]
+    pub skin: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -475,7 +479,19 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
         let mut mesh = Mesh::new();
         for node in &ps.nodes {
             let mut m = build_node(node, p.seed, uv_scale)?;
-            if let Some(bone) = &node.bone {
+            if let Some(mode) = &node.skin {
+                if mode != "smooth" {
+                    return Err(format!("unknown skin mode '{mode}' (only \"smooth\")"));
+                }
+                let skel = skeleton
+                    .as_ref()
+                    .ok_or("skin:\"smooth\" requires bones")?;
+                crate::skinning::smooth_bind(
+                    &mut m,
+                    &crate::skinning::skeleton_segments(skel),
+                    3.0,
+                );
+            } else if let Some(bone) = &node.bone {
                 let bi = *bone_index
                     .get(bone.as_str())
                     .ok_or_else(|| format!("unknown bone '{bone}'"))?;

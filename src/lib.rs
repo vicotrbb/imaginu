@@ -11,5 +11,6 @@ pub mod noise;
 pub mod palette;
 pub mod recipe;
 pub mod render;
+pub mod skinning;
 pub mod texture;
 pub mod uv;

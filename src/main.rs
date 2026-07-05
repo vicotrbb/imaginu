@@ -221,6 +221,8 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  // world units per tile; colors = optional dark->light #hex ramp override.
  // node colors MULTIPLY the texture - use "#ffffff" to show it unchanged.
  // node.uv picks the projection: box (default) | cylinder | planar
+ // node "skin":"smooth" = automatic multi-joint weights over all bones
+ // (seamless organic bending); "bone":"name" = rigid binding.
 
 Output GLB embeds physics metadata at nodes[0].extras.imaginu_physics:
 {collider:{type:box|sphere|capsule|trimesh|heightfield,...},mass,friction,restitution}
