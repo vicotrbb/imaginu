@@ -484,6 +484,17 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
       "transform":{"translate":[0,1,0],"rotate_deg":[0,45,0],"scale":[1,1,1]},
       "repeat":{"count":8,"radius":2.0,"orient":true}}]}]}
  // every node: optional transform/displace/flat/repeat/bone/color_top/uv
+ // material.texture.paint: UV-space layers composited over the base -
+ //   {"op":"band","v":0.0,"height":0.08,"color":"#7a1f1f","motif":"meander",
+ //    "motif_color":"#e8b54a","motif_scale":1}          hem/cuff border
+ //   {"op":"motif_grid","motif":"diamonds|dots|scroll|runes|zigzag",
+ //    "color":"#b03a2e","scale":2,"v_min":0.2,"v_max":0.7}
+ //   {"op":"stripes","count":6,"width":0.5,"color":"#334455","axis":"u|v"}
+ //   {"op":"gradient","from":"#ffffff","to":"#888888"}
+ //   {"op":"folds","strength":1,"count":10}   painted cloth drape + relief
+ //   {"op":"weathering","strength":0.4}       hem grime
+ // pattern "none" + "base":"#hex" = flat cloth ground for painting.
+ // On loft shapes, v runs hem(0) -> collar(1): bands land exactly on hems.
  // material.texture bakes a seamless procedural PBR texture set (baseColor +
  // normal map + occlusion/roughness/metallic PNGs) into the GLB. scale =
  // world units per tile; colors = optional dark->light #hex ramp override.

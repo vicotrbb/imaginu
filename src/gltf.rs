@@ -735,6 +735,8 @@ mod tests {
             normal_strength: 1.0,
             resolution: 64,
             colors: Vec::new(),
+            base: None,
+            paint: Vec::new(),
         };
         let baked = std::sync::Arc::new(crate::texture::bake(&spec).unwrap());
         let mut mesh = cuboid(Vec3::ZERO, Vec3::ONE, Vec3::ONE);
