@@ -35,6 +35,27 @@ enum Cmd {
         #[arg(long, default_value_t = 640)]
         height: usize,
     },
+    /// Render a loop-perfect turntable video of an asset (for showcasing).
+    Showcase {
+        /// Recipe file path, or inline JSON starting with '{'
+        recipe: String,
+        /// Output video path (mp4; requires ffmpeg on PATH)
+        #[arg(short, long, default_value = "showcase.mp4")]
+        out: PathBuf,
+        #[arg(long, default_value_t = 800)]
+        size: usize,
+        /// Seconds for one full rotation
+        #[arg(long, default_value_t = 4.0)]
+        duration: f32,
+        #[arg(long, default_value_t = 30)]
+        fps: u32,
+        /// Camera pitch in degrees
+        #[arg(long, default_value_t = 18.0)]
+        pitch: f32,
+        /// Keep the rendered PNG frames next to the video
+        #[arg(long)]
+        keep_frames: bool,
+    },
     /// Print the recipe JSON schema cheat-sheet (for AI agents).
     Schema,
 }
@@ -89,6 +110,52 @@ fn run() -> Result<(), String> {
                 render_png(&asset, &cam, width, height, &path).map_err(|e| e.to_string())?;
                 println!("wrote {}", path.display());
             }
+            Ok(())
+        }
+        Cmd::Showcase { recipe, out, size, duration, fps, pitch, keep_frames } => {
+            let r = load_recipe(&recipe)?;
+            let asset = r.build()?;
+            let frames = ((duration.clamp(1.0, 30.0)) * fps.clamp(10, 60) as f32) as usize;
+            let dir = out.with_extension("frames");
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            let (cam_pitch, zoom) = if asset.name == "terrain" {
+                (pitch.max(30.0), 0.85)
+            } else {
+                (pitch, 0.95)
+            };
+            eprint!("rendering {frames} frames ");
+            for f in 0..frames {
+                let yaw = f as f32 / frames as f32 * 360.0;
+                let cam = auto_camera(&asset, yaw, cam_pitch, zoom);
+                let path = dir.join(format!("frame_{f:04}.png"));
+                render_png(&asset, &cam, size, size, &path).map_err(|e| e.to_string())?;
+                if f % 10 == 0 {
+                    eprint!(".");
+                }
+            }
+            eprintln!(" done");
+            let status = std::process::Command::new("ffmpeg")
+                .args(["-y", "-loglevel", "error", "-framerate"])
+                .arg(fps.to_string())
+                .arg("-i")
+                .arg(dir.join("frame_%04d.png"))
+                .args(["-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart"])
+                .arg(&out)
+                .status()
+                .map_err(|e| format!("ffmpeg not found or failed to start: {e}"))?;
+            if !status.success() {
+                return Err("ffmpeg failed to encode the video".into());
+            }
+            if !keep_frames {
+                std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+            }
+            let bytes = std::fs::metadata(&out).map_err(|e| e.to_string())?.len();
+            println!(
+                "wrote {} ({} KiB, {frames} frames, {}x{size} @ {fps}fps, loop-perfect)",
+                out.display(),
+                bytes / 1024,
+                size
+            );
             Ok(())
         }
         Cmd::Schema => {

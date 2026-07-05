@@ -25,7 +25,15 @@ target/release/imaginu render '{"kind":"terrain","palette":"verdant","seed":7}' 
 
 # cheat-sheet for agents
 target/release/imaginu schema
+
+# loop-perfect turntable video for showcasing (requires ffmpeg on PATH)
+target/release/imaginu showcase examples/windmill.json -o windmill.mp4
 ```
+
+`showcase` renders a full 360° spin with the built-in rasterizer and encodes
+an h264 MP4 (`--size`, `--duration`, `--fps`, `--pitch`, `--keep-frames`).
+The last frame stops one step short of 360°, so the video loops seamlessly —
+ready to post as-is.
 
 ## Recipes
 
