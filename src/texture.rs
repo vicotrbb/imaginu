@@ -8,8 +8,12 @@ use serde::{Deserialize, Serialize};
 use crate::noise::Noise2;
 use crate::palette::{hex, lerp, ramp, to_srgb8};
 
-fn d_one() -> f32 { 1.0 }
-fn d_res() -> u32 { 1024 }
+fn d_one() -> f32 {
+    1.0
+}
+fn d_res() -> u32 {
+    1024
+}
 
 /// A 2D paint operation composited over the base pattern in UV space.
 /// With loft UVs (u = around, v = hem→collar) these place borders and
@@ -72,16 +76,20 @@ pub enum PaintLayer {
     },
     /// Vertical band at `u` (0..1 around the arc) — front-edge trim on
     /// open coats (u 0 and 1 are the opening edges).
-    UBand {
-        u: f32,
-        width: f32,
-        color: String,
-    },
+    UBand { u: f32, width: f32, color: String },
 }
-fn d_stripe_w() -> f32 { 0.5 }
-fn d_fold_count() -> u32 { 9 }
-fn d_half() -> f32 { 0.5 }
-fn d_pattern() -> String { "none".into() }
+fn d_stripe_w() -> f32 {
+    0.5
+}
+fn d_fold_count() -> u32 {
+    9
+}
+fn d_half() -> f32 {
+    0.5
+}
+fn d_pattern() -> String {
+    "none".into()
+}
 
 /// Agent-facing texture request (per part material).
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -121,7 +129,11 @@ pub struct Rgb8Image {
 
 impl Rgb8Image {
     fn new(w: u32, h: u32) -> Self {
-        Self { w, h, data: vec![0; (w * h * 3) as usize] }
+        Self {
+            w,
+            h,
+            data: vec![0; (w * h * 3) as usize],
+        }
     }
 
     fn put(&mut self, x: u32, y: u32, px: [u8; 3]) {
@@ -249,7 +261,12 @@ fn wood(p: &Pat, u: f32, v: f32) -> Sample {
     let edge = edge * edge * (3.0 - 2.0 * edge); // smoothstep
     albedo *= 0.45 + 0.55 * edge;
     let height = 0.4 + rings * 0.2 + streak * 0.1;
-    Sample { height, albedo, rough: 0.86 - rings * 0.08, metal: 0.0 }
+    Sample {
+        height,
+        albedo,
+        rough: 0.86 - rings * 0.08,
+        metal: 0.0,
+    }
 }
 
 fn rock(p: &Pat, u: f32, v: f32) -> Sample {
@@ -258,7 +275,11 @@ fn rock(p: &Pat, u: f32, v: f32) -> Sample {
     let band = ((v * 6.0 + warp * 1.4) * core::f32::consts::TAU).sin() * 0.5 + 0.5;
     let detail = p.tfbm2(u, v, 9.0, 9.0, 5) * 0.5 + 0.5;
     let t = (band * 0.6 + detail * 0.4).clamp(0.0, 1.0);
-    let defaults = [srgbv(84, 76, 70), srgbv(128, 116, 104), srgbv(168, 152, 132)];
+    let defaults = [
+        srgbv(84, 76, 70),
+        srgbv(128, 116, 104),
+        srgbv(168, 152, 132),
+    ];
     let albedo = p.colors(&defaults, t);
     Sample {
         height: (band * 0.5 + detail * 0.5).clamp(0.0, 1.0),
@@ -279,14 +300,23 @@ fn fabric(p: &Pat, u: f32, v: f32) -> Sample {
     let fx = (cu * threads).fract();
     let fy = (cv * threads).fract();
     let bump = |t: f32| ((t * tau / 2.0).sin()).max(0.0);
-    let (profile, along) = if checker { (bump(fx), fy) } else { (bump(fy), fx) };
+    let (profile, along) = if checker {
+        (bump(fx), fy)
+    } else {
+        (bump(fy), fx)
+    };
     let strand = 0.85 + 0.15 * ((along * threads * 2.0 * tau).sin() * 0.5 + 0.5);
     let weave = profile * strand;
     let patchy = p.tfbm2(u, v, 3.0, 3.0, 4) * 0.5 + 0.5;
     let defaults = [srgbv(96, 78, 96), srgbv(140, 116, 138)];
     let dir_tint = if checker { 1.0 } else { 0.88 };
     let albedo = p.colors(&defaults, (weave * 0.6 + patchy * 0.4).clamp(0.0, 1.0)) * dir_tint;
-    Sample { height: weave * 0.7 + patchy * 0.15, albedo, rough: 0.97, metal: 0.0 }
+    Sample {
+        height: weave * 0.7 + patchy * 0.15,
+        albedo,
+        rough: 0.97,
+        metal: 0.0,
+    }
 }
 
 fn metal(p: &Pat, u: f32, v: f32) -> Sample {
@@ -316,32 +346,80 @@ fn plaster(p: &Pat, u: f32, v: f32) -> Sample {
     let speck = (p.tfbm2(u, v, 40.0, 40.0, 2)).max(0.0);
     let defaults = [srgbv(196, 186, 168), srgbv(226, 218, 202)];
     let albedo = p.colors(&defaults, base) * (1.0 - speck * 0.25);
-    Sample { height: 0.5 + base * 0.3 - speck * 0.2, albedo, rough: 0.9, metal: 0.0 }
+    Sample {
+        height: 0.5 + base * 0.3 - speck * 0.2,
+        albedo,
+        rough: 0.9,
+        metal: 0.0,
+    }
 }
 
 fn plain_noise(p: &Pat, u: f32, v: f32) -> Sample {
     let t = p.tfbm(u, v, 4.0, 4.0, 5) * 0.5 + 0.5;
     let defaults = [srgbv(90, 90, 90), srgbv(180, 180, 180)];
-    Sample { height: t, albedo: p.colors(&defaults, t), rough: 0.9, metal: 0.0 }
+    Sample {
+        height: t,
+        albedo: p.colors(&defaults, t),
+        rough: 0.9,
+        metal: 0.0,
+    }
 }
 
 fn flat_none(_p: &Pat, _u: f32, _v: f32) -> Sample {
-    Sample { height: 0.5, albedo: srgbv(200, 200, 200), rough: 0.88, metal: 0.0 }
+    Sample {
+        height: 0.5,
+        albedo: srgbv(200, 200, 200),
+        rough: 0.88,
+        metal: 0.0,
+    }
 }
 
-pub const PATTERNS: [&str; 7] = ["none", "wood", "rock", "fabric", "metal", "plaster", "noise"];
+pub const PATTERNS: [&str; 7] = [
+    "none", "wood", "rock", "fabric", "metal", "plaster", "noise",
+];
 
 // ---------- paint layer compositor ----------
 
 /// Parsed paint layer (colors resolved to linear RGB).
 enum PL {
-    Band { v: f32, h: f32, color: Vec3, motif: Option<Motif>, mcolor: Vec3, mscale: f32 },
-    Stripes { count: f32, width: f32, color: Vec3, along_v: bool },
-    Gradient { from: Vec3, to: Vec3, along_u: bool },
-    MotifGrid { motif: Motif, color: Vec3, scale: f32, v0: f32, v1: f32 },
-    Folds { strength: f32, count: f32 },
-    Weathering { strength: f32 },
-    UBand { u: f32, width: f32, color: Vec3 },
+    Band {
+        v: f32,
+        h: f32,
+        color: Vec3,
+        motif: Option<Motif>,
+        mcolor: Vec3,
+        mscale: f32,
+    },
+    Stripes {
+        count: f32,
+        width: f32,
+        color: Vec3,
+        along_v: bool,
+    },
+    Gradient {
+        from: Vec3,
+        to: Vec3,
+        along_u: bool,
+    },
+    MotifGrid {
+        motif: Motif,
+        color: Vec3,
+        scale: f32,
+        v0: f32,
+        v1: f32,
+    },
+    Folds {
+        strength: f32,
+        count: f32,
+    },
+    Weathering {
+        strength: f32,
+    },
+    UBand {
+        u: f32,
+        width: f32,
+        color: Vec3,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -375,18 +453,34 @@ fn parse_layers(layers: &[PaintLayer]) -> Result<Vec<PL>, String> {
         .iter()
         .map(|l| {
             Ok(match l {
-                PaintLayer::Band { v, height, color, motif, motif_color, motif_scale } => {
+                PaintLayer::Band {
+                    v,
+                    height,
+                    color,
+                    motif,
+                    motif_color,
+                    motif_scale,
+                } => {
                     let c = hex(color)?;
                     PL::Band {
                         v: *v,
                         h: *height,
                         color: c,
                         motif: motif.as_deref().map(parse_motif).transpose()?,
-                        mcolor: motif_color.as_deref().map(hex).transpose()?.unwrap_or(c * 1.6),
+                        mcolor: motif_color
+                            .as_deref()
+                            .map(hex)
+                            .transpose()?
+                            .unwrap_or(c * 1.6),
                         mscale: motif_scale.max(0.05),
                     }
                 }
-                PaintLayer::Stripes { count, width, color, axis } => PL::Stripes {
+                PaintLayer::Stripes {
+                    count,
+                    width,
+                    color,
+                    axis,
+                } => PL::Stripes {
                     count: (*count).max(1) as f32,
                     width: width.clamp(0.02, 0.98),
                     color: hex(color)?,
@@ -397,22 +491,31 @@ fn parse_layers(layers: &[PaintLayer]) -> Result<Vec<PL>, String> {
                     to: hex(to)?,
                     along_u: axis.as_deref() == Some("u"),
                 },
-                PaintLayer::MotifGrid { motif, color, scale, v_min, v_max } => PL::MotifGrid {
+                PaintLayer::MotifGrid {
+                    motif,
+                    color,
+                    scale,
+                    v_min,
+                    v_max,
+                } => PL::MotifGrid {
                     motif: parse_motif(motif)?,
                     color: hex(color)?,
                     scale: scale.max(0.05),
                     v0: *v_min,
                     v1: *v_max,
                 },
-                PaintLayer::Folds { strength, count } => {
-                    PL::Folds { strength: strength.clamp(0.0, 3.0), count: (*count).max(2) as f32 }
-                }
-                PaintLayer::Weathering { strength } => {
-                    PL::Weathering { strength: strength.clamp(0.0, 1.0) }
-                }
-                PaintLayer::UBand { u, width, color } => {
-                    PL::UBand { u: *u, width: width.max(0.005), color: hex(color)? }
-                }
+                PaintLayer::Folds { strength, count } => PL::Folds {
+                    strength: strength.clamp(0.0, 3.0),
+                    count: (*count).max(2) as f32,
+                },
+                PaintLayer::Weathering { strength } => PL::Weathering {
+                    strength: strength.clamp(0.0, 1.0),
+                },
+                PaintLayer::UBand { u, width, color } => PL::UBand {
+                    u: *u,
+                    width: width.max(0.005),
+                    color: hex(color)?,
+                },
             })
         })
         .collect()
@@ -488,7 +591,14 @@ fn motif_coverage(m: Motif, x: f32, y: f32, cell_id: u32) -> f32 {
 fn apply_layers(pat: &Pat, layers: &[PL], u: f32, v: f32, s: &mut Sample) {
     for l in layers {
         match l {
-            PL::Band { v: v0, h, color, motif, mcolor, mscale } => {
+            PL::Band {
+                v: v0,
+                h,
+                color,
+                motif,
+                mcolor,
+                mscale,
+            } => {
                 if v >= *v0 && v <= *v0 + *h {
                     s.albedo = *color;
                     s.rough = 0.7; // trim reads silkier than ground cloth
@@ -507,7 +617,12 @@ fn apply_layers(pat: &Pat, layers: &[PL], u: f32, v: f32, s: &mut Sample) {
                     }
                 }
             }
-            PL::Stripes { count, width, color, along_v } => {
+            PL::Stripes {
+                count,
+                width,
+                color,
+                along_v,
+            } => {
                 let t = if *along_v { v } else { u };
                 if (t * count).fract() < *width {
                     s.albedo = *color;
@@ -517,14 +632,19 @@ fn apply_layers(pat: &Pat, layers: &[PL], u: f32, v: f32, s: &mut Sample) {
                 let t = if *along_u { u } else { v };
                 s.albedo *= lerp(*from, *to, t);
             }
-            PL::MotifGrid { motif, color, scale, v0, v1 } => {
+            PL::MotifGrid {
+                motif,
+                color,
+                scale,
+                v0,
+                v1,
+            } => {
                 if v >= *v0 && v <= *v1 {
                     let cols = (8.0 * scale).max(1.0).round();
                     let rows = ((v1 - v0) * cols).max(1.0).round();
                     let x = (u * cols).fract();
                     let yy = ((v - v0) / (v1 - v0) * rows).fract();
-                    let cell =
-                        (u * cols) as u32 ^ (((v - v0) / (v1 - v0) * rows) as u32) << 8;
+                    let cell = (u * cols) as u32 ^ (((v - v0) / (v1 - v0) * rows) as u32) << 8;
                     let cov = motif_coverage(*motif, x, yy, cell);
                     if cov > 0.0 {
                         s.albedo = lerp(s.albedo, *color, cov);
@@ -548,7 +668,11 @@ fn apply_layers(pat: &Pat, layers: &[PL], u: f32, v: f32, s: &mut Sample) {
                 s.albedo *= 1.0 - 0.35 * dirt.clamp(0.0, 1.0);
                 s.rough = (s.rough + 0.15 * dirt).min(1.0);
             }
-            PL::UBand { u: u0, width, color } => {
+            PL::UBand {
+                u: u0,
+                width,
+                color,
+            } => {
                 if (u - u0).abs() <= *width / 2.0 {
                     s.albedo = *color;
                     s.rough = 0.7;
@@ -832,11 +956,17 @@ mod tests {
                 motif_color: Some("#e8b54a".into()),
                 motif_scale: 1.0,
             },
-            PaintLayer::Folds { strength: 1.0, count: 8 },
+            PaintLayer::Folds {
+                strength: 1.0,
+                count: 8,
+            },
         ];
         let a = bake(&sp).unwrap();
         let b = bake(&sp).unwrap();
-        assert_eq!(a.base_color.data, b.base_color.data, "paint must be deterministic");
+        assert_eq!(
+            a.base_color.data, b.base_color.data,
+            "paint must be deterministic"
+        );
         // band region (v near 0 = top rows) is red-dominant; mid is cream
         let band_px = a.base_color.texel(10, 3);
         let mid_px = a.base_color.texel(10, 64);

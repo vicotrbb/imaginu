@@ -7,7 +7,11 @@ use glam::Vec3;
 pub fn srgb(r: u8, g: u8, b: u8) -> Vec3 {
     let f = |c: u8| {
         let c = c as f32 / 255.0;
-        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
     };
     Vec3::new(f(r), f(g), f(b))
 }
@@ -16,7 +20,11 @@ pub fn srgb(r: u8, g: u8, b: u8) -> Vec3 {
 pub fn to_srgb8(c: Vec3) -> [u8; 3] {
     let f = |c: f32| {
         let c = c.clamp(0.0, 1.0);
-        let s = if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 };
+        let s = if c <= 0.0031308 {
+            c * 12.92
+        } else {
+            1.055 * c.powf(1.0 / 2.4) - 0.055
+        };
         (s * 255.0 + 0.5) as u8
     };
     [f(c.x), f(c.y), f(c.z)]
@@ -24,7 +32,13 @@ pub fn to_srgb8(c: Vec3) -> [u8; 3] {
 
 /// sRGB-encoded 0..1 Vec3 -> linear (texture sampling).
 pub fn srgb_to_linear(c: Vec3) -> Vec3 {
-    let f = |c: f32| if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
+    let f = |c: f32| {
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
     Vec3::new(f(c.x), f(c.y), f(c.z))
 }
 
@@ -77,8 +91,12 @@ pub fn by_name(name: &str) -> Palette {
         "autumn" => Palette {
             name: "autumn",
             terrain: [
-                srgb(96, 108, 56), srgb(133, 117, 62), srgb(169, 132, 60),
-                srgb(188, 108, 37), srgb(120, 96, 76), srgb(240, 238, 228),
+                srgb(96, 108, 56),
+                srgb(133, 117, 62),
+                srgb(169, 132, 60),
+                srgb(188, 108, 37),
+                srgb(120, 96, 76),
+                srgb(240, 238, 228),
             ],
             foliage: [srgb(204, 102, 26), srgb(217, 148, 47), srgb(158, 66, 36)],
             trunk: srgb(92, 62, 44),
@@ -89,8 +107,12 @@ pub fn by_name(name: &str) -> Palette {
         "arctic" => Palette {
             name: "arctic",
             terrain: [
-                srgb(70, 96, 110), srgb(132, 160, 170), srgb(198, 214, 220),
-                srgb(228, 238, 242), srgb(200, 212, 222), srgb(250, 252, 254),
+                srgb(70, 96, 110),
+                srgb(132, 160, 170),
+                srgb(198, 214, 220),
+                srgb(228, 238, 242),
+                srgb(200, 212, 222),
+                srgb(250, 252, 254),
             ],
             foliage: [srgb(58, 96, 84), srgb(74, 118, 102), srgb(46, 76, 70)],
             trunk: srgb(70, 56, 50),
@@ -101,8 +123,12 @@ pub fn by_name(name: &str) -> Palette {
         "volcanic" => Palette {
             name: "volcanic",
             terrain: [
-                srgb(40, 34, 36), srgb(62, 50, 50), srgb(88, 70, 64),
-                srgb(56, 48, 50), srgb(36, 30, 32), srgb(214, 214, 216),
+                srgb(40, 34, 36),
+                srgb(62, 50, 50),
+                srgb(88, 70, 64),
+                srgb(56, 48, 50),
+                srgb(36, 30, 32),
+                srgb(214, 214, 216),
             ],
             foliage: [srgb(96, 84, 44), srgb(120, 100, 52), srgb(76, 66, 38)],
             trunk: srgb(44, 36, 34),
@@ -113,8 +139,12 @@ pub fn by_name(name: &str) -> Palette {
         "desert" => Palette {
             name: "desert",
             terrain: [
-                srgb(214, 178, 122), srgb(226, 192, 134), srgb(206, 158, 100),
-                srgb(178, 126, 82), srgb(150, 104, 72), srgb(244, 234, 214),
+                srgb(214, 178, 122),
+                srgb(226, 192, 134),
+                srgb(206, 158, 100),
+                srgb(178, 126, 82),
+                srgb(150, 104, 72),
+                srgb(244, 234, 214),
             ],
             foliage: [srgb(112, 132, 66), srgb(90, 112, 58), srgb(130, 146, 80)],
             trunk: srgb(110, 82, 56),
@@ -125,8 +155,12 @@ pub fn by_name(name: &str) -> Palette {
         "mystic" => Palette {
             name: "mystic",
             terrain: [
-                srgb(44, 48, 82), srgb(66, 62, 110), srgb(96, 76, 138),
-                srgb(130, 96, 160), srgb(88, 74, 120), srgb(226, 214, 244),
+                srgb(44, 48, 82),
+                srgb(66, 62, 110),
+                srgb(96, 76, 138),
+                srgb(130, 96, 160),
+                srgb(88, 74, 120),
+                srgb(226, 214, 244),
             ],
             foliage: [srgb(96, 60, 160), srgb(140, 84, 190), srgb(66, 46, 120)],
             trunk: srgb(52, 42, 66),
@@ -138,8 +172,12 @@ pub fn by_name(name: &str) -> Palette {
         _ => Palette {
             name: "verdant",
             terrain: [
-                srgb(210, 196, 148), srgb(122, 156, 74), srgb(88, 128, 62),
-                srgb(64, 96, 56), srgb(124, 116, 106), srgb(246, 248, 246),
+                srgb(210, 196, 148),
+                srgb(122, 156, 74),
+                srgb(88, 128, 62),
+                srgb(64, 96, 56),
+                srgb(124, 116, 106),
+                srgb(246, 248, 246),
             ],
             foliage: [srgb(74, 128, 58), srgb(96, 150, 68), srgb(56, 104, 52)],
             trunk: srgb(98, 70, 48),
@@ -150,4 +188,6 @@ pub fn by_name(name: &str) -> Palette {
     }
 }
 
-pub const PALETTES: [&str; 6] = ["verdant", "autumn", "arctic", "volcanic", "desert", "mystic"];
+pub const PALETTES: [&str; 6] = [
+    "verdant", "autumn", "arctic", "volcanic", "desert", "mystic",
+];

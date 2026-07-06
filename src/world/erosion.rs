@@ -42,7 +42,7 @@ impl ErosionField {
 /// Droplet erosion on a global grid (n×n, row-major). Same guard rails as
 /// the chunk-local sim: normalized heights, per-step caps, per-cell budget.
 pub fn erode_global(grid: &mut [f32], n: usize, amount: f32, seed: u64) {
-    let mut r = rng(seed ^ 0x6E0B_A1);
+    let mut r = rng(seed ^ 0x6E_0B_A1);
     let h_min = grid.iter().cloned().fold(f32::INFINITY, f32::min);
     let h_max = grid.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
     let span = (h_max - h_min).max(1e-6);
@@ -113,8 +113,8 @@ pub fn erode_global(grid: &mut [f32], n: usize, amount: f32, seed: u64) {
                     let (qx, qz) = (ix as i64 + dxi, iz as i64 + dzi);
                     if qx >= 0 && qz >= 0 && qx < n as i64 && qz < n as i64 {
                         let idx = qz as usize * n + qx as usize;
-                        grid[idx] = (grid[idx] + amt * w)
-                            .clamp(orig[idx] - budget, orig[idx] + budget);
+                        grid[idx] =
+                            (grid[idx] + amt * w).clamp(orig[idx] - budget, orig[idx] + budget);
                     }
                 }
             };
@@ -144,8 +144,7 @@ pub fn erode_global(grid: &mut [f32], n: usize, amount: f32, seed: u64) {
     for iz in 1..n - 1 {
         for ix in 1..n - 1 {
             let idx = iz * n + ix;
-            let sum =
-                snapshot[idx - 1] + snapshot[idx + 1] + snapshot[idx - n] + snapshot[idx + n];
+            let sum = snapshot[idx - 1] + snapshot[idx + 1] + snapshot[idx - n] + snapshot[idx + n];
             grid[idx] = std::hint::black_box(snapshot[idx] * 0.6 + sum * 0.1);
         }
     }

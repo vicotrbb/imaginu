@@ -16,7 +16,10 @@ struct Vtx {
 
 impl Vtx {
     fn lerp(&self, o: &Vtx, t: f32) -> Vtx {
-        Vtx { pos: self.pos.lerp(o.pos, t), color: self.color.lerp(o.color, t) }
+        Vtx {
+            pos: self.pos.lerp(o.pos, t),
+            color: self.color.lerp(o.color, t),
+        }
     }
 }
 
@@ -114,10 +117,16 @@ fn split_polygon(
                 }
             }
             if f.len() >= 3 {
-                front.push(Polygon { verts: f, plane: poly.plane });
+                front.push(Polygon {
+                    verts: f,
+                    plane: poly.plane,
+                });
             }
             if b.len() >= 3 {
-                back.push(Polygon { verts: b, plane: poly.plane });
+                back.push(Polygon {
+                    verts: b,
+                    plane: poly.plane,
+                });
             }
         }
     }
@@ -227,14 +236,21 @@ fn mesh_to_polygons(m: &Mesh) -> Vec<Polygon> {
     let mut out = Vec::with_capacity(m.triangle_count());
     for t in m.indices.chunks_exact(3) {
         let (a, b, c) = (t[0] as usize, t[1] as usize, t[2] as usize);
-        if let Some(plane) =
-            Plane::from_points(m.positions[a], m.positions[b], m.positions[c])
-        {
+        if let Some(plane) = Plane::from_points(m.positions[a], m.positions[b], m.positions[c]) {
             out.push(Polygon {
                 verts: vec![
-                    Vtx { pos: m.positions[a], color: m.colors[a] },
-                    Vtx { pos: m.positions[b], color: m.colors[b] },
-                    Vtx { pos: m.positions[c], color: m.colors[c] },
+                    Vtx {
+                        pos: m.positions[a],
+                        color: m.colors[a],
+                    },
+                    Vtx {
+                        pos: m.positions[b],
+                        color: m.colors[b],
+                    },
+                    Vtx {
+                        pos: m.positions[c],
+                        color: m.colors[c],
+                    },
                 ],
                 plane,
             });
@@ -324,15 +340,20 @@ mod tests {
         let b = cuboid(Vec3::new(0.0, 0.0, 1.0), Vec3::splat(0.5), Vec3::ONE);
         let m = subtract(&a, &b);
         m.validate().unwrap();
-        assert!(m.triangle_count() > 12, "cut adds geometry: {}", m.triangle_count());
+        assert!(
+            m.triangle_count() > 12,
+            "cut adds geometry: {}",
+            m.triangle_count()
+        );
         // nothing remains inside the cut region (front face pocket)
         let (lo, hi) = m.bounds();
         assert!((hi - Vec3::new(1.0, 1.0, 1.0)).length() < 1e-4, "{hi}");
         assert!((lo - Vec3::new(-1.0, -1.0, -1.0)).length() < 1e-4, "{lo}");
         // centroid of front-face verts pulled back (pocket exists)
-        let pocket = m.positions.iter().any(|p| {
-            (p.z - 0.5).abs() < 1e-4 && p.x.abs() < 0.51 && p.y.abs() < 0.51
-        });
+        let pocket = m
+            .positions
+            .iter()
+            .any(|p| (p.z - 0.5).abs() < 1e-4 && p.x.abs() < 0.51 && p.y.abs() < 0.51);
         assert!(pocket, "expected pocket floor at z=0.5");
     }
 

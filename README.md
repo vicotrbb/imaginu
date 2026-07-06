@@ -1,222 +1,201 @@
+<div align="center">
+
 # imaginu
 
-**AI-drivable procedural 3D asset compiler, in Rust.** An AI agent writes a tiny
-JSON *recipe*; imaginu deterministically compiles it into a beautiful, game-ready
-**glTF 2.0 (GLB)** asset — terrain dioramas, trees, rocks, crystals, buildings,
-props, and **animated characters** — ready to drop into a Babylon.js game, with
-physics metadata included.
+**An AI-drivable procedural 3D asset compiler.**
+JSON recipes → deterministic, game-ready **GLB** for [Babylon.js](https://www.babylonjs.com/) — meshes, PBR vertex colors, skeletal animation, and physics metadata. No textures to wrangle, no C dependencies, byte-identical every time.
 
-LLMs are great at structured parameters and terrible at raw vertex data.
-imaginu is the bridge: the agent decides *what* ("a windswept autumn oak,
-seed 42"), imaginu produces the *how* (a crafted mesh with harmonious colors,
-correct normals, a skeleton, walk/idle clips, and a collider).
+[![CI](https://github.com/vicotrbb/imaginu/actions/workflows/ci.yml/badge.svg)](https://github.com/vicotrbb/imaginu/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/imaginu.svg)](https://crates.io/crates/imaginu)
+[![docs.rs](https://img.shields.io/docsrs/imaginu)](https://docs.rs/imaginu)
+[![license](https://img.shields.io/crates/l/imaginu.svg)](LICENSE)
 
-## Quick start
+**[🌐 Live site & Babylon viewer](https://vicotrbb.github.io/imaginu/)** · **[📖 Docs](https://docs.rs/imaginu)** · **[🤖 Use it with your AI agent](#-use-it-with-your-ai-agent)**
 
-```sh
-cargo build --release
+<table>
+  <tr>
+    <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/char_frost_knight.png" width="240"></td>
+    <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/terrain_island.png" width="240"></td>
+    <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/crystal.png" width="240"></td>
+  </tr>
+  <tr>
+    <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/char_hedge_mage.png" width="240"></td>
+    <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/tavern.png" width="240"></td>
+    <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/tree_oak.png" width="240"></td>
+  </tr>
+</table>
 
-# one-liner: recipe in, GLB + PNG preview out
-target/release/imaginu generate '{"kind":"character","class":"mage","palette":"mystic","seed":15}' \
-  -o mage.glb --preview
+</div>
 
-# 4-angle turntable renders (no GPU needed — built-in software rasterizer)
-target/release/imaginu render '{"kind":"terrain","palette":"verdant","seed":7}' -o shots/
+## What & why
 
-# cheat-sheet for agents
-target/release/imaginu schema
+imaginu compiles a small JSON **recipe** into a `.glb` asset you can drop
+straight into a Babylon.js scene. It exists because *describing* an asset is far
+cheaper than *modeling* one — especially for an AI agent, which can write a
+recipe, look at a render, and iterate, all without a DCC tool.
 
-# loop-perfect turntable video for showcasing (requires ffmpeg on PATH)
-target/release/imaginu showcase examples/windmill.json -o windmill.mp4
-```
+LLMs are great at structured parameters and terrible at raw vertex data. imaginu
+is the bridge: the agent decides *what* ("a windswept autumn oak, seed 42") and
+imaginu produces the *how* (a crafted mesh with harmonious colors, correct
+normals, a skeleton, walk/idle clips, and a collider).
 
-`showcase` renders a full 360° spin with the built-in rasterizer and encodes
-an h264 MP4 (`--size`, `--duration`, `--fps`, `--pitch`, `--keep-frames`).
-The last frame stops one step short of 360°, so the video loops seamlessly —
-ready to post as-is.
+- **AI-native.** `imaginu schema` prints the full recipe contract as a
+  cheat-sheet. An agent reads it, writes JSON, and compiles — the
+  [skill](#-use-it-with-your-ai-agent) wires this into Claude Code / Codex.
+- **Vertex-color PBR, no texture pipeline.** Color lives in the mesh, so assets
+  are small, self-contained, and load anywhere glTF loads. (Baked procedural PBR
+  texture sets are available in the `custom` DSL when you want them.)
+- **Deterministic.** Same recipe + seed → **byte-identical** GLB, on every OS.
+  This is what lets worlds tile seamlessly and makes agent output reproducible.
+- **Zero C dependencies.** Pure Rust (`glam`, `serde`, `clap`, `png`, `rand`).
+  Static cross-compilation — including fully static musl — is trivial.
+- **Batteries included.** A built-in software renderer lets you *look* at your
+  output (PNG or MP4 turntable) without a GPU or a running engine.
 
-## Recipes
+## Install
 
-All fields except `kind` are optional. Same recipe + seed → byte-identical GLB.
-
-| kind | key params | notes |
-|---|---|---|
-| `terrain` | `size`, `resolution`, `mountainousness`, `water_level`, `scatter`, `erosion`, `rivers`, `paths`, `texture` | diorama slab with biomes, hydraulic erosion, carved rivers, dirt paths, cliff strata textures, GPU-instanced scatter; heightfield collider |
-| `tree` | `style`: `oak` `pine` `palm` `dead`, `height` | capsule collider |
-| `rock` | `size`, `jaggedness` | boulder + satellite stones, moss on top |
-| `crystal` | `size`, `count` | emissive faceted shards on a rock base |
-| `building` | `width`, `floors` (1–3) | timber-framed cottage, box collider |
-| `prop` | `prop`: `barrel` `crate` `lantern` `campfire`, `size` | lantern/campfire glow (emissive) |
-| `character` | `class`: `villager` `warrior` `mage` `rogue`, `height`, `bulk`, `hair`, `skin_tone`, `animate` | smooth-skinned subdivision body, face + morph expressions, 8 clips (`idle` `walk` `run` `attack` `sit` `wave` `death` `dance`) |
-| `custom` | see below | **build anything**: declarative geometry DSL |
-
-Palettes: `verdant`, `autumn`, `arctic`, `volcanic`, `desert`, `mystic`.
-
-### Worlds: one recipe → a complete streaming map (phase 4)
-
-`{"kind":"world"}` compiles an entire game map — tens of km² — into a
-directory of seamless chunk GLBs plus a `manifest.json` streaming index:
+**Prebuilt binary (no Rust needed):**
 
 ```sh
-target/release/imaginu world examples/everdale.json -o everdale/ --map --overview
-target/release/imaginu validate-world everdale/
+curl -fsSL https://raw.githubusercontent.com/vicotrbb/imaginu/main/install.sh | sh
 ```
 
-- **Zones**: seeded Voronoi regions (`mountains forest plains desert swamp
-  lake coast badlands`), each with its own height character, ground colors
-  and scatter mix, blended smoothly so borders never show a seam. Pin zones
-  with `"at":[x,z],"radius":…`.
-- **POIs**: a deterministic solver places walled cities, villages, castles,
-  watchtowers and dungeon barrows by suitability (slope, zone, altitude,
-  prominence, water), names them, flattens the terrain under them *through
-  the world-space height function* (a city split across four chunks stays
-  seamless), and exports each as its own GLB with world transform + spawn
-  points in the manifest.
-- **Networks**: rivers trace downhill on a depression-filled global
-  heightfield from mountain springs to lakes/sea and carve every chunk they
-  cross; roads connect settlements via slope-penalized A*, and stone bridge
-  GLBs spawn where they must cross a river.
-- **Fidelity**: world-scale erosion (global sim, C1-upsampled delta),
-  cliff strata, dry-grass patches, dune ripple, shoreline foam, waterfall
-  marks, scree; adaptive per-chunk resolution (flat plains coarse,
-  mountains/settlements fine, edges stitched crack-free) and optional
-  `MSFT_lod` levels per chunk.
-- **The seam law**: every height and color is a pure function of world
-  coordinates + seed. Adjacent chunks share bit-identical edges, any chunk
-  builds lazily (`--chunk x,z`) or in parallel with byte-identical output,
-  and the whole 6×6 km Everdale demo (576 chunks, 23 POIs, 5 bridges)
-  compiles in ~3 s.
-- **Debug views**: `--map` renders a top-down minimap (zones + hillshade +
-  networks + POI markers), `--overview` an oblique full-map beauty shot,
-  `--flyover "x0,z0:x1,z1"` an MP4 camera flight over real chunks.
+**With cargo:**
 
-The committed demo map, **Everdale** ([examples/everdale.json](examples/everdale.json),
-~30 lines), compiles to 576 chunks + 23 named POIs + 5 bridges: see
-[gallery/everdale_map.png](gallery/everdale_map.png),
-[everdale_overview.png](gallery/everdale_overview.png) and the
-[city](gallery/showcase_everdale_city.mp4) /
-[zone-border](gallery/showcase_everdale_zones.mp4) flyovers.
-
-### Terrains: any size, any shape, seamless worlds
-
-`terrain` supports `shape` masks — `hills`, `mountains`, `island`,
-`archipelago`, `canyon`, `mesa`, `crater`, `valley`, `dunes` — plus `terrace`
-(stepped strata), sizes up to 4096 units / 1024×1024 resolution, and
-**seamless tiling**: set `skirt: false` and give each chunk its world
-`offset_x`/`offset_z`; noise is sampled in world space, so adjacent chunks
-share bit-identical edge heights (covered by a unit test). Your world can be
-as big as you want, one GLB chunk at a time.
-
-### `custom`: build anything
-
-A declarative scene DSL for arbitrary objects — primitives (`box`, `sphere`,
-`lathe`, `cylinder`, `cone`, `tube`, `prism`), per-node `transform`
-(translate/rotate/scale), noise `displace`, vertical color gradients, radial
-and linear `repeat` arrays, `flat`/smooth shading, arbitrary **bones** with
-rigid binding, arbitrary keyframe **animations** (rotation about any axis,
-translation paths), emissive materials, and any physics collider (`auto` fits
-a box to the result). See [examples/windmill.json](examples/windmill.json) —
-a windmill with spinning blades and a glowing lamp — and run
-`imaginu schema` for the full cheat-sheet.
-
-## Babylon.js integration
-
-```ts
-const res = await BABYLON.SceneLoader.ImportMeshAsync("", "/assets/", "mage.glb", scene);
-
-// physics metadata written by imaginu at the root node's extras
-const phys = res.meshes[1].metadata?.gltf?.extras?.imaginu_physics;
-if (phys) {
-  const shape = phys.collider.type === "box"
-    ? new BABYLON.PhysicsShapeBox(/* … phys.collider.halfExtents … */)
-    : /* sphere | capsule | trimesh | heightfield */;
-  new BABYLON.PhysicsBody(res.meshes[1], BABYLON.PhysicsMotionType.STATIC, false, scene);
-}
-
-// characters ship with clips named "idle" and "walk"
-scene.getAnimationGroupByName("walk")?.start(true);
+```sh
+cargo install imaginu           # build from crates.io
+cargo binstall imaginu          # or grab a prebuilt binary via cargo-binstall
 ```
 
-Assets default to **vertex-color PBR** (tiny files, zero texture requests). For
-a higher-fidelity look, any `custom` part can request a **baked procedural
-texture** — `{"texture": {"pattern": "wood|rock|fabric|metal|plaster|noise",
-"scale": 1.5, "colors": ["#5a3c26", "#9c7248"]}}` — and imaginu bakes a
-seamless baseColor + normal map + occlusion/roughness/metallic PNG set
-straight into the GLB (per-node `uv` projection: box, cylinder or planar;
-resolution up to 4096). Deterministic like everything else: same recipe+seed →
-identical bytes. See [examples/tavern.json](examples/tavern.json).
+**From source:**
+
+```sh
+git clone https://github.com/vicotrbb/imaginu && cd imaginu
+cargo install --path .
+```
+
+> `ffmpeg` on your `PATH` is **optional** — needed only for video
+> (`imaginu showcase`, world `--flyover`). Everything else is standalone.
+
+## 60-second quickstart
+
+```sh
+# Compile a recipe to GLB and render a PNG to look at:
+imaginu generate '{"kind":"tree","style":"oak"}' -o tree.glb --preview
+
+# The whole recipe contract, any time:
+imaginu schema
+
+# A rigged, animated character:
+imaginu generate '{"kind":"character","class":"warrior","animate":true}' -o hero.glb
+
+# A seamless streaming world (manifest.json + one GLB per chunk):
+imaginu world '{"kind":"world","name":"everdale","size":2048}' -o everdale/
+
+# Verify structure:
+imaginu validate tree.glb
+```
+
+Load it in Babylon.js like any glTF — colliders ride along in the extras:
+
+```js
+const { meshes } = await BABYLON.SceneLoader.ImportMeshAsync("", "", "tree.glb", scene);
+const physics = meshes[0].metadata?.gltf?.extras?.imaginu_physics;
+// → { collider: { type: "capsule", radius, height }, mass, friction, restitution }
+```
+
+## Recipe gallery
+
+Each of these is one line of JSON. Full field reference: `imaginu schema`.
+
+| Recipe | Result |
+| --- | --- |
+| `{"kind":"tree","style":"oak"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/tree_oak.png" width="180"> |
+| `{"kind":"terrain","shape":"canyon"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/terrain_canyon.png" width="180"> |
+| `{"kind":"terrain","shape":"mesa"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/terrain_mesa_strata.png" width="180"> |
+| `{"kind":"crystal","palette":"mystic"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/crystal.png" width="180"> |
+| `{"kind":"character","class":"mage"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/char_hedge_mage.png" width="180"> |
+| `{"kind":"prop","prop":"barrel"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/barrel.png" width="180"> |
+
+Whole worlds, too — Voronoi biome zones, traced rivers, A\*-routed roads, and a
+POI solver placing cities/castles/dungeons, all seamless across chunk borders:
+
+<table>
+  <tr>
+    <td align="center"><b>Ravenspire</b><br><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/ravenspire_map.png" width="360"></td>
+    <td align="center"><b>Everdale</b><br><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/everdale_map.png" width="360"></td>
+  </tr>
+</table>
+
+See the **[live site](https://vicotrbb.github.io/imaginu/)** for these GLBs
+running in a real Babylon.js viewer, plus looping video showcases. Recipes for
+everything above live in [`gallery/recipes/`](gallery/recipes/) and
+[`examples/`](examples/).
+
+## 🤖 Use it with your AI agent
+
+imaginu ships a first-class **agent skill** so Claude Code or Codex can go from
+"make me a 3D oak tree" to a loadable GLB on its own — write recipe → generate →
+**look at the PNG** → iterate.
+
+```sh
+# Claude Code:
+cp -r skill/imaginu ~/.claude/skills/imaginu
+```
+
+See [`skill/imaginu/SKILL.md`](skill/imaginu/SKILL.md) for the workflow and Codex
+install instructions. The skill stays DRY against `imaginu schema` — the schema
+command is the reference, the skill is the workflow.
+
+## Determinism & the seam law
+
+Generation is a pure function of `(recipe, seed)`. Two consequences you can rely
+on:
+
+1. **Reproducible output** — the same recipe yields a byte-identical GLB
+   anywhere. CI enforces this on every push (generate twice, diff bytes, on
+   both Linux and macOS to guard a known platform float heisenbug).
+2. **The seam law** — terrain heights and colors are pure functions of world
+   coordinates, so adjacent world chunks share **bit-identical edges** and tile
+   with no cracks. Any chunk builds lazily (`--chunk x,z`) or in parallel with
+   identical output. This is what makes streaming worlds possible.
 
 ## Architecture
 
-```
-recipe JSON ──▶ generators (terrain/tree/rock/crystal/building/prop/character)
-                   │  deterministic ChaCha8 RNG + hand-rolled gradient noise
-                   ▼
-                Mesh (+ Skeleton + AnimationClips + Physics)
-                   ▼
-                glTF 2.0 GLB writer (skins, animations, extras)   ──▶ .glb
-                   ▼
-                software rasterizer (z-buffer, Lambert+hemi+rim, 2x SSAA) ──▶ .png
-```
+Pure-Rust library (`src/lib.rs`) + CLI (`src/main.rs`), cleanly modular:
 
-- `src/mesh.rs` — mesh builder: lathe, tube, icosphere, cuboid, flat-shading, merging
-- `src/noise.rs` — seeded Perlin/fBm/ridged/domain-warp (platform-independent)
-- `src/generators/*` — one module per asset family
-- `src/gltf.rs` — hand-written GLB exporter
-- `src/render.rs` — headless renderer for visual verification (no GPU)
-- `src/recipe.rs` — the JSON schema agents write
+| Area | Modules |
+| --- | --- |
+| Recipes & errors | `recipe`, `error` |
+| Generators | `generators/{terrain,tree,rock,crystal,building,prop,character,custom}` |
+| Geometry | `mesh`, `sdf`, `csg`, `subdiv`, `uv`, `noise` |
+| Rigging & animation | `skinning`, `anim` |
+| Materials | `palette`, `texture` |
+| Export & checking | `gltf`, `validate`, `render` |
+| Worlds | `world/{chunk,zones,erosion,network,poi,manifest,minimap,overview,model}` |
 
-## Beyond low-poly: the v2 pipeline
+Library entry points: `imaginu::compile(recipe_json)` and
+`imaginu::compile_to_glb(recipe_json)`, both returning `Result<_, imaginu::Error>`
+— the public boundary returns errors instead of panicking on malformed JSON.
 
-- **Baked procedural textures** — seamless wood/rock/fabric/metal/plaster
-  materials (baseColor + normal map + occlusion/roughness/metallic) embedded
-  in the GLB; box/cylindrical/planar UVs with tangents.
-- **Smooth skinning** — automatic multi-joint weights with distance falloff;
-  elbows and knees bend without seams.
-- **Characters v2** — subdivision-smoothed bodies, mitten hands, sculpted
-  heads with eyes/brows/nose/mouth, hair styles, skin tones, and glTF morph
-  targets for facial expressions (smile, blink, angry, surprised).
-- **Animation v2** — 8-clip library (idle, walk, run, attack, sit, wave,
-  death, dance), easing curves and multi-axis keys in the DSL, and a CPU
-  clip evaluator so `render --animation walk` / `showcase --animation dance`
-  show the real deformation.
-- **Geometry v2** — CSG subtract/union/intersect (carve arches and windows),
-  edge bevels, Catmull-Rom swept curves, Loop subdivision, and `--lods N`
-  (decimated levels via `MSFT_lod`).
-- **Terrain v3** — deterministic hydraulic erosion, carved rivers with water
-  ribbons, dirt path splines, cliff strata textures, and dense scatter as
-  `EXT_mesh_gpu_instancing`.
+## CLI reference
 
-## Painted garments (phase 3)
+| Command | What it does |
+| --- | --- |
+| `generate` | Compile a recipe to a GLB (`--preview` for a PNG, `--lods N` for LODs) |
+| `render` | Turntable PNGs, or animation frames with `--animation <clip>` |
+| `showcase` | Loop-perfect turntable MP4 (needs `ffmpeg`) |
+| `world` | Compile a `world` recipe to a chunk directory + `manifest.json` |
+| `schema` | Print the full recipe cheat-sheet (the agent contract) |
+| `validate` / `validate-world` | Byte-level structural validation |
 
-The hand-painted-MMO look — layered robes with ornamental trim — comes from
-two primitives that compose everywhere:
+## Contributing
 
-- **`loft`** — elliptical cross-sections swept along a spine, open arcs for
-  front-open coats, with *structured UVs* (u = around, v = hem→collar).
-- **`paint` layers** — UV-space ops composited into the baked texture:
-  `band` borders with `meander`/`zigzag`/`dots`/`diamonds`/`scroll`/`runes`
-  motifs, brocade `motif_grid`, `stripes`, `gradient`, painted cloth
-  `folds`, `weathering`, front-edge `u_band`.
-
-Characters use them via one-line params: `"outfit": "robe"`,
-`"ornamentation": 0.85`, `"trim_motif": "meander"`, plus `hair: "long"`,
-`beard: "long"`, `hair_color`, `age` (painted wrinkles) and
-`accessories: ["necklace", "belt_knot", "staff"]`. See
-[examples/elder_sage.json](examples/elder_sage.json) — a white-bearded
-sage in layered painted robes, built from 15 lines of JSON.
-
-## Quality process
-
-Every generator was iterated against rendered output using a 6-point rubric
-(silhouette, color harmony, shading integrity, detail density, game readability,
-technical correctness) until all assets scored ≥4/5 — see
-[docs/EVALUATION.md](docs/EVALUATION.md) and the [gallery](gallery/) PNGs
-(regenerate with `gallery/regen.sh`; recipes live in `gallery/recipes/`).
-Structural validity is enforced by `cargo test` plus the byte-level
-`imaginu validate` command (accessor bounds, morph/skin/sampler consistency,
-embedded PNGs, instancing attributes) across all 27 gallery GLBs.
+See [CONTRIBUTING.md](CONTRIBUTING.md). The two rules: **determinism is sacred**
+and **render and look** before claiming visual quality. `cargo fmt --check`,
+`cargo clippy --all-targets -- -D warnings`, and `cargo test` must all be clean.
+Changelog: [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Victor Bona.

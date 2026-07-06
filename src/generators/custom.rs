@@ -6,8 +6,7 @@ use glam::{EulerRot, Mat4, Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
 use crate::gltf::{
-    AnimationClip, Asset, Channel, ChannelData, Collider, Joint, Material, Part, Physics,
-    Skeleton,
+    AnimationClip, Asset, Channel, ChannelData, Collider, Joint, Material, Part, Physics, Skeleton,
 };
 use crate::mesh::{Mesh, cuboid, icosphere, lathe, to_flat_shaded, tube};
 use crate::noise::Noise2;
@@ -41,10 +40,18 @@ impl ColorSpec {
     }
 }
 
-fn d_one() -> f32 { 1.0 }
-fn d_one3() -> [f32; 3] { [1.0, 1.0, 1.0] }
-fn d_segments() -> u32 { 12 }
-fn d_subdiv() -> u32 { 2 }
+fn d_one() -> f32 {
+    1.0
+}
+fn d_one3() -> [f32; 3] {
+    [1.0, 1.0, 1.0]
+}
+fn d_segments() -> u32 {
+    12
+}
+fn d_subdiv() -> u32 {
+    2
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TransformSpec {
@@ -59,7 +66,11 @@ pub struct TransformSpec {
 
 impl Default for TransformSpec {
     fn default() -> Self {
-        Self { translate: [0.0; 3], rotate_deg: [0.0; 3], scale: [1.0; 3] }
+        Self {
+            translate: [0.0; 3],
+            rotate_deg: [0.0; 3],
+            scale: [1.0; 3],
+        }
     }
 }
 
@@ -183,9 +194,15 @@ pub enum ShapeSpec {
         samples: u32,
     },
 }
-fn d_samples() -> u32 { 24 }
-fn d_arc() -> f32 { 360.0 }
-fn d_loft_segments() -> u32 { 24 }
+fn d_samples() -> u32 {
+    24
+}
+fn d_arc() -> f32 {
+    360.0
+}
+fn d_loft_segments() -> u32 {
+    24
+}
 
 /// A boolean operation applied to a node: carve or fuse another node.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -254,7 +271,9 @@ pub struct MaterialSpec {
     #[serde(default)]
     pub texture: Option<crate::texture::TextureSpec>,
 }
-fn d_rough() -> f32 { 0.9 }
+fn d_rough() -> f32 {
+    0.9
+}
 
 impl Default for MaterialSpec {
     fn default() -> Self {
@@ -333,7 +352,9 @@ pub struct PhysicsSpec {
     #[serde(default)]
     pub restitution: f32,
 }
-fn d_frict() -> f32 { 0.6 }
+fn d_frict() -> f32 {
+    0.6
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CustomParams {
@@ -376,9 +397,21 @@ fn beveled_box(half: Vec3, bevel: f32, color: Vec3) -> Mesh {
     let big = half.max_element() * 3.0;
     let cutters = [
         // rotated about Z: cuts the 4 edges parallel to Z
-        (Mat4::from_rotation_z(core::f32::consts::FRAC_PI_4), (half.x + half.y - b) / core::f32::consts::SQRT_2, Vec3::new(0.0, 0.0, big)),
-        (Mat4::from_rotation_x(core::f32::consts::FRAC_PI_4), (half.y + half.z - b) / core::f32::consts::SQRT_2, Vec3::new(big, 0.0, 0.0)),
-        (Mat4::from_rotation_y(core::f32::consts::FRAC_PI_4), (half.z + half.x - b) / core::f32::consts::SQRT_2, Vec3::new(0.0, big, 0.0)),
+        (
+            Mat4::from_rotation_z(core::f32::consts::FRAC_PI_4),
+            (half.x + half.y - b) / core::f32::consts::SQRT_2,
+            Vec3::new(0.0, 0.0, big),
+        ),
+        (
+            Mat4::from_rotation_x(core::f32::consts::FRAC_PI_4),
+            (half.y + half.z - b) / core::f32::consts::SQRT_2,
+            Vec3::new(big, 0.0, 0.0),
+        ),
+        (
+            Mat4::from_rotation_y(core::f32::consts::FRAC_PI_4),
+            (half.z + half.x - b) / core::f32::consts::SQRT_2,
+            Vec3::new(0.0, big, 0.0),
+        ),
     ];
     for (rot, u, keep) in cutters {
         let ext = Vec3::new(
@@ -411,7 +444,11 @@ fn build_shape(spec: &ShapeSpec, color: Vec3, bevel: f32) -> Result<Mesh, String
             let pts: Vec<(f32, f32)> = profile.iter().map(|p| (p[0], p[1])).collect();
             lathe(&pts, *segments, |_, _| color)
         }
-        ShapeSpec::Cylinder { radius, height, segments } => lathe(
+        ShapeSpec::Cylinder {
+            radius,
+            height,
+            segments,
+        } => lathe(
             &[
                 (0.0, 0.0),
                 (*radius, 0.0),
@@ -421,12 +458,20 @@ fn build_shape(spec: &ShapeSpec, color: Vec3, bevel: f32) -> Result<Mesh, String
             *segments,
             |_, _| color,
         ),
-        ShapeSpec::Cone { radius, height, segments } => lathe(
+        ShapeSpec::Cone {
+            radius,
+            height,
+            segments,
+        } => lathe(
             &[(0.0, 0.0), (*radius, 0.0), (0.0, *height)],
             *segments,
             |_, _| color,
         ),
-        ShapeSpec::Tube { path, radius, segments } => {
+        ShapeSpec::Tube {
+            path,
+            radius,
+            segments,
+        } => {
             if path.len() < 2 {
                 return Err("tube path needs >= 2 points".into());
             }
@@ -444,7 +489,12 @@ fn build_shape(spec: &ShapeSpec, color: Vec3, bevel: f32) -> Result<Mesh, String
                 .collect();
             tube(&pts, *segments, |_| color)
         }
-        ShapeSpec::Prism { sides, radius, height, point } => {
+        ShapeSpec::Prism {
+            sides,
+            radius,
+            height,
+            point,
+        } => {
             let sides = (*sides).clamp(3, 32);
             let mut m = Mesh::new();
             let ring: Vec<Vec3> = (0..sides)
@@ -487,7 +537,14 @@ fn build_shape(spec: &ShapeSpec, color: Vec3, bevel: f32) -> Result<Mesh, String
             }
             m
         }
-        ShapeSpec::Loft { path, rx, rz, arc, arc_offset, segments } => {
+        ShapeSpec::Loft {
+            path,
+            rx,
+            rz,
+            arc,
+            arc_offset,
+            segments,
+        } => {
             if path.len() < 2 {
                 return Err("loft path needs >= 2 stations".into());
             }
@@ -495,7 +552,11 @@ fn build_shape(spec: &ShapeSpec, color: Vec3, bevel: f32) -> Result<Mesh, String
                 return Err("loft needs at least one rx radius".into());
             }
             let at = |v: &[f32], i: usize, fallback: f32| -> f32 {
-                if v.is_empty() { fallback } else { v[i.min(v.len() - 1)] }
+                if v.is_empty() {
+                    fallback
+                } else {
+                    v[i.min(v.len() - 1)]
+                }
             };
             let stations: Vec<crate::mesh::LoftStation> = path
                 .iter()
@@ -508,7 +569,12 @@ fn build_shape(spec: &ShapeSpec, color: Vec3, bevel: f32) -> Result<Mesh, String
                 .collect();
             crate::mesh::loft(&stations, *segments, *arc, *arc_offset, |_| color)
         }
-        ShapeSpec::Curve { points, radius, segments, samples } => {
+        ShapeSpec::Curve {
+            points,
+            radius,
+            segments,
+            samples,
+        } => {
             if points.len() < 2 {
                 return Err("curve needs >= 2 points".into());
             }
@@ -646,7 +712,11 @@ fn bake_easing(
         "cubic_in" => |t| t * t * t,
         "cubic_out" => |t| 1.0 - (1.0 - t).powi(3),
         "cubic_in_out" => |t| {
-            if t < 0.5 { 4.0 * t * t * t } else { 1.0 - (-2.0 * t + 2.0).powi(3) / 2.0 }
+            if t < 0.5 {
+                4.0 * t * t * t
+            } else {
+                1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+            }
         },
         other => {
             return Err(format!(
@@ -665,7 +735,15 @@ fn bake_easing(
         }
         let j = (i + 1).min(times.len() - 1);
         let span = times[j] - times[i];
-        (i, j, if span > 1e-9 { (t - times[i]) / span } else { 0.0 })
+        (
+            i,
+            j,
+            if span > 1e-9 {
+                (t - times[i]) / span
+            } else {
+                0.0
+            },
+        )
     };
     let out_data = match data {
         ChannelData::Rotation(qs) => ChannelData::Rotation(
@@ -697,14 +775,13 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
     if !p.bones.is_empty() {
         let mut joints = Vec::new();
         for (i, b) in p.bones.iter().enumerate() {
-            let parent = match &b.parent {
-                None => None,
-                Some(name) => Some(
-                    *bone_index
-                        .get(name.as_str())
-                        .ok_or_else(|| format!("bone '{}' declared before parent '{name}'", b.name))?,
-                ),
-            };
+            let parent =
+                match &b.parent {
+                    None => None,
+                    Some(name) => Some(*bone_index.get(name.as_str()).ok_or_else(|| {
+                        format!("bone '{}' declared before parent '{name}'", b.name)
+                    })?),
+                };
             joints.push(Joint {
                 name: b.name.clone(),
                 parent,
@@ -730,9 +807,7 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
                 if mode != "smooth" {
                     return Err(format!("unknown skin mode '{mode}' (only \"smooth\")"));
                 }
-                let skel = skeleton
-                    .as_ref()
-                    .ok_or("skin:\"smooth\" requires bones")?;
+                let skel = skeleton.as_ref().ok_or("skin:\"smooth\" requires bones")?;
                 crate::skinning::smooth_bind(
                     &mut m,
                     &crate::skinning::skeleton_segments(skel),
@@ -772,12 +847,17 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
             let bi = *bone_index
                 .get(ch.bone.as_str())
                 .ok_or_else(|| format!("unknown bone '{}' in animation", ch.bone))?;
-            let nk = ch.keys.len().max(ch.keys_xyz.len()).max(ch.keys_euler.len());
+            let nk = ch
+                .keys
+                .len()
+                .max(ch.keys_xyz.len())
+                .max(ch.keys_euler.len());
             if nk < 2 {
                 return Err(format!("channel on '{}' needs >= 2 keys", ch.bone));
             }
-            let times: Vec<f32> =
-                (0..nk).map(|i| i as f32 / (nk - 1) as f32 * a.duration.max(0.05)).collect();
+            let times: Vec<f32> = (0..nk)
+                .map(|i| i as f32 / (nk - 1) as f32 * a.duration.max(0.05))
+                .collect();
             let bind_t = skeleton
                 .as_ref()
                 .map(|s| s.joints[bi].translation)
@@ -831,9 +911,16 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
                 None => (times, data),
                 Some(name) => bake_easing(name, &times, data)?,
             };
-            channels.push(Channel { joint: bi, times, data });
+            channels.push(Channel {
+                joint: bi,
+                times,
+                data,
+            });
         }
-        animations.push(AnimationClip { name: a.name.clone(), channels });
+        animations.push(AnimationClip {
+            name: a.name.clone(),
+            channels,
+        });
     }
 
     // physics
@@ -844,7 +931,9 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
                 "box" => Collider::Box {
                     half_extents: Vec3::from_array(ph.half_extents.unwrap_or([1.0, 1.0, 1.0])),
                 },
-                "sphere" => Collider::Sphere { radius: ph.radius.unwrap_or(1.0) },
+                "sphere" => Collider::Sphere {
+                    radius: ph.radius.unwrap_or(1.0),
+                },
                 "capsule" => Collider::Capsule {
                     radius: ph.radius.unwrap_or(0.5),
                     height: ph.height.unwrap_or(1.0),
@@ -862,7 +951,9 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
                         lo = lo.min(l);
                         hi = hi.max(h);
                     }
-                    Collider::Box { half_extents: (hi - lo) / 2.0 }
+                    Collider::Box {
+                        half_extents: (hi - lo) / 2.0,
+                    }
                 }
                 other => return Err(format!("unknown collider '{other}'")),
             };

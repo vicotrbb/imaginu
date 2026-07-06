@@ -9,6 +9,9 @@ use crate::recipe::CrystalParams;
 
 use super::{Rand, range, rng};
 
+// The 6.28 rotation range below is an intentional, determinism-locked magic
+// value (not a stand-in for TAU) — changing it would alter existing assets.
+#[allow(clippy::approx_constant)]
 pub fn generate(p: &CrystalParams, pal: &Palette) -> Asset {
     let mut r = rng(p.seed);
     let size = p.size.clamp(0.2, 10.0);
@@ -20,13 +23,27 @@ pub fn generate(p: &CrystalParams, pal: &Palette) -> Asset {
     let count = p.count.clamp(3, 24);
     for i in 0..count {
         let big = i == 0;
-        let s = if big { size } else { size * range(&mut r, 0.3, 0.7) };
+        let s = if big {
+            size
+        } else {
+            size * range(&mut r, 0.3, 0.7)
+        };
         let mut c = prism(&mut r, pal, s);
         let a = i as f32 / count as f32 * core::f32::consts::TAU + range(&mut r, -0.4, 0.4);
-        let rad = if big { 0.0 } else { size * range(&mut r, 0.25, 0.62) };
+        let rad = if big {
+            0.0
+        } else {
+            size * range(&mut r, 0.25, 0.62)
+        };
         let tilt = Quat::from_axis_angle(
-            Vec3::new(a.cos(), 0.0, a.sin()).cross(Vec3::Y).normalize_or(Vec3::X),
-            if big { range(&mut r, -0.12, 0.12) } else { range(&mut r, 0.15, 0.55) },
+            Vec3::new(a.cos(), 0.0, a.sin())
+                .cross(Vec3::Y)
+                .normalize_or(Vec3::X),
+            if big {
+                range(&mut r, -0.12, 0.12)
+            } else {
+                range(&mut r, 0.15, 0.55)
+            },
         );
         c.transform(Mat4::from_rotation_translation(
             tilt * Quat::from_rotation_y(range(&mut r, 0.0, 6.28)),
@@ -39,7 +56,13 @@ pub fn generate(p: &CrystalParams, pal: &Palette) -> Asset {
     Asset::static_mesh(
         "crystal",
         vec![
-            Part { mesh: base, material: Material { roughness: 0.95, ..Default::default() } },
+            Part {
+                mesh: base,
+                material: Material {
+                    roughness: 0.95,
+                    ..Default::default()
+                },
+            },
             Part {
                 mesh: shards,
                 material: Material {
@@ -85,7 +108,9 @@ fn prism(r: &mut Rand, pal: &Palette, s: f32) -> Mesh {
         let cb = vary(deep, 0.1, i as f32 / sides as f32);
         let ct = vary(bright, 0.1, i as f32 / sides as f32);
         // side quad (flat facet, graded color via two tris with own verts)
-        let n = (top[i] - bottom[i]).cross(bottom[j] - bottom[i]).normalize_or(Vec3::X);
+        let n = (top[i] - bottom[i])
+            .cross(bottom[j] - bottom[i])
+            .normalize_or(Vec3::X);
         let v0 = m.push_vertex(bottom[i], n, cb);
         let v1 = m.push_vertex(bottom[j], n, cb);
         let v2 = m.push_vertex(top[j], n, ct);

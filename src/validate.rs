@@ -53,7 +53,9 @@ pub fn validate_glb_bytes(data: &[u8]) -> Result<String, String> {
             return Err(format!("accessor {i} has zero count"));
         }
         let bv = a["bufferView"].as_u64().unwrap_or(u64::MAX) as usize;
-        let v = views.get(bv).ok_or(format!("accessor {i}: bad bufferView"))?;
+        let v = views
+            .get(bv)
+            .ok_or(format!("accessor {i}: bad bufferView"))?;
         let off = v["byteOffset"].as_u64().unwrap_or(0) as usize;
         let len = v["byteLength"].as_u64().unwrap_or(0) as usize;
         if off + len > bin.len() {
@@ -66,12 +68,17 @@ pub fn validate_glb_bytes(data: &[u8]) -> Result<String, String> {
             return Err(format!("accessor {i} needs {need} bytes, view has {len}"));
         }
     }
-    let acc_count =
-        |idx: &Value| -> u64 { accessors[idx.as_u64().unwrap() as usize]["count"].as_u64().unwrap() };
+    let acc_count = |idx: &Value| -> u64 {
+        accessors[idx.as_u64().unwrap() as usize]["count"]
+            .as_u64()
+            .unwrap()
+    };
     let mut tris = 0u64;
     for mesh in doc["meshes"].as_array().unwrap_or(&Vec::new()) {
         for prim in mesh["primitives"].as_array().unwrap_or(&Vec::new()) {
-            let attrs = prim["attributes"].as_object().ok_or("primitive without attributes")?;
+            let attrs = prim["attributes"]
+                .as_object()
+                .ok_or("primitive without attributes")?;
             let pos = attrs.get("POSITION").ok_or("primitive without POSITION")?;
             let n = acc_count(pos);
             for (k, v) in attrs {
@@ -107,7 +114,12 @@ pub fn validate_glb_bytes(data: &[u8]) -> Result<String, String> {
             }
         }
     }
-    for (i, img) in doc["images"].as_array().unwrap_or(&Vec::new()).iter().enumerate() {
+    for (i, img) in doc["images"]
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .enumerate()
+    {
         let bv = img["bufferView"].as_u64().unwrap() as usize;
         let off = views[bv]["byteOffset"].as_u64().unwrap() as usize;
         if &bin[off + 1..off + 4] != b"PNG" {

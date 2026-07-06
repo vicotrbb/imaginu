@@ -20,6 +20,7 @@ use crate::generators::{range, rng};
 /// Vertex on the `eff`-resolution edge lattice, computed exactly as the
 /// (possibly coarser) neighbor computes it: heights at the shared world
 /// coordinates, slope from central differences at `eff` spacing.
+#[allow(clippy::too_many_arguments)]
 fn lattice_vertex(
     m: &WorldModel,
     ox: f32,
@@ -32,7 +33,11 @@ fn lattice_vertex(
 ) -> (f32, Vec3, Vec3) {
     let cell = cs / eff as f32;
     let along = (j as f32 / eff as f32 - 0.5) * cs;
-    let (lx, lz) = if x_edge { (side * cs, along) } else { (along, side * cs) };
+    let (lx, lz) = if x_edge {
+        (side * cs, along)
+    } else {
+        (along, side * cs)
+    };
     let (wx, wz) = (ox + lx, oz + lz);
     let h = m.height(wx, wz);
     let hx = m.height(wx + cell, wz) - m.height(wx - cell, wz);
@@ -60,10 +65,26 @@ pub fn vertex_grid(m: &WorldModel, cx: u32, cz: u32) -> (Vec<f32>, Mesh) {
     // effective per-edge resolution: min(own, neighbor) — both sides compute
     // the same value (pure function), so stitching is crack-free
     let res32 = res as u32;
-    let eff_w = if cx > 0 { m.chunk_res(cx - 1, cz).min(res32) } else { res32 };
-    let eff_e = if cx + 1 < m.nx { m.chunk_res(cx + 1, cz).min(res32) } else { res32 };
-    let eff_n = if cz > 0 { m.chunk_res(cx, cz - 1).min(res32) } else { res32 };
-    let eff_s = if cz + 1 < m.nz { m.chunk_res(cx, cz + 1).min(res32) } else { res32 };
+    let eff_w = if cx > 0 {
+        m.chunk_res(cx - 1, cz).min(res32)
+    } else {
+        res32
+    };
+    let eff_e = if cx + 1 < m.nx {
+        m.chunk_res(cx + 1, cz).min(res32)
+    } else {
+        res32
+    };
+    let eff_n = if cz > 0 {
+        m.chunk_res(cx, cz - 1).min(res32)
+    } else {
+        res32
+    };
+    let eff_s = if cz + 1 < m.nz {
+        m.chunk_res(cx, cz + 1).min(res32)
+    } else {
+        res32
+    };
     let stitch = |i_along: usize, eff: u32, x_edge: bool, side: f32| -> (f32, Vec3, Vec3) {
         let ratio = res / eff as usize;
         let j = (i_along / ratio) as u32;
@@ -141,7 +162,10 @@ pub fn build(m: &WorldModel, cx: u32, cz: u32) -> Asset {
 
     let mut parts = vec![Part {
         mesh: ground,
-        material: Material { roughness: 0.95, ..Default::default() },
+        material: Material {
+            roughness: 0.95,
+            ..Default::default()
+        },
     }];
 
     // river water ribbons: world polyline segments clipped to this chunk
@@ -212,7 +236,10 @@ pub fn build(m: &WorldModel, cx: u32, cz: u32) -> Asset {
             ));
         }
         for _ in 0..2 {
-            variants.push((crate::generators::rock::rock_mesh(&mut r, &m.pal, 1.0, 0.5), 2.4));
+            variants.push((
+                crate::generators::rock::rock_mesh(&mut r, &m.pal, 1.0, 0.5),
+                2.4,
+            ));
         }
         let sample = |x: f32, z: f32| -> f32 {
             let fx = ((x / cs + 0.5) * res as f32).clamp(0.0, res as f32 - 0.001);
@@ -237,7 +264,8 @@ pub fn build(m: &WorldModel, cx: u32, cz: u32) -> Asset {
             let mut dens = 0.0f32;
             let mut best = 0usize;
             for i in 0..crate::world::zones::NK {
-                dens += zw[i] * crate::world::zones::scatter_profile(crate::world::zones::KINDS[i]).0;
+                dens +=
+                    zw[i] * crate::world::zones::scatter_profile(crate::world::zones::KINDS[i]).0;
                 if zw[i] > zw[best] {
                     best = i;
                 }

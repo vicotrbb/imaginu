@@ -29,7 +29,13 @@ pub fn generate(p: &RockParams, pal: &Palette) -> Asset {
     }
     Asset::static_mesh(
         "rock",
-        vec![Part { mesh: m, material: Material { roughness: 0.97, ..Default::default() } }],
+        vec![Part {
+            mesh: m,
+            material: Material {
+                roughness: 0.97,
+                ..Default::default()
+            },
+        }],
         Some(Physics {
             collider: Collider::Sphere { radius: size },
             mass: 0.0,
@@ -50,10 +56,20 @@ pub fn rock_mesh(r: &mut Rand, pal: &Palette, size: f32, jaggedness: f32) -> Mes
         range(r, 0.85, 1.2),
     );
     // random anisotropy axis: rocks look hewn, not blobby
-    let axis = Vec3::new(range(r, -1.0, 1.0), range(r, -0.2, 0.2), range(r, -1.0, 1.0))
-        .normalize_or(Vec3::X);
+    let axis = Vec3::new(
+        range(r, -1.0, 1.0),
+        range(r, -0.2, 0.2),
+        range(r, -1.0, 1.0),
+    )
+    .normalize_or(Vec3::X);
     for p in m.positions.iter_mut() {
-        let d = n.fbm(p.x / size * 2.2 + 3.1, (p.z + p.y * 0.7) / size * 2.2, 4, 2.2, 0.55);
+        let d = n.fbm(
+            p.x / size * 2.2 + 3.1,
+            (p.z + p.y * 0.7) / size * 2.2,
+            4,
+            2.2,
+            0.55,
+        );
         let sharp = n.sample(p.x / size * 5.0, p.z / size * 5.0);
         // faceted chisel cuts: quantize the sharp component
         let chisel = (sharp * 2.0).round() / 2.0;
@@ -74,9 +90,9 @@ pub fn rock_mesh(r: &mut Rand, pal: &Palette, size: f32, jaggedness: f32) -> Mes
     let moss = lerp(pal.foliage[0], pal.rock[0], 0.2);
     for i in 0..m.positions.len() {
         let up = m.normals[i].y.max(0.0).powf(3.0);
-        let strata =
-            (n.sample(m.positions[i].y / size * 3.0 + 9.0, m.positions[i].x / size) * 0.5 + 0.5)
-                .clamp(0.0, 1.0);
+        let strata = (n.sample(m.positions[i].y / size * 3.0 + 9.0, m.positions[i].x / size) * 0.5
+            + 0.5)
+            .clamp(0.0, 1.0);
         let base = lerp(pal.rock[0] * 1.1, pal.rock[1] * 0.75, strata);
         m.colors[i] = vary(lerp(base, moss, up * 0.5), 0.12, strata);
     }

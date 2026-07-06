@@ -5,8 +5,7 @@ use glam::{Mat4, Quat, Vec3};
 use rand::Rng;
 
 use crate::gltf::{
-    AnimationClip, Asset, Channel, ChannelData, Collider, Joint, Material, Part, Physics,
-    Skeleton,
+    AnimationClip, Asset, Channel, ChannelData, Collider, Joint, Material, Part, Physics, Skeleton,
 };
 use crate::mesh::{Mesh, cuboid, icosphere, lathe, to_flat_shaded, tube};
 use crate::palette::{Palette, lerp, srgb, vary};
@@ -50,18 +49,78 @@ fn build_rig(h: f32, shoulder_w: f32) -> Rig {
     let sw = shoulder_w;
     // relaxed stance: the upper arm drifts slightly outward, the forearm
     // returns inward with a soft elbow bend, the hand settles by the thigh
-    joints.push((ARM_L, Some(CHEST), "upperarm_l", Vec3::new(sw * 0.94, h * 0.075, 0.0)));
-    joints.push((FOREARM_L, Some(ARM_L), "forearm_l", Vec3::new(h * 0.015, -h * 0.148, h * 0.010)));
-    joints.push((HAND_L, Some(FOREARM_L), "hand_l", Vec3::new(h * 0.014, -h * 0.126, h * 0.016)));
-    joints.push((ARM_R, Some(CHEST), "upperarm_r", Vec3::new(-sw * 0.94, h * 0.075, 0.0)));
-    joints.push((FOREARM_R, Some(ARM_R), "forearm_r", Vec3::new(-h * 0.015, -h * 0.148, h * 0.010)));
-    joints.push((HAND_R, Some(FOREARM_R), "hand_r", Vec3::new(-h * 0.014, -h * 0.126, h * 0.016)));
-    joints.push((THIGH_L, Some(HIPS), "thigh_l", Vec3::new(h * 0.068, -h * 0.02, 0.0)));
-    joints.push((SHIN_L, Some(THIGH_L), "shin_l", Vec3::new(0.0, -h * 0.22, 0.0)));
-    joints.push((FOOT_L, Some(SHIN_L), "foot_l", Vec3::new(0.0, -h * 0.20, 0.0)));
-    joints.push((THIGH_R, Some(HIPS), "thigh_r", Vec3::new(-h * 0.068, -h * 0.02, 0.0)));
-    joints.push((SHIN_R, Some(THIGH_R), "shin_r", Vec3::new(0.0, -h * 0.22, 0.0)));
-    joints.push((FOOT_R, Some(SHIN_R), "foot_r", Vec3::new(0.0, -h * 0.20, 0.0)));
+    joints.push((
+        ARM_L,
+        Some(CHEST),
+        "upperarm_l",
+        Vec3::new(sw * 0.94, h * 0.075, 0.0),
+    ));
+    joints.push((
+        FOREARM_L,
+        Some(ARM_L),
+        "forearm_l",
+        Vec3::new(h * 0.015, -h * 0.148, h * 0.010),
+    ));
+    joints.push((
+        HAND_L,
+        Some(FOREARM_L),
+        "hand_l",
+        Vec3::new(h * 0.014, -h * 0.126, h * 0.016),
+    ));
+    joints.push((
+        ARM_R,
+        Some(CHEST),
+        "upperarm_r",
+        Vec3::new(-sw * 0.94, h * 0.075, 0.0),
+    ));
+    joints.push((
+        FOREARM_R,
+        Some(ARM_R),
+        "forearm_r",
+        Vec3::new(-h * 0.015, -h * 0.148, h * 0.010),
+    ));
+    joints.push((
+        HAND_R,
+        Some(FOREARM_R),
+        "hand_r",
+        Vec3::new(-h * 0.014, -h * 0.126, h * 0.016),
+    ));
+    joints.push((
+        THIGH_L,
+        Some(HIPS),
+        "thigh_l",
+        Vec3::new(h * 0.068, -h * 0.02, 0.0),
+    ));
+    joints.push((
+        SHIN_L,
+        Some(THIGH_L),
+        "shin_l",
+        Vec3::new(0.0, -h * 0.22, 0.0),
+    ));
+    joints.push((
+        FOOT_L,
+        Some(SHIN_L),
+        "foot_l",
+        Vec3::new(0.0, -h * 0.20, 0.0),
+    ));
+    joints.push((
+        THIGH_R,
+        Some(HIPS),
+        "thigh_r",
+        Vec3::new(-h * 0.068, -h * 0.02, 0.0),
+    ));
+    joints.push((
+        SHIN_R,
+        Some(THIGH_R),
+        "shin_r",
+        Vec3::new(0.0, -h * 0.22, 0.0),
+    ));
+    joints.push((
+        FOOT_R,
+        Some(SHIN_R),
+        "foot_r",
+        Vec3::new(0.0, -h * 0.20, 0.0),
+    ));
 
     let skeleton = Skeleton {
         joints: joints
@@ -141,7 +200,6 @@ fn wardrobe(r: &mut Rand, pal: &Palette, class: CharacterClass, tone: Option<u32
         },
     }
 }
-
 
 /// Body v7: ONE smoothly-blended SDF (pelvis, glutes, belly, chest, traps,
 /// deltoids, tapered limbs under smooth-min) meshed with surface nets — a
@@ -228,7 +286,14 @@ fn organic_body(
         parts.push((
             Fam::Torso,
             w.shirt,
-            Shape::ConeScaled(a, b, h * 0.060 * bulk, h * 0.068 * bulk, o, Vec3::new(1.32, 1.0, 0.86)),
+            Shape::ConeScaled(
+                a,
+                b,
+                h * 0.060 * bulk,
+                h * 0.068 * bulk,
+                o,
+                Vec3::new(1.32, 1.0, 0.86),
+            ),
         ));
     }
     // trapezius wedges into the neck
@@ -267,22 +332,68 @@ fn organic_body(
         ),
     ));
     // arms: deltoid + tapered upper/forearm
-    for (fam, aj, fj, hj) in
-        [(Fam::ArmL, ARM_L, FOREARM_L, HAND_L), (Fam::ArmR, ARM_R, FOREARM_R, HAND_R)]
-    {
+    for (fam, aj, fj, hj) in [
+        (Fam::ArmL, ARM_L, FOREARM_L, HAND_L),
+        (Fam::ArmR, ARM_R, FOREARM_R, HAND_R),
+    ] {
         let (a, f, hd) = (jw(aj), jw(fj), jw(hj));
-        parts.push((fam, w.shirt, Shape::Sphere(a + Vec3::new(0.0, h * 0.008, 0.0), h * 0.046 * bulk)));
-        parts.push((fam, w.shirt, Shape::Cone(a + Vec3::new(0.0, -h * 0.010, 0.0), f, arm_r * 0.94, arm_r * 0.78)));
-        parts.push((fam, forearm_col, Shape::Cone(f, hd + Vec3::new(0.0, h * 0.010, 0.0), arm_r * 0.80, arm_r * 0.58)));
+        parts.push((
+            fam,
+            w.shirt,
+            Shape::Sphere(a + Vec3::new(0.0, h * 0.008, 0.0), h * 0.046 * bulk),
+        ));
+        parts.push((
+            fam,
+            w.shirt,
+            Shape::Cone(
+                a + Vec3::new(0.0, -h * 0.010, 0.0),
+                f,
+                arm_r * 0.94,
+                arm_r * 0.78,
+            ),
+        ));
+        parts.push((
+            fam,
+            forearm_col,
+            Shape::Cone(
+                f,
+                hd + Vec3::new(0.0, h * 0.010, 0.0),
+                arm_r * 0.80,
+                arm_r * 0.58,
+            ),
+        ));
     }
     // legs: thigh, calf, boot shaft
-    for (fam, tj, sj, fj) in
-        [(Fam::LegL, THIGH_L, SHIN_L, FOOT_L), (Fam::LegR, THIGH_R, SHIN_R, FOOT_R)]
-    {
+    for (fam, tj, sj, fj) in [
+        (Fam::LegL, THIGH_L, SHIN_L, FOOT_L),
+        (Fam::LegR, THIGH_R, SHIN_R, FOOT_R),
+    ] {
         let (t, s, f) = (jw(tj), jw(sj), jw(fj));
-        parts.push((fam, w.pants, Shape::Cone(t + Vec3::new(0.0, h * 0.055, 0.0), s, leg_r * 0.97, leg_r * 0.80)));
-        parts.push((fam, w.pants, Shape::Cone(s, s + (f - s) * 0.55, leg_r * 0.86, leg_r * 0.72)));
-        parts.push((fam, w.boots, Shape::Cone(s + (f - s) * 0.45, f + Vec3::new(0.0, h * 0.012, 0.0), leg_r * 0.72, leg_r * 0.50)));
+        parts.push((
+            fam,
+            w.pants,
+            Shape::Cone(
+                t + Vec3::new(0.0, h * 0.055, 0.0),
+                s,
+                leg_r * 0.97,
+                leg_r * 0.80,
+            ),
+        ));
+        parts.push((
+            fam,
+            w.pants,
+            Shape::Cone(s, s + (f - s) * 0.55, leg_r * 0.86, leg_r * 0.72),
+        ));
+        parts.push((
+            fam,
+            w.boots,
+            Shape::Cone(
+                s + (f - s) * 0.45,
+                f + Vec3::new(0.0, h * 0.012, 0.0),
+                leg_r * 0.72,
+                leg_r * 0.50,
+            ),
+        ));
     }
 
     // hierarchical blending: soft flesh fillets WITHIN the trunk and within
@@ -380,12 +491,28 @@ fn organic_body(
                 }
             }
             Fam::ArmL | Fam::ArmR => {
-                let (aj, fj) = if p.x > 0.0 { (ARM_L, FOREARM_L) } else { (ARM_R, FOREARM_R) };
-                if along(p, jw(aj), jw(fj)) < 1.04 { w.shirt } else { forearm_col }
+                let (aj, fj) = if p.x > 0.0 {
+                    (ARM_L, FOREARM_L)
+                } else {
+                    (ARM_R, FOREARM_R)
+                };
+                if along(p, jw(aj), jw(fj)) < 1.04 {
+                    w.shirt
+                } else {
+                    forearm_col
+                }
             }
             Fam::LegL | Fam::LegR => {
-                let (sj, fj) = if p.x > 0.0 { (SHIN_L, FOOT_L) } else { (SHIN_R, FOOT_R) };
-                if along(p, jw(sj), jw(fj)) > 0.42 { w.boots } else { w.pants }
+                let (sj, fj) = if p.x > 0.0 {
+                    (SHIN_L, FOOT_L)
+                } else {
+                    (SHIN_R, FOOT_R)
+                };
+                if along(p, jw(sj), jw(fj)) > 0.42 {
+                    w.boots
+                } else {
+                    w.pants
+                }
             }
         }
     };
@@ -500,7 +627,11 @@ fn boot(ankle: Vec3, shin_r: f32, h: f32, color: Vec3) -> Mesh {
     let mut m = icosphere(1.0, 3, color);
     for v in m.positions.iter_mut() {
         // flatten the sole: clamp the lower cap, keep verts shared
-        let yu = if v.y < -0.45 { -0.45 - (v.y + 0.45) * 0.06 } else { v.y };
+        let yu = if v.y < -0.45 {
+            -0.45 - (v.y + 0.45) * 0.06
+        } else {
+            v.y
+        };
         let tz = v.z.max(0.0); // 0 at heel/mid, →1 at toe
         // wedge: the toe box sits lower than the ankle
         let height = top * (1.0 - 0.52 * tz.powf(1.6));
@@ -598,12 +729,16 @@ fn face(c: Vec3, r: f32, w: &Wardrobe, expressions: bool) -> Mesh {
     let white = srgb(245, 243, 238);
     let iris = srgb(48, 40, 36);
 
+    #[allow(clippy::type_complexity)]
     let mut push = |mut m: Mesh, morph_fn: &dyn Fn(&Mesh) -> Vec<(&'static str, Vec<Vec3>)>| {
         if expressions {
             let morphs = morph_fn(&m);
             m.morphs = morphs
                 .into_iter()
-                .map(|(name, deltas)| MorphTarget { name: name.into(), deltas })
+                .map(|(name, deltas)| MorphTarget {
+                    name: name.into(),
+                    deltas,
+                })
                 .collect();
         }
         out.merge(&m);
@@ -627,10 +762,12 @@ fn face(c: Vec3, r: f32, w: &Wardrobe, expressions: bool) -> Mesh {
         pupil.translate(ec + Vec3::new(0.0, 0.0, r * 0.085));
         white_m.merge(&pupil);
         push(white_m, &|m: &Mesh| {
-            let blink: Vec<Vec3> =
-                m.positions.iter().map(|p| Vec3::new(0.0, (ec.y - p.y) * 0.85, -0.001)).collect();
-            let surprised: Vec<Vec3> =
-                m.positions.iter().map(|p| (*p - ec) * 0.22).collect();
+            let blink: Vec<Vec3> = m
+                .positions
+                .iter()
+                .map(|p| Vec3::new(0.0, (ec.y - p.y) * 0.85, -0.001))
+                .collect();
+            let surprised: Vec<Vec3> = m.positions.iter().map(|p| (*p - ec) * 0.22).collect();
             vec![("blink", blink), ("surprised", surprised)]
         });
     }
@@ -638,9 +775,15 @@ fn face(c: Vec3, r: f32, w: &Wardrobe, expressions: bool) -> Mesh {
     // brows: angry tilts inner ends down, surprised raises
     for sx in [-1.0f32, 1.0] {
         let bc = c + Vec3::new(sx * r * 0.30, r * 0.32, r * 0.85);
-        let mut brow = cuboid(Vec3::ZERO, Vec3::new(r * 0.16, r * 0.035, r * 0.04), w.hair * 0.8);
+        let mut brow = cuboid(
+            Vec3::ZERO,
+            Vec3::new(r * 0.16, r * 0.035, r * 0.04),
+            w.hair * 0.8,
+        );
         brow.transform(
-            Mat4::from_translation(bc) * Mat4::from_rotation_z(sx * 0.1) * Mat4::from_rotation_x(-0.25),
+            Mat4::from_translation(bc)
+                * Mat4::from_rotation_z(sx * 0.1)
+                * Mat4::from_rotation_x(-0.25),
         );
         push(brow, &|m: &Mesh| {
             let angry: Vec<Vec3> = m
@@ -652,8 +795,11 @@ fn face(c: Vec3, r: f32, w: &Wardrobe, expressions: bool) -> Mesh {
                     Vec3::new(0.0, -r * 0.10 * inner, 0.0)
                 })
                 .collect();
-            let surprised: Vec<Vec3> =
-                m.positions.iter().map(|_| Vec3::new(0.0, r * 0.09, 0.0)).collect();
+            let surprised: Vec<Vec3> = m
+                .positions
+                .iter()
+                .map(|_| Vec3::new(0.0, r * 0.09, 0.0))
+                .collect();
             vec![("angry", angry), ("surprised", surprised)]
         });
     }
@@ -690,7 +836,11 @@ fn face(c: Vec3, r: f32, w: &Wardrobe, expressions: bool) -> Mesh {
             .positions
             .iter()
             .map(|p| {
-                if p.y < mc.y { Vec3::new(0.0, -r * 0.10, 0.0) } else { Vec3::ZERO }
+                if p.y < mc.y {
+                    Vec3::new(0.0, -r * 0.10, 0.0)
+                } else {
+                    Vec3::ZERO
+                }
             })
             .collect();
         vec![("smile", smile), ("angry", angry), ("surprised", surprised)]
@@ -716,7 +866,11 @@ fn ribbon(guide: &[Vec3], w0: f32, w1: f32, color: Vec3, center: Vec3) -> Mesh {
     let n = guide.len();
     for (i, &p) in guide.iter().enumerate() {
         let t = i as f32 / (n - 1) as f32;
-        let dir = if i + 1 < n { guide[i + 1] - p } else { p - guide[i - 1] };
+        let dir = if i + 1 < n {
+            guide[i + 1] - p
+        } else {
+            p - guide[i - 1]
+        };
         let dir = dir.normalize_or(Vec3::NEG_Y);
         // width direction lies on the scalp surface
         let out = (p - center).normalize_or(Vec3::Z);
@@ -828,12 +982,11 @@ fn beard_cards(style: &str, c: Vec3, r: f32, color: Vec3, seed: u64) -> Mesh {
     for i in 0..strands {
         let t = i as f32 / (strands - 1) as f32; // 0..1 across the jaw
         let ang = (t - 0.5) * 1.9;
-        let start = c
-            + Vec3::new(
-                ang.sin() * r * 0.66,
-                -r * 0.58 - (1.0 - ang.cos()) * r * 0.1,
-                ang.cos() * r * 0.68,
-            );
+        let start = c + Vec3::new(
+            ang.sin() * r * 0.66,
+            -r * 0.58 - (1.0 - ang.cos()) * r * 0.1,
+            ang.cos() * r * 0.68,
+        );
         let center_ness = 1.0 - (t - 0.5).abs() * 2.0;
         let len = r * (0.5 + 0.55 * center_ness) * len_mul * range(&mut rr, 0.9, 1.1);
         let guide = strand_guide(
@@ -912,7 +1065,11 @@ fn segs(rig: &Rig, pairs: &[(usize, usize)]) -> Vec<crate::skinning::BoneSeg> {
     let jw = |i: usize| rig.world[i];
     pairs
         .iter()
-        .map(|&(j, child)| crate::skinning::BoneSeg { joint: j as u16, a: jw(j), b: jw(child) })
+        .map(|&(j, child)| crate::skinning::BoneSeg {
+            joint: j as u16,
+            a: jw(j),
+            b: jw(child),
+        })
         .collect()
 }
 
@@ -928,10 +1085,10 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     let mut w = wardrobe(&mut r, pal, p.class, p.skin_tone);
     let jw = |i: usize| rig.world[i];
     let dressed = p.outfit.as_deref().is_some_and(|s| s != "plain");
-    if let Some(hc) = &p.hair_color {
-        if let Ok(c) = crate::palette::hex(hc) {
-            w.hair = c;
-        }
+    if let Some(hc) = &p.hair_color
+        && let Ok(c) = crate::palette::hex(hc)
+    {
+        w.hair = c;
     }
     let hair_styles = ["short", "ponytail", "bun", "bald"];
     let hair_style = p
@@ -966,90 +1123,98 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     ];
     // belt: elliptical ring hugging the lathe waist (hidden under outfits)
     if !dressed {
-    let belt_y = jw(HIPS).y + h * 0.030;
-    let belt_r = h * 0.090 * bulk;
-    let mut belt = lathe(
-        &[(belt_r, belt_y - h * 0.022), (belt_r * 1.02, belt_y), (belt_r, belt_y + h * 0.022)],
-        14,
-        |_, _| w.boots * 0.7,
-    );
-    for v in belt.positions.iter_mut() {
-        v.x *= 1.30;
-        v.z *= 0.90;
-    }
-    belt.recompute_smooth_normals();
-    belt.bind_all_to_joint(HIPS as u16);
-    body.merge(&belt);
-    // buckle: gold frame ring + tongue instead of a floating cube
-    let gold = srgb(212, 175, 55);
-    let bz = belt_r * 0.92 + h * 0.005;
-    let mut buckle = lathe(
-        &[(h * 0.010, -h * 0.005), (h * 0.0135, 0.0), (h * 0.010, h * 0.005)],
-        10,
-        |_, _| gold,
-    );
-    buckle.transform(Mat4::from_rotation_translation(
-        Quat::from_rotation_x(core::f32::consts::FRAC_PI_2),
-        Vec3::new(0.0, belt_y, bz),
-    ));
-    buckle.merge(&cuboid(
-        Vec3::new(0.0, belt_y, bz),
-        Vec3::new(h * 0.0022, h * 0.010, h * 0.0032),
-        gold * 0.9,
-    ));
-    buckle.bind_all_to_joint(HIPS as u16);
-    body.merge(&buckle);
-    // leather pouch on the right hip
-    let mut pouch = icosphere(h * 0.021, 2, w.boots * 1.3);
-    for v in pouch.positions.iter_mut() {
-        v.z *= 0.55;
-        v.y *= 1.15;
-        if v.y > 0.0 {
-            v.x *= 0.82;
+        let belt_y = jw(HIPS).y + h * 0.030;
+        let belt_r = h * 0.090 * bulk;
+        let mut belt = lathe(
+            &[
+                (belt_r, belt_y - h * 0.022),
+                (belt_r * 1.02, belt_y),
+                (belt_r, belt_y + h * 0.022),
+            ],
+            14,
+            |_, _| w.boots * 0.7,
+        );
+        for v in belt.positions.iter_mut() {
+            v.x *= 1.30;
+            v.z *= 0.90;
         }
-    }
-    pouch.recompute_smooth_normals();
-    pouch.transform(Mat4::from_rotation_translation(
-        Quat::from_rotation_y(-0.55),
-        Vec3::new(-belt_r * 1.12, belt_y - h * 0.024, belt_r * 0.42),
-    ));
-    pouch.bind_all_to_joint(HIPS as u16);
-    body.merge(&pouch);
-    // shirt collar ring at the neckline
-    let mut collar = lathe(
-        &[
-            (h * 0.031, jw(NECK).y - h * 0.004),
-            (h * 0.037, jw(NECK).y + h * 0.005),
-            (h * 0.030, jw(NECK).y + h * 0.013),
-        ],
-        seg(12.0),
-        |_, _| w.shirt * 0.80,
-    );
-    collar.recompute_smooth_normals();
-    collar.bind_all_to_joint(NECK as u16);
-    body.merge(&collar);
-    // buttons down the chest for cloth shirts
-    if matches!(p.class, CharacterClass::Villager | CharacterClass::Mage) {
-        let torso_r_at = |y: f32| -> f32 {
-            let mut r0 = profile[0].0;
-            for pair in profile.windows(2) {
-                let (ra, ya) = pair[0];
-                let (rb, yb) = pair[1];
-                if y >= ya && y <= yb {
-                    r0 = ra + (rb - ra) * ((y - ya) / (yb - ya + 1e-6));
-                }
+        belt.recompute_smooth_normals();
+        belt.bind_all_to_joint(HIPS as u16);
+        body.merge(&belt);
+        // buckle: gold frame ring + tongue instead of a floating cube
+        let gold = srgb(212, 175, 55);
+        let bz = belt_r * 0.92 + h * 0.005;
+        let mut buckle = lathe(
+            &[
+                (h * 0.010, -h * 0.005),
+                (h * 0.0135, 0.0),
+                (h * 0.010, h * 0.005),
+            ],
+            10,
+            |_, _| gold,
+        );
+        buckle.transform(Mat4::from_rotation_translation(
+            Quat::from_rotation_x(core::f32::consts::FRAC_PI_2),
+            Vec3::new(0.0, belt_y, bz),
+        ));
+        buckle.merge(&cuboid(
+            Vec3::new(0.0, belt_y, bz),
+            Vec3::new(h * 0.0022, h * 0.010, h * 0.0032),
+            gold * 0.9,
+        ));
+        buckle.bind_all_to_joint(HIPS as u16);
+        body.merge(&buckle);
+        // leather pouch on the right hip
+        let mut pouch = icosphere(h * 0.021, 2, w.boots * 1.3);
+        for v in pouch.positions.iter_mut() {
+            v.z *= 0.55;
+            v.y *= 1.15;
+            if v.y > 0.0 {
+                v.x *= 0.82;
             }
-            r0
-        };
-        for k in 0..3 {
-            let y = jw(SPINE).y + h * (0.040 + 0.034 * k as f32);
-            let z = torso_r_at(y) * 0.88 + h * 0.0045;
-            let mut btn = icosphere(h * 0.0055, 1, w.shirt * 0.5);
-            btn.translate(Vec3::new(0.0, y, z));
-            btn.bind_all_to_joint(CHEST as u16);
-            body.merge(&btn);
         }
-    }
+        pouch.recompute_smooth_normals();
+        pouch.transform(Mat4::from_rotation_translation(
+            Quat::from_rotation_y(-0.55),
+            Vec3::new(-belt_r * 1.12, belt_y - h * 0.024, belt_r * 0.42),
+        ));
+        pouch.bind_all_to_joint(HIPS as u16);
+        body.merge(&pouch);
+        // shirt collar ring at the neckline
+        let mut collar = lathe(
+            &[
+                (h * 0.031, jw(NECK).y - h * 0.004),
+                (h * 0.037, jw(NECK).y + h * 0.005),
+                (h * 0.030, jw(NECK).y + h * 0.013),
+            ],
+            seg(12.0),
+            |_, _| w.shirt * 0.80,
+        );
+        collar.recompute_smooth_normals();
+        collar.bind_all_to_joint(NECK as u16);
+        body.merge(&collar);
+        // buttons down the chest for cloth shirts
+        if matches!(p.class, CharacterClass::Villager | CharacterClass::Mage) {
+            let torso_r_at = |y: f32| -> f32 {
+                let mut r0 = profile[0].0;
+                for pair in profile.windows(2) {
+                    let (ra, ya) = pair[0];
+                    let (rb, yb) = pair[1];
+                    if y >= ya && y <= yb {
+                        r0 = ra + (rb - ra) * ((y - ya) / (yb - ya + 1e-6));
+                    }
+                }
+                r0
+            };
+            for k in 0..3 {
+                let y = jw(SPINE).y + h * (0.040 + 0.034 * k as f32);
+                let z = torso_r_at(y) * 0.88 + h * 0.0045;
+                let mut btn = icosphere(h * 0.0055, 1, w.shirt * 0.5);
+                btn.translate(Vec3::new(0.0, y, z));
+                btn.bind_all_to_joint(CHEST as u16);
+                body.merge(&btn);
+            }
+        }
     }
 
     // head: shaped skull as its own part with a painted face texture
@@ -1245,21 +1410,27 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             body.merge(&band);
             // flowing robe skirt from the hips (superseded by outfits)
             if !dressed {
-            let mut robe = lathe(
-                &[
-                    (h * 0.145 * bulk, -h * 0.30),
-                    (h * 0.125 * bulk, -h * 0.18),
-                    (h * 0.10 * bulk, -h * 0.05),
-                    (h * 0.095 * bulk, h * 0.03),
-                ],
-                seg(14.0),
-                |ri, _| if ri == 0 { w.accent * 0.7 } else { w.shirt * 0.9 },
-            );
-            robe.recompute_smooth_normals();
-            robe = crate::subdiv::subdivide(&robe, false);
-            robe.translate(jw(HIPS));
-            robe.bind_all_to_joint(HIPS as u16);
-            body.merge(&robe);
+                let mut robe = lathe(
+                    &[
+                        (h * 0.145 * bulk, -h * 0.30),
+                        (h * 0.125 * bulk, -h * 0.18),
+                        (h * 0.10 * bulk, -h * 0.05),
+                        (h * 0.095 * bulk, h * 0.03),
+                    ],
+                    seg(14.0),
+                    |ri, _| {
+                        if ri == 0 {
+                            w.accent * 0.7
+                        } else {
+                            w.shirt * 0.9
+                        }
+                    },
+                );
+                robe.recompute_smooth_normals();
+                robe = crate::subdiv::subdivide(&robe, false);
+                robe.translate(jw(HIPS));
+                robe.bind_all_to_joint(HIPS as u16);
+                body.merge(&robe);
             }
         }
         CharacterClass::Warrior if !dressed => {
@@ -1414,7 +1585,10 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     let mut parts = vec![
         Part {
             mesh: body,
-            material: Material { roughness: 0.85, ..Default::default() },
+            material: Material {
+                roughness: 0.85,
+                ..Default::default()
+            },
         },
         head_part,
     ];
@@ -1437,7 +1611,10 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         skeleton: Some(rig.skeleton),
         animations,
         physics: Some(Physics {
-            collider: Collider::Capsule { radius: h * 0.16, height: h },
+            collider: Collider::Capsule {
+                radius: h * 0.16,
+                height: h,
+            },
             mass: 70.0 * h / 1.7,
             friction: 0.4,
             restitution: 0.0,
@@ -1466,7 +1643,10 @@ fn garment_tex(
     layers: Vec<crate::texture::PaintLayer>,
 ) -> Option<std::sync::Arc<crate::texture::BakedTexture>> {
     use crate::texture::{PaintLayer, TextureSpec, bake};
-    let mut paint = vec![PaintLayer::Folds { strength: folds, count: 11 }];
+    let mut paint = vec![PaintLayer::Folds {
+        strength: folds,
+        count: 11,
+    }];
     paint.extend(layers);
     let spec = TextureSpec {
         pattern: "none".into(),
@@ -1496,7 +1676,7 @@ fn hem_band(motif: &str, trim: Vec3, gold: Vec3, orn: f32) -> Vec<crate::texture
             v: 0.08 + orn * 0.04,
             height: 0.015,
             color: crate::palette::to_hex(gold),
-        motif: None,
+            motif: None,
             motif_color: None,
             motif_scale: 1.0,
         });
@@ -1559,8 +1739,16 @@ fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
 
     // under-robe: closed, hem -> chest; radii must clear the elliptical
     // torso lathe (x = r * 1.28) or it pokes through
-    let hem_y = if style == "tunic" { h * 0.26 } else { h * 0.055 };
-    let hem_rx = if style == "tunic" { h * 0.15 } else { h * 0.165 };
+    let hem_y = if style == "tunic" {
+        h * 0.26
+    } else {
+        h * 0.055
+    };
+    let hem_rx = if style == "tunic" {
+        h * 0.15
+    } else {
+        h * 0.165
+    };
     let under = [
         st(hem_y, hem_rx, hem_rx * 0.85),
         st(h * 0.33, h * 0.138, h * 0.115),
@@ -1651,11 +1839,7 @@ fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
                 },
             ];
             let mut m = crate::mesh::loft(&stations, 16, 360.0, 0.0, |_| Vec3::ONE);
-            crate::skinning::smooth_bind(
-                &mut m,
-                &segs_of(ctx.rig, &[(aj, fj), (fj, hj)]),
-                2.5,
-            );
+            crate::skinning::smooth_bind(&mut m, &segs_of(ctx.rig, &[(aj, fj), (fj, hj)]), 2.5);
             parts.push(Part {
                 mesh: m,
                 material: Material {
@@ -1836,10 +2020,18 @@ fn idle_clip(rig: &Rig, h: f32) -> AnimationClip {
     let t = keys(16, dur);
     let tau = core::f32::consts::TAU;
     let mut channels = vec![
-        rot_channel(CHEST, &t, move |p| Quat::from_rotation_x(0.035 * (p * tau).sin())),
-        rot_channel(HEAD, &t, move |p| Quat::from_rotation_y(0.06 * (p * tau + 1.2).sin())),
-        rot_channel(ARM_L, &t, move |p| Quat::from_rotation_z(0.05 + 0.03 * (p * tau).sin())),
-        rot_channel(ARM_R, &t, move |p| Quat::from_rotation_z(-0.05 - 0.03 * (p * tau).sin())),
+        rot_channel(CHEST, &t, move |p| {
+            Quat::from_rotation_x(0.035 * (p * tau).sin())
+        }),
+        rot_channel(HEAD, &t, move |p| {
+            Quat::from_rotation_y(0.06 * (p * tau + 1.2).sin())
+        }),
+        rot_channel(ARM_L, &t, move |p| {
+            Quat::from_rotation_z(0.05 + 0.03 * (p * tau).sin())
+        }),
+        rot_channel(ARM_R, &t, move |p| {
+            Quat::from_rotation_z(-0.05 - 0.03 * (p * tau).sin())
+        }),
     ];
     // breathing bob on hips
     let hips_bind = rig.skeleton.joints[HIPS].translation;
@@ -1852,7 +2044,10 @@ fn idle_clip(rig: &Rig, h: f32) -> AnimationClip {
                 .collect(),
         ),
     });
-    AnimationClip { name: "idle".into(), channels }
+    AnimationClip {
+        name: "idle".into(),
+        channels,
+    }
 }
 
 fn trans_channel(joint: usize, times: &[f32], bind: Vec3, f: impl Fn(f32) -> Vec3) -> Channel {
@@ -1876,32 +2071,49 @@ fn run_clip(rig: &Rig, h: f32) -> AnimationClip {
     let tau = core::f32::consts::TAU;
     let swing = 1.05;
     let mut channels = vec![
-        rot_channel(THIGH_L, &t, move |p| Quat::from_rotation_x(swing * (p * tau).sin() + 0.15)),
-        rot_channel(THIGH_R, &t, move |p| Quat::from_rotation_x(-swing * (p * tau).sin() + 0.15)),
+        rot_channel(THIGH_L, &t, move |p| {
+            Quat::from_rotation_x(swing * (p * tau).sin() + 0.15)
+        }),
+        rot_channel(THIGH_R, &t, move |p| {
+            Quat::from_rotation_x(-swing * (p * tau).sin() + 0.15)
+        }),
         rot_channel(SHIN_L, &t, move |p| {
             Quat::from_rotation_x(-(1.6 * (p * tau + 0.7).sin()).max(0.0) - 0.15)
         }),
         rot_channel(SHIN_R, &t, move |p| {
             Quat::from_rotation_x(-(1.6 * (p * tau + 0.7 + tau / 2.0).sin()).max(0.0) - 0.15)
         }),
-        rot_channel(FOOT_L, &t, move |p| Quat::from_rotation_x(0.35 * (p * tau + 1.2).sin())),
-        rot_channel(FOOT_R, &t, move |p| Quat::from_rotation_x(-0.35 * (p * tau + 1.2).sin())),
+        rot_channel(FOOT_L, &t, move |p| {
+            Quat::from_rotation_x(0.35 * (p * tau + 1.2).sin())
+        }),
+        rot_channel(FOOT_R, &t, move |p| {
+            Quat::from_rotation_x(-0.35 * (p * tau + 1.2).sin())
+        }),
         // arms pump bent at ~90°
-        rot_channel(ARM_L, &t, move |p| Quat::from_rotation_x(-0.9 * (p * tau).sin())),
-        rot_channel(ARM_R, &t, move |p| Quat::from_rotation_x(0.9 * (p * tau).sin())),
+        rot_channel(ARM_L, &t, move |p| {
+            Quat::from_rotation_x(-0.9 * (p * tau).sin())
+        }),
+        rot_channel(ARM_R, &t, move |p| {
+            Quat::from_rotation_x(0.9 * (p * tau).sin())
+        }),
         rot_channel(FOREARM_L, &t, move |_| Quat::from_rotation_x(-1.5)),
         rot_channel(FOREARM_R, &t, move |_| Quat::from_rotation_x(-1.5)),
         // forward lean + counter-rotation
         rot_channel(CHEST, &t, move |p| {
             Quat::from_rotation_x(0.22) * Quat::from_rotation_y(0.14 * (p * tau).sin())
         }),
-        rot_channel(HIPS, &t, move |p| Quat::from_rotation_y(-0.10 * (p * tau).sin())),
+        rot_channel(HIPS, &t, move |p| {
+            Quat::from_rotation_y(-0.10 * (p * tau).sin())
+        }),
     ];
     let hips_bind = rig.skeleton.joints[HIPS].translation;
     channels.push(trans_channel(HIPS, &t, hips_bind, move |p| {
         Vec3::Y * h * 0.035 * ((p * tau * 2.0).sin().abs() + 0.2)
     }));
-    AnimationClip { name: "run".into(), channels }
+    AnimationClip {
+        name: "run".into(),
+        channels,
+    }
 }
 
 fn attack_clip(rig: &Rig, h: f32) -> AnimationClip {
@@ -1930,18 +2142,27 @@ fn attack_clip(rig: &Rig, h: f32) -> AnimationClip {
             Quat::from_rotation_y(-0.5 * windup(p) + 0.55 * strike(p))
                 * Quat::from_rotation_x(0.25 * strike(p))
         }),
-        rot_channel(HIPS, &t, move |p| Quat::from_rotation_y(-0.2 * windup(p) + 0.3 * strike(p))),
+        rot_channel(HIPS, &t, move |p| {
+            Quat::from_rotation_y(-0.2 * windup(p) + 0.3 * strike(p))
+        }),
         rot_channel(HEAD, &t, move |p| Quat::from_rotation_x(-0.15 * windup(p))),
         // lunge stance
         rot_channel(THIGH_L, &t, move |p| Quat::from_rotation_x(0.5 * strike(p))),
-        rot_channel(THIGH_R, &t, move |p| Quat::from_rotation_x(-0.35 * strike(p))),
-        rot_channel(SHIN_L, &t, move |p| Quat::from_rotation_x(-0.55 * strike(p))),
+        rot_channel(THIGH_R, &t, move |p| {
+            Quat::from_rotation_x(-0.35 * strike(p))
+        }),
+        rot_channel(SHIN_L, &t, move |p| {
+            Quat::from_rotation_x(-0.55 * strike(p))
+        }),
     ];
     let hips_bind = rig.skeleton.joints[HIPS].translation;
     channels.push(trans_channel(HIPS, &t, hips_bind, move |p| {
         Vec3::new(0.0, -h * 0.05 * strike(p), h * 0.06 * strike(p))
     }));
-    AnimationClip { name: "attack".into(), channels }
+    AnimationClip {
+        name: "attack".into(),
+        channels,
+    }
 }
 
 fn sit_clip(rig: &Rig, h: f32) -> AnimationClip {
@@ -1965,7 +2186,10 @@ fn sit_clip(rig: &Rig, h: f32) -> AnimationClip {
     channels.push(trans_channel(HIPS, &t, hips_bind, move |p| {
         Vec3::new(0.0, -h * 0.2 * s(p), -h * 0.02 * s(p))
     }));
-    AnimationClip { name: "sit".into(), channels }
+    AnimationClip {
+        name: "sit".into(),
+        channels,
+    }
 }
 
 fn wave_clip(rig: &Rig, h: f32) -> AnimationClip {
@@ -1984,13 +2208,18 @@ fn wave_clip(rig: &Rig, h: f32) -> AnimationClip {
         }),
         rot_channel(HEAD, &t, move |p| Quat::from_rotation_z(0.12 * up(p))),
         rot_channel(CHEST, &t, move |p| Quat::from_rotation_z(0.05 * up(p))),
-        rot_channel(ARM_L, &t, move |p| Quat::from_rotation_z(0.06 + 0.02 * (p * tau).sin())),
+        rot_channel(ARM_L, &t, move |p| {
+            Quat::from_rotation_z(0.06 + 0.02 * (p * tau).sin())
+        }),
     ];
     let hips_bind = rig.skeleton.joints[HIPS].translation;
     channels.push(trans_channel(HIPS, &t, hips_bind, move |p| {
         Vec3::Y * h * 0.004 * (p * tau).sin()
     }));
-    AnimationClip { name: "wave".into(), channels }
+    AnimationClip {
+        name: "wave".into(),
+        channels,
+    }
 }
 
 fn death_clip(rig: &Rig, h: f32) -> AnimationClip {
@@ -2005,15 +2234,27 @@ fn death_clip(rig: &Rig, h: f32) -> AnimationClip {
             Quat::from_rotation_x(-0.3 * stagger(p) + 0.15 * fall(p))
                 * Quat::from_rotation_y(0.15 * stagger(p))
         }),
-        rot_channel(HEAD, &t, move |p| Quat::from_rotation_x(-0.35 * stagger(p) + 0.9 * fall(p))),
-        rot_channel(ARM_L, &t, move |p| Quat::from_rotation_z(0.5 * stagger(p) * (1.0 - fall(p)))),
+        rot_channel(HEAD, &t, move |p| {
+            Quat::from_rotation_x(-0.35 * stagger(p) + 0.9 * fall(p))
+        }),
+        rot_channel(ARM_L, &t, move |p| {
+            Quat::from_rotation_z(0.5 * stagger(p) * (1.0 - fall(p)))
+        }),
         rot_channel(ARM_R, &t, move |p| {
             Quat::from_rotation_z(-0.6 * stagger(p) * (1.0 - fall(p)))
         }),
-        rot_channel(THIGH_L, &t, move |p| Quat::from_rotation_x(1.1 * buckle(p) - 1.0 * fall(p))),
-        rot_channel(THIGH_R, &t, move |p| Quat::from_rotation_x(0.9 * buckle(p) - 0.8 * fall(p))),
-        rot_channel(SHIN_L, &t, move |p| Quat::from_rotation_x(-1.3 * buckle(p) + 0.9 * fall(p))),
-        rot_channel(SHIN_R, &t, move |p| Quat::from_rotation_x(-1.1 * buckle(p) + 0.8 * fall(p))),
+        rot_channel(THIGH_L, &t, move |p| {
+            Quat::from_rotation_x(1.1 * buckle(p) - 1.0 * fall(p))
+        }),
+        rot_channel(THIGH_R, &t, move |p| {
+            Quat::from_rotation_x(0.9 * buckle(p) - 0.8 * fall(p))
+        }),
+        rot_channel(SHIN_L, &t, move |p| {
+            Quat::from_rotation_x(-1.3 * buckle(p) + 0.9 * fall(p))
+        }),
+        rot_channel(SHIN_R, &t, move |p| {
+            Quat::from_rotation_x(-1.1 * buckle(p) + 0.8 * fall(p))
+        }),
     ];
     let hips_bind = rig.skeleton.joints[HIPS].translation;
     channels.push(Channel {
@@ -2035,7 +2276,10 @@ fn death_clip(rig: &Rig, h: f32) -> AnimationClip {
             -h * 0.10 * fall(p),
         )
     }));
-    AnimationClip { name: "death".into(), channels }
+    AnimationClip {
+        name: "death".into(),
+        channels,
+    }
 }
 
 fn dance_clip(rig: &Rig, h: f32) -> AnimationClip {
@@ -2057,12 +2301,16 @@ fn dance_clip(rig: &Rig, h: f32) -> AnimationClip {
             Quat::from_rotation_z(0.5 * (p * tau * 2.0 + 0.8).sin())
         }),
         // hip + chest groove
-        rot_channel(HIPS, &t, move |p| Quat::from_rotation_z(0.14 * (p * tau * 2.0).sin())),
+        rot_channel(HIPS, &t, move |p| {
+            Quat::from_rotation_z(0.14 * (p * tau * 2.0).sin())
+        }),
         rot_channel(CHEST, &t, move |p| {
             Quat::from_rotation_z(-0.12 * (p * tau * 2.0).sin())
                 * Quat::from_rotation_y(0.1 * (p * tau).sin())
         }),
-        rot_channel(HEAD, &t, move |p| Quat::from_rotation_z(0.1 * (p * tau * 2.0 + 1.0).sin())),
+        rot_channel(HEAD, &t, move |p| {
+            Quat::from_rotation_z(0.1 * (p * tau * 2.0 + 1.0).sin())
+        }),
         // bouncing knees
         rot_channel(THIGH_L, &t, move |p| {
             Quat::from_rotation_x(0.3 * ((p * tau * 2.0).sin().abs()))
@@ -2085,7 +2333,10 @@ fn dance_clip(rig: &Rig, h: f32) -> AnimationClip {
             0.0,
         )
     }));
-    AnimationClip { name: "dance".into(), channels }
+    AnimationClip {
+        name: "dance".into(),
+        channels,
+    }
 }
 
 fn walk_clip(rig: &Rig, h: f32) -> AnimationClip {
@@ -2094,8 +2345,12 @@ fn walk_clip(rig: &Rig, h: f32) -> AnimationClip {
     let tau = core::f32::consts::TAU;
     let swing = 0.62;
     let mut channels = vec![
-        rot_channel(THIGH_L, &t, move |p| Quat::from_rotation_x(swing * (p * tau).sin())),
-        rot_channel(THIGH_R, &t, move |p| Quat::from_rotation_x(-swing * (p * tau).sin())),
+        rot_channel(THIGH_L, &t, move |p| {
+            Quat::from_rotation_x(swing * (p * tau).sin())
+        }),
+        rot_channel(THIGH_R, &t, move |p| {
+            Quat::from_rotation_x(-swing * (p * tau).sin())
+        }),
         // shins bend only when the leg is behind
         rot_channel(SHIN_L, &t, move |p| {
             Quat::from_rotation_x(-(0.9 * (p * tau + 0.6).sin()).max(0.0) - 0.05)
@@ -2103,18 +2358,30 @@ fn walk_clip(rig: &Rig, h: f32) -> AnimationClip {
         rot_channel(SHIN_R, &t, move |p| {
             Quat::from_rotation_x(-(0.9 * (p * tau + 0.6 + tau / 2.0).sin()).max(0.0) - 0.05)
         }),
-        rot_channel(FOOT_L, &t, move |p| Quat::from_rotation_x(0.25 * (p * tau + 1.2).sin())),
-        rot_channel(FOOT_R, &t, move |p| Quat::from_rotation_x(-0.25 * (p * tau + 1.2).sin())),
-        rot_channel(ARM_L, &t, move |p| Quat::from_rotation_x(-0.45 * (p * tau).sin())),
-        rot_channel(ARM_R, &t, move |p| Quat::from_rotation_x(0.45 * (p * tau).sin())),
+        rot_channel(FOOT_L, &t, move |p| {
+            Quat::from_rotation_x(0.25 * (p * tau + 1.2).sin())
+        }),
+        rot_channel(FOOT_R, &t, move |p| {
+            Quat::from_rotation_x(-0.25 * (p * tau + 1.2).sin())
+        }),
+        rot_channel(ARM_L, &t, move |p| {
+            Quat::from_rotation_x(-0.45 * (p * tau).sin())
+        }),
+        rot_channel(ARM_R, &t, move |p| {
+            Quat::from_rotation_x(0.45 * (p * tau).sin())
+        }),
         rot_channel(FOREARM_L, &t, move |p| {
             Quat::from_rotation_x(-0.3 - 0.15 * (p * tau).sin())
         }),
         rot_channel(FOREARM_R, &t, move |p| {
             Quat::from_rotation_x(-0.3 + 0.15 * (p * tau).sin())
         }),
-        rot_channel(CHEST, &t, move |p| Quat::from_rotation_y(0.08 * (p * tau).sin())),
-        rot_channel(HIPS, &t, move |p| Quat::from_rotation_y(-0.06 * (p * tau).sin())),
+        rot_channel(CHEST, &t, move |p| {
+            Quat::from_rotation_y(0.08 * (p * tau).sin())
+        }),
+        rot_channel(HIPS, &t, move |p| {
+            Quat::from_rotation_y(-0.06 * (p * tau).sin())
+        }),
     ];
     let hips_bind = rig.skeleton.joints[HIPS].translation;
     channels.push(Channel {
@@ -2126,6 +2393,8 @@ fn walk_clip(rig: &Rig, h: f32) -> AnimationClip {
                 .collect(),
         ),
     });
-    AnimationClip { name: "walk".into(), channels }
+    AnimationClip {
+        name: "walk".into(),
+        channels,
+    }
 }
-

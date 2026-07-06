@@ -18,10 +18,8 @@ pub fn world_asset(m: &WorldModel, grid: usize) -> Asset {
     let mut heights = vec![0.0f32; (n + 1) * (n + 1)];
     for jz in 0..=n {
         for jx in 0..=n {
-            heights[jz * (n + 1) + jx] = m.height(
-                jx as f32 * step - size * 0.5,
-                jz as f32 * step - size * 0.5,
-            );
+            heights[jz * (n + 1) + jx] =
+                m.height(jx as f32 * step - size * 0.5, jz as f32 * step - size * 0.5);
         }
     }
     let at = |jx: usize, jz: usize| heights[jz * (n + 1) + jx];
@@ -50,7 +48,10 @@ pub fn world_asset(m: &WorldModel, grid: usize) -> Asset {
     }
     let mut parts = vec![Part {
         mesh: ground,
-        material: Material { roughness: 0.95, ..Default::default() },
+        material: Material {
+            roughness: 0.95,
+            ..Default::default()
+        },
     }];
     // sea plane
     let sea = m.p.sea_level;
@@ -73,7 +74,9 @@ pub fn world_asset(m: &WorldModel, grid: usize) -> Asset {
         },
     });
     // river ribbons across the whole map
-    let ribbons = m.network.river_ribbons_in(Vec2::new(-s, -s), Vec2::new(s, s));
+    let ribbons = m
+        .network
+        .river_ribbons_in(Vec2::new(-s, -s), Vec2::new(s, s));
     if !ribbons.is_empty() {
         let mut ribbon = Mesh::new();
         for (p, q, w) in &ribbons {
@@ -141,7 +144,13 @@ pub fn corridor_asset(m: &WorldModel, a: Vec2, b: Vec2, radius: f32) -> Asset {
             }
         }
     }
-    parts.push(Part { mesh: ground, material: Material { roughness: 0.95, ..Default::default() } });
+    parts.push(Part {
+        mesh: ground,
+        material: Material {
+            roughness: 0.95,
+            ..Default::default()
+        },
+    });
     if waters.vertex_count() > 0 {
         let wc = m.pal.water;
         parts.push(Part {
@@ -186,7 +195,10 @@ fn add_poi_parts(m: &WorldModel, parts: &mut Vec<Part>, near: Option<(Vec2, Vec2
         for part in &asset.parts {
             let mut mesh = part.mesh.clone();
             mesh.translate(shift);
-            parts.push(Part { mesh, material: part.material.clone() });
+            parts.push(Part {
+                mesh,
+                material: part.material.clone(),
+            });
         }
     }
     for bge in &m.network.bridges {
@@ -197,7 +209,10 @@ fn add_poi_parts(m: &WorldModel, parts: &mut Vec<Part>, near: Option<(Vec2, Vec2
         for part in &asset.parts {
             let mut mesh = part.mesh.clone();
             mesh.translate(Vec3::new(bge.pos.x, bge.deck, bge.pos.y));
-            parts.push(Part { mesh, material: part.material.clone() });
+            parts.push(Part {
+                mesh,
+                material: part.material.clone(),
+            });
         }
     }
 }

@@ -67,8 +67,12 @@ pub struct ZoneSpec {
     #[serde(default = "d_pin_radius")]
     pub radius: f32,
 }
-fn d_one() -> f32 { 1.0 }
-fn d_pin_radius() -> f32 { 600.0 }
+fn d_one() -> f32 {
+    1.0
+}
+fn d_pin_radius() -> f32 {
+    600.0
+}
 
 /// Ground color ramp per zone (low→high, 4 stops, linear color space).
 pub fn ground_ramp(kind: ZoneKind) -> [Vec3; 4] {
@@ -176,10 +180,30 @@ impl ZoneField {
         if specs.iter().all(|s| s.at.is_some()) {
             // random layout needs at least a background mix
             specs.extend([
-                ZoneSpec { kind: ZoneKind::Forest, weight: 2.0, at: None, radius: 0.0 },
-                ZoneSpec { kind: ZoneKind::Plains, weight: 2.0, at: None, radius: 0.0 },
-                ZoneSpec { kind: ZoneKind::Mountains, weight: 1.2, at: None, radius: 0.0 },
-                ZoneSpec { kind: ZoneKind::Lake, weight: 0.6, at: None, radius: 0.0 },
+                ZoneSpec {
+                    kind: ZoneKind::Forest,
+                    weight: 2.0,
+                    at: None,
+                    radius: 0.0,
+                },
+                ZoneSpec {
+                    kind: ZoneKind::Plains,
+                    weight: 2.0,
+                    at: None,
+                    radius: 0.0,
+                },
+                ZoneSpec {
+                    kind: ZoneKind::Mountains,
+                    weight: 1.2,
+                    at: None,
+                    radius: 0.0,
+                },
+                ZoneSpec {
+                    kind: ZoneKind::Lake,
+                    weight: 0.6,
+                    at: None,
+                    radius: 0.0,
+                },
             ]);
         }
         let mut cum = Vec::new();
@@ -194,7 +218,14 @@ impl ZoneField {
                 }
             }
         }
-        Self { seed, cell: cell.clamp(200.0, 4000.0), cum, total, pinned, warp: Noise2::new(seed ^ 0x20E5) }
+        Self {
+            seed,
+            cell: cell.clamp(200.0, 4000.0),
+            cum,
+            total,
+            pinned,
+            warp: Noise2::new(seed ^ 0x20E5),
+        }
     }
 
     fn cell_kind(&self, h: u64) -> ZoneKind {
@@ -211,8 +242,20 @@ impl ZoneField {
     pub fn weights(&self, wx: f32, wz: f32) -> [f32; NK] {
         let cell = self.cell;
         // domain warp for organic borders
-        let qx = self.warp.fbm(wx / (cell * 0.7) + 11.3, wz / (cell * 0.7) + 3.1, 3, 2.0, 0.5);
-        let qz = self.warp.fbm(wx / (cell * 0.7) + 90.2, wz / (cell * 0.7) + 47.8, 3, 2.0, 0.5);
+        let qx = self.warp.fbm(
+            wx / (cell * 0.7) + 11.3,
+            wz / (cell * 0.7) + 3.1,
+            3,
+            2.0,
+            0.5,
+        );
+        let qz = self.warp.fbm(
+            wx / (cell * 0.7) + 90.2,
+            wz / (cell * 0.7) + 47.8,
+            3,
+            2.0,
+            0.5,
+        );
         let x = wx + qx * cell * 0.35;
         let z = wz + qz * cell * 0.35;
         let (cx, cz) = ((x / cell).floor() as i64, (z / cell).floor() as i64);
@@ -268,7 +311,10 @@ impl ZoneField {
     /// (for the manifest summary).
     pub fn cells_in(&self, min: [f32; 2], max: [f32; 2]) -> Vec<(ZoneKind, [f32; 2])> {
         let cell = self.cell;
-        let (x0, z0) = ((min[0] / cell).floor() as i64, (min[1] / cell).floor() as i64);
+        let (x0, z0) = (
+            (min[0] / cell).floor() as i64,
+            (min[1] / cell).floor() as i64,
+        );
         let (x1, z1) = ((max[0] / cell).ceil() as i64, (max[1] / cell).ceil() as i64);
         let mut out = Vec::new();
         for (kind, at, _) in &self.pinned {

@@ -45,7 +45,8 @@ fn shade(n: Vec3, albedo: Vec3, emissive: Vec3, view: Vec3, metallic: f32, rough
     // Blinn-Phong specular scaled by material params
     let h = (sun + view).normalize();
     let spec_pow = 8.0 + (1.0 - roughness) * 120.0;
-    let spec = n.dot(h).max(0.0).powf(spec_pow) * (0.06 + metallic * 0.5 + (1.0 - roughness) * 0.25);
+    let spec =
+        n.dot(h).max(0.0).powf(spec_pow) * (0.06 + metallic * 0.5 + (1.0 - roughness) * 0.25);
     // rim for silhouette pop
     let rim = (1.0 - n.dot(view).max(0.0)).powf(3.0) * 0.18;
     let direct = Vec3::splat(1.15) * ndl;
@@ -88,7 +89,10 @@ fn rasterize(asset: &Asset, cam: &Camera, w: usize, h: usize) -> Framebuffer {
         for (t, r, s) in &ip.transforms {
             let mut m = ip.part.mesh.clone();
             m.transform(Mat4::from_scale_rotation_translation(*s, *r, *t));
-            expanded.push(crate::gltf::Part { mesh: m, material: ip.part.material.clone() });
+            expanded.push(crate::gltf::Part {
+                mesh: m,
+                material: ip.part.material.clone(),
+            });
         }
     }
 
@@ -151,7 +155,11 @@ fn rasterize(asset: &Asset, cam: &Camera, w: usize, h: usize) -> Framebuffer {
                         (a * w0 * iw0 + b * w1 * iw1 + c * w2 * iw2) / iw
                     };
                     let n = pc(m.normals[i0], m.normals[i1], m.normals[i2]).normalize_or(Vec3::Y);
-                    let n = if mat.double_sided && area > 0.0 { -n } else { n };
+                    let n = if mat.double_sided && area > 0.0 {
+                        -n
+                    } else {
+                        n
+                    };
                     let mut albedo = pc(m.colors[i0], m.colors[i1], m.colors[i2]);
                     let world = pc(m.positions[i0], m.positions[i1], m.positions[i2]);
                     let view = (cam.eye - world).normalize_or(Vec3::Y);
@@ -249,5 +257,9 @@ pub fn auto_camera(asset: &Asset, yaw_deg: f32, pitch_deg: f32, zoom: f32) -> Ca
         pitch.sin(),
         yaw.sin() * pitch.cos(),
     );
-    Camera { eye: center + dir * dist, target: center, fov_y: fov }
+    Camera {
+        eye: center + dir * dist,
+        target: center,
+        fov_y: fov,
+    }
 }
