@@ -3,7 +3,7 @@
 # imaginu
 
 **An AI-drivable procedural 3D asset compiler.**
-JSON recipes → deterministic, game-ready **GLB** for [Babylon.js](https://www.babylonjs.com/) — meshes, PBR vertex colors, skeletal animation, and physics metadata. No textures to wrangle, no C dependencies, byte-identical every time.
+JSON recipes → deterministic, game-ready **GLB** for [Babylon.js](https://www.babylonjs.com/) - meshes, PBR vertex colors, skeletal animation, and physics metadata. No textures to wrangle, no C dependencies, byte-identical every time.
 
 [![CI](https://github.com/vicotrbb/imaginu/actions/workflows/ci.yml/badge.svg)](https://github.com/vicotrbb/imaginu/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/imaginu.svg)](https://crates.io/crates/imaginu)
@@ -31,7 +31,7 @@ JSON recipes → deterministic, game-ready **GLB** for [Babylon.js](https://www.
 
 imaginu compiles a small JSON **recipe** into a `.glb` asset you can drop
 straight into a Babylon.js scene. It exists because *describing* an asset is far
-cheaper than *modeling* one — especially for an AI agent, which can write a
+cheaper than *modeling* one - especially for an AI agent, which can write a
 recipe, look at a render, and iterate, all without a DCC tool.
 
 LLMs are great at structured parameters and terrible at raw vertex data. imaginu
@@ -40,7 +40,7 @@ imaginu produces the *how* (a crafted mesh with harmonious colors, correct
 normals, a skeleton, walk/idle clips, and a collider).
 
 - **AI-native.** `imaginu schema` prints the full recipe contract as a
-  cheat-sheet. An agent reads it, writes JSON, and compiles — the
+  cheat-sheet. An agent reads it, writes JSON, and compiles - the
   [skill](#-use-it-with-your-ai-agent) wires this into Claude Code / Codex.
 - **Vertex-color PBR, no texture pipeline.** Color lives in the mesh, so assets
   are small, self-contained, and load anywhere glTF loads. (Baked procedural PBR
@@ -48,7 +48,7 @@ normals, a skeleton, walk/idle clips, and a collider).
 - **Deterministic.** Same recipe + seed → **byte-identical** GLB, on every OS.
   This is what lets worlds tile seamlessly and makes agent output reproducible.
 - **Zero C dependencies.** Pure Rust (`glam`, `serde`, `clap`, `png`, `rand`).
-  Static cross-compilation — including fully static musl — is trivial.
+  Static cross-compilation - including fully static musl - is trivial.
 - **Batteries included.** A built-in software renderer lets you *look* at your
   output (PNG or MP4 turntable) without a GPU or a running engine.
 
@@ -74,7 +74,7 @@ git clone https://github.com/vicotrbb/imaginu && cd imaginu
 cargo install --path .
 ```
 
-> `ffmpeg` on your `PATH` is **optional** — needed only for video
+> `ffmpeg` on your `PATH` is **optional** - needed only for video
 > (`imaginu showcase`, world `--flyover`). Everything else is standalone.
 
 ## 60-second quickstart
@@ -96,7 +96,7 @@ imaginu world '{"kind":"world","name":"everdale","size":2048}' -o everdale/
 imaginu validate tree.glb
 ```
 
-Load it in Babylon.js like any glTF — colliders ride along in the extras:
+Load it in Babylon.js like any glTF - colliders ride along in the extras:
 
 ```js
 const { meshes } = await BABYLON.SceneLoader.ImportMeshAsync("", "", "tree.glb", scene);
@@ -117,7 +117,7 @@ Each of these is one line of JSON. Full field reference: `imaginu schema`.
 | `{"kind":"character","class":"mage"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/char_hedge_mage.png" width="180"> |
 | `{"kind":"prop","prop":"barrel"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/barrel.png" width="180"> |
 
-Whole worlds, too — Voronoi biome zones, traced rivers, A\*-routed roads, and a
+Whole worlds, too - Voronoi biome zones, traced rivers, A\*-routed roads, and a
 POI solver placing cities/castles/dungeons, all seamless across chunk borders:
 
 <table>
@@ -135,7 +135,7 @@ everything above live in [`gallery/recipes/`](gallery/recipes/) and
 ## 🤖 Use it with your AI agent
 
 imaginu ships a first-class **agent skill** so Claude Code or Codex can go from
-"make me a 3D oak tree" to a loadable GLB on its own — write recipe → generate →
+"make me a 3D oak tree" to a loadable GLB on its own - write recipe → generate →
 **look at the PNG** → iterate.
 
 ```sh
@@ -144,7 +144,7 @@ cp -r skill/imaginu ~/.claude/skills/imaginu
 ```
 
 See [`skill/imaginu/SKILL.md`](skill/imaginu/SKILL.md) for the workflow and Codex
-install instructions. The skill stays DRY against `imaginu schema` — the schema
+install instructions. The skill stays DRY against `imaginu schema` - the schema
 command is the reference, the skill is the workflow.
 
 ## Determinism & the seam law
@@ -152,10 +152,10 @@ command is the reference, the skill is the workflow.
 Generation is a pure function of `(recipe, seed)`. Two consequences you can rely
 on:
 
-1. **Reproducible output** — the same recipe yields a byte-identical GLB
+1. **Reproducible output** - the same recipe yields a byte-identical GLB
    anywhere. CI enforces this on every push (generate twice, diff bytes, on
    both Linux and macOS to guard a known platform float heisenbug).
-2. **The seam law** — terrain heights and colors are pure functions of world
+2. **The seam law** - terrain heights and colors are pure functions of world
    coordinates, so adjacent world chunks share **bit-identical edges** and tile
    with no cracks. Any chunk builds lazily (`--chunk x,z`) or in parallel with
    identical output. This is what makes streaming worlds possible.
@@ -176,7 +176,7 @@ Pure-Rust library (`src/lib.rs`) + CLI (`src/main.rs`), cleanly modular:
 
 Library entry points: `imaginu::compile(recipe_json)` and
 `imaginu::compile_to_glb(recipe_json)`, both returning `Result<_, imaginu::Error>`
-— the public boundary returns errors instead of panicking on malformed JSON.
+- the public boundary returns errors instead of panicking on malformed JSON.
 
 ## CLI reference
 

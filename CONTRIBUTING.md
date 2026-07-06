@@ -15,7 +15,7 @@ cargo build
 cargo test
 ```
 
-`ffmpeg` on your `PATH` is **optional** — it is only needed for video output
+`ffmpeg` on your `PATH` is **optional** - it is only needed for video output
 (`imaginu showcase` and world `--flyover`). Everything else, including PNG
 previews, is self-contained with zero C dependencies.
 
@@ -32,7 +32,7 @@ cargo doc --no-deps          # keep it warning-free
 
 CI runs exactly these, plus a determinism job (see below), on Linux and macOS.
 
-## Rule 1 — Determinism is sacred
+## Rule 1 - Determinism is sacred
 
 The same recipe and seed **must** produce byte-identical GLB, across processes
 and platforms. This is the core guarantee that makes worlds tile seamlessly and
@@ -50,7 +50,7 @@ makes agent output reproducible.
   cmp a.glb b.glb   # must be silent
   ```
 
-## Rule 2 — Render and look
+## Rule 2 - Render and look
 
 Any change to a generator must be **verified by rendering and looking** at the
 result, scored against the 6-point rubric in [`docs/EVALUATION.md`](docs/EVALUATION.md).
@@ -72,7 +72,7 @@ gallery/regen_showcase.sh   # MP4 showcases (needs ffmpeg)
 ```
 
 Only commit gallery changes that are an intentional, reviewed visual
-improvement — and include a before/after in the PR.
+improvement - and include a before/after in the PR.
 
 ## Commit / PR hygiene
 

@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>imaginu — AI-drivable procedural 3D asset compiler</title>
-<meta name="description" content="Compile tiny JSON recipes into deterministic, game-ready GLB for Babylon.js — meshes, PBR vertex colors, skeletal animation and physics. Pure Rust, no textures, byte-identical every time.">
-<meta property="og:title" content="imaginu — procedural 3D asset compiler">
+<title>imaginu - AI-drivable procedural 3D asset compiler</title>
+<meta name="description" content="Compile tiny JSON recipes into deterministic, game-ready GLB for Babylon.js - meshes, PBR vertex colors, skeletal animation and physics. Pure Rust, no textures, byte-identical every time.">
+<meta property="og:title" content="imaginu - procedural 3D asset compiler">
 <meta property="og:description" content="JSON recipes → deterministic, game-ready GLB for Babylon.js. See real output in a live viewer.">
 <meta property="og:image" content="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/char_frost_knight.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0e14'/%3E%3Cpath d='M16 5l10 6v10l-10 6-10-6V11z' fill='none' stroke='%2345e6c6' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M16 5v22M6 11l10 6 10-6' fill='none' stroke='%2345e6c6' stroke-width='1.4' opacity='.6'/%3E%3C/svg%3E">
@@ -150,7 +150,7 @@ section{position:relative;padding:64px 0;border-top:1px solid var(--line)}
 .recipe{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:center;margin-bottom:26px}
 .recipe:nth-child(even) .render{order:-1}
 @media (max-width:820px){.recipe{grid-template-columns:1fr;gap:14px}.recipe:nth-child(even) .render{order:0}}
-.code{border:1px solid var(--line);border-radius:var(--radius);background:var(--bg-2);overflow:hidden;box-shadow:var(--shadow)}
+.code{min-width:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg-2);overflow:hidden;box-shadow:var(--shadow)}
 .code-top{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--bg-3)}
 .dot{width:10px;height:10px;border-radius:50%;background:var(--line-2)}
 .code-top .label{margin-left:6px;font-family:var(--font-mono);font-size:12px;color:var(--ink-dim)}
@@ -181,7 +181,7 @@ section{position:relative;padding:64px 0;border-top:1px solid var(--line)}
 /* agent */
 .agent-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:30px;align-items:start}
 @media (max-width:860px){.agent-grid{grid-template-columns:1fr}}
-.term{border:1px solid var(--line);border-radius:var(--radius);background:#080b11;overflow:hidden;box-shadow:var(--shadow)}
+.term{min-width:0;border:1px solid var(--line);border-radius:var(--radius);background:#080b11;overflow:hidden;box-shadow:var(--shadow)}
 :root[data-theme="light"] .term{background:#0c1017}
 .term-top{display:flex;gap:7px;padding:11px 14px;border-bottom:1px solid #1b2230}
 .term-top .dot{width:11px;height:11px}
@@ -199,7 +199,7 @@ section{position:relative;padding:64px 0;border-top:1px solid var(--line)}
 /* install */
 .install{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
 @media (max-width:760px){.install{grid-template-columns:1fr}}
-.cmd{border:1px solid var(--line);border-radius:var(--radius);background:var(--bg-2);padding:16px 18px}
+.cmd{min-width:0;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg-2);padding:16px 18px}
 .cmd .t{font-family:var(--font-mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:10px}
 .cmd-line{display:flex;align-items:center;gap:12px}
 .cmd-line code{flex:1;min-width:0;font-family:var(--font-mono);font-size:13px;color:var(--ink);overflow-x:auto;white-space:nowrap}
@@ -262,7 +262,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 60px}
     <div class="reveal in">
       <span class="eyebrow">Procedural 3D · Rust · glTF</span>
       <h1>Describe an asset.<br><span class="accent">Compile</span> the mesh.</h1>
-      <p class="lede">imaginu turns a tiny <b>JSON recipe</b> into a deterministic, game-ready <b>GLB</b> for Babylon.js — meshes, PBR vertex colors, skeletal animation and physics. No textures to wrangle, no C dependencies, <b>byte-identical</b> every time.</p>
+      <p class="lede">imaginu turns a tiny <b>JSON recipe</b> into a deterministic, game-ready <b>GLB</b> for Babylon.js - meshes, PBR vertex colors, skeletal animation and physics. No textures to wrangle, no C dependencies, <b>byte-identical</b> every time.</p>
       <div class="cta-row">
         <a class="pill solid" href="#install">Get started</a>
         <a class="pill" href="#viewer">See it live</a>
@@ -292,8 +292,8 @@ footer{border-top:1px solid var(--line);padding:38px 0 60px}
       <p>Three deterministic steps. An agent (or you) writes the recipe; imaginu does the rest.</p>
     </div>
     <div class="steps">
-      <div class="step reveal"><div class="n">01 · describe</div><h3>Write a recipe</h3><p>A few lines of JSON name what you want. Run <code>imaginu schema</code> for the full contract — every kind and field.</p></div>
-      <div class="step reveal"><div class="n">02 · compile</div><h3>Generate the GLB</h3><p><code>imaginu generate</code> builds the mesh, colors, skeleton, clips and a collider — then <code>--preview</code> renders a PNG so you can <b>look</b>.</p></div>
+      <div class="step reveal"><div class="n">01 · describe</div><h3>Write a recipe</h3><p>A few lines of JSON name what you want. Run <code>imaginu schema</code> for the full contract - every kind and field.</p></div>
+      <div class="step reveal"><div class="n">02 · compile</div><h3>Generate the GLB</h3><p><code>imaginu generate</code> builds the mesh, colors, skeleton, clips and a collider - then <code>--preview</code> renders a PNG so you can <b>look</b>.</p></div>
       <div class="step reveal"><div class="n">03 · load</div><h3>Drop it in</h3><p>Load the <code>.glb</code> in Babylon.js like any glTF. Colliders ride along at <code>extras.imaginu_physics</code>.</p></div>
     </div>
   </div>
@@ -305,7 +305,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 60px}
     <div class="sec-head reveal">
       <span class="eyebrow">Recipe → asset</span>
       <h2>The whole asset is the JSON on the left.</h2>
-      <p>Real recipes from the repo, next to what imaginu compiles them into. Change a field, change a seed — the output is reproducible to the byte.</p>
+      <p>Real recipes from the repo, next to what imaginu compiles them into. Change a field, change a seed - the output is reproducible to the byte.</p>
     </div>
     <div id="recipeRows"></div>
   </div>
@@ -317,7 +317,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 60px}
     <div class="sec-head reveal">
       <span class="eyebrow">Showcase</span>
       <h2>Loop-perfect turntables, all self-rendered.</h2>
-      <p>Every clip below was filmed by imaginu's own software renderer — no GPU, no external engine. Props, characters with real animation clips, and whole streaming worlds.</p>
+      <p>Every clip below was filmed by imaginu's own software renderer - no GPU, no external engine. Props, characters with real animation clips, and whole streaming worlds.</p>
     </div>
     <div class="gallery" id="galleryGrid"></div>
   </div>
@@ -329,7 +329,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 60px}
     <div class="sec-head reveal">
       <span class="eyebrow">Built for agents</span>
       <h2>Hand it to Claude Code or Codex.</h2>
-      <p>imaginu ships a first-class agent skill. The agent reads <code style="font-family:var(--font-mono)">imaginu schema</code>, writes a recipe, looks at the render, and iterates — from “make me an oak tree” to a loadable GLB, on its own.</p>
+      <p>imaginu ships a first-class agent skill. The agent reads <code style="font-family:var(--font-mono)">imaginu schema</code>, writes a recipe, looks at the render, and iterates - from “make me an oak tree” to a loadable GLB, on its own.</p>
     </div>
     <div class="agent-grid">
       <div class="term reveal" aria-label="Example agent session">
@@ -343,7 +343,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 60px}
 <span class="o">wrote shrine.glb (51 KiB, 446 triangles)</span>
 <span class="o">wrote shrine.png</span>  <span class="k">← looking at the render…</span>
 
-<span class="o">Looks great — emissive shards on a rock base.</span>
+<span class="o">Looks great - emissive shards on a rock base.</span>
 <span class="o">Dropping shrine.glb into the Babylon scene; collider is</span>
 <span class="o">at nodes[0].extras.imaginu_physics. Done.</span>
         </div>
@@ -352,8 +352,8 @@ footer{border-top:1px solid var(--line);padding:38px 0 60px}
         <h3>Install the skill</h3>
         <p>One command per host. The skill stays DRY against <code style="font-family:var(--font-mono)">imaginu schema</code>, so it never goes stale.</p>
         <ol>
-          <li><b>Claude Code</b> — copy into <code style="font-family:var(--font-mono)">~/.claude/skills/</code></li>
-          <li><b>Codex</b> — a prompt file or your <code style="font-family:var(--font-mono)">AGENTS.md</code></li>
+          <li><b>Claude Code</b> - copy into <code style="font-family:var(--font-mono)">~/.claude/skills/</code></li>
+          <li><b>Codex</b> - a prompt file or your <code style="font-family:var(--font-mono)">AGENTS.md</code></li>
           <li>It auto-installs the binary if it's missing</li>
         </ol>
         <div class="cmd">
@@ -372,7 +372,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 60px}
     <div class="sec-head reveal">
       <span class="eyebrow">Install</span>
       <h2>Running in about a minute.</h2>
-      <p>Prebuilt static binaries for Linux, macOS and Windows — no Rust required — or straight from crates.io.</p>
+      <p>Prebuilt static binaries for Linux, macOS and Windows - no Rust required - or straight from crates.io.</p>
     </div>
     <div class="install">
       <div class="cmd reveal">
@@ -392,7 +392,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 60px}
         <div class="cmd-line"><code><span class="p">imaginu</span> generate '{"kind":"tree","style":"oak"}' -o tree.glb --preview</code><button class="copy" type="button">copy</button></div>
       </div>
     </div>
-    <p class="ffnote"><b>ffmpeg</b> is optional — it's only needed for video (<code style="font-family:var(--font-mono)">showcase</code>, world <code style="font-family:var(--font-mono)">--flyover</code>). GLB generation and PNG previews are fully standalone.</p>
+    <p class="ffnote"><b>ffmpeg</b> is optional - it's only needed for video (<code style="font-family:var(--font-mono)">showcase</code>, world <code style="font-family:var(--font-mono)">--flyover</code>). GLB generation and PNG previews are fully standalone.</p>
   </div>
 </section>
 
@@ -527,7 +527,7 @@ function clearHex(){
   const canvas=document.getElementById('renderCanvas');
   const status=document.getElementById('viewerStatus');
   const switcher=document.getElementById('switcher');
-  if(typeof BABYLON==='undefined'){status.innerHTML='3D viewer unavailable — <a href="https://github.com/vicotrbb/imaginu" style="color:var(--accent)">browse the gallery on GitHub</a>';return;}
+  if(typeof BABYLON==='undefined'){status.innerHTML='3D viewer unavailable - <a href="https://github.com/vicotrbb/imaginu" style="color:var(--accent)">browse the gallery on GitHub</a>';return;}
 
   const engine=new BABYLON.Engine(canvas,true,{antialias:true,preserveDrawingBuffer:false,stencil:false},true);
   const scene=new BABYLON.Scene(engine);

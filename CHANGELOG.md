@@ -6,7 +6,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.1.0] — 2026-07-06
+## [0.1.0] - 2026-07-06
 
 First public release: a deterministic, AI-drivable procedural 3D asset compiler
 that turns JSON recipes into game-ready GLB for Babylon.js. Everything below
@@ -23,7 +23,7 @@ landed across the project's five development phases and is available in `0.1.0`.
 - **Characters.** 17-joint skeleton, smooth multi-joint skinning, lofted painted
   outfits with trim/brocade motifs, faces with facial morph targets, and eight
   animation clips (idle, walk, run, attack, sit, wave, death, dance).
-- **`custom` DSL.** A freeform node graph — box/sphere/cylinder/cone/lathe/
+- **`custom` DSL.** A freeform node graph - box/sphere/cylinder/cone/lathe/
   prism/curve/tube/loft primitives, CSG (subtract/union/intersect), bevel,
   subdivision, displacement, bones, animations with eased/multi-axis channels,
   and baked procedural PBR textures (baseColor + normal + ORM).
@@ -35,7 +35,7 @@ landed across the project's five development phases and is available in `0.1.0`.
   processes and platforms; adjacent world chunks share bit-identical edges.
 - **Built-in software renderer.** `imaginu render` (turntable / animation
   frames) and `imaginu showcase` (loop-perfect turntable MP4, needs `ffmpeg`)
-  for visual verification — no GPU or external engine required to look at output.
+  for visual verification - no GPU or external engine required to look at output.
 - **Validation.** `imaginu validate` (byte-level GLB structure) and
   `imaginu validate-world` (manifest + all chunks).
 - **Agent contract.** `imaginu schema` prints the authoritative recipe

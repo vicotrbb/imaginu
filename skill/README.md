@@ -1,7 +1,7 @@
 # imaginu agent skill
 
 A ready-to-install skill that teaches an AI coding agent to generate and iterate
-real 3D assets with imaginu — write recipe → `generate --preview` → **look at
+real 3D assets with imaginu - write recipe → `generate --preview` → **look at
 the PNG** → iterate. The skill is the *workflow*; `imaginu schema` is the
 authoritative *reference* it points back to.
 
@@ -19,7 +19,7 @@ cp -r skill/imaginu ~/.claude/skills/imaginu
 mkdir -p .claude/skills && cp -r skill/imaginu .claude/skills/imaginu
 ```
 
-Claude Code discovers it automatically from the YAML frontmatter — it triggers
+Claude Code discovers it automatically from the YAML frontmatter - it triggers
 when you ask for a 3D asset, character, or world. No further config needed.
 
 ## Install for Codex
@@ -43,6 +43,6 @@ missing, so you don't have to set that up in advance.
 
 ## Keeping it current
 
-The skill deliberately avoids hardcoding recipe fields — it tells the agent to
+The skill deliberately avoids hardcoding recipe fields - it tells the agent to
 run `imaginu schema` for the current contract. When imaginu adds new fields,
 the skill keeps working without edits.

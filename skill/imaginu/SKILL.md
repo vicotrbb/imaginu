@@ -1,13 +1,13 @@
 ---
 name: imaginu
-description: Use when you need a 3D asset for a game or Babylon.js scene — a tree, rock, crystal, prop, building, terrain, an animated character, a custom rigged object, or a whole streaming world. imaginu compiles a small JSON recipe into a deterministic, game-ready GLB (with PBR vertex colors and physics metadata) and can render a PNG so you can look at the result and iterate.
+description: Use when you need a 3D asset for a game or Babylon.js scene - a tree, rock, crystal, prop, building, terrain, an animated character, a custom rigged object, or a whole streaming world. imaginu compiles a small JSON recipe into a deterministic, game-ready GLB (with PBR vertex colors and physics metadata) and can render a PNG so you can look at the result and iterate.
 ---
 
-# imaginu — compile JSON recipes into game-ready GLB
+# imaginu - compile JSON recipes into game-ready GLB
 
 imaginu turns a tiny JSON **recipe** into a `.glb` asset for Babylon.js (or any
 glTF loader). You describe *what* you want; imaginu produces the mesh, colors,
-skeleton, animations, and a collider — deterministically.
+skeleton, animations, and a collider - deterministically.
 
 **The core discipline: generate → _look at the PNG_ → iterate.** Do not claim an
 asset looks good without viewing its render.
@@ -27,7 +27,7 @@ cargo binstall imaginu      #  prebuilt binary
 cargo install imaginu       #  build from crates.io
 ```
 
-## 2. Read the recipe contract — do NOT hardcode fields
+## 2. Read the recipe contract - do NOT hardcode fields
 
 The schema is authoritative and evolves. Always start from it rather than
 guessing field names:
@@ -73,17 +73,17 @@ imaginu render '{"kind":"character","class":"mage"}' --expression smile -o frame
 imaginu world '{"kind":"world","name":"everdale","size":2048}' -o everdale/ --map
 ```
 
-`render` writes turntable PNGs (`<name>_0..3.png`) without keeping a GLB — use
+`render` writes turntable PNGs (`<name>_0..3.png`) without keeping a GLB - use
 it to inspect angles or animation phases. `showcase` makes a loop-perfect MP4
 but **requires `ffmpeg`** (see Gotchas).
 
-## 4. Determinism — generate once, trust it
+## 4. Determinism - generate once, trust it
 
 Generation is a pure function of `(recipe, seed)`: the same recipe always
 produces the **byte-identical** GLB. So:
 
 - Set an explicit `"seed"` when you want a specific result to be reproducible.
-- You never need to "re-roll and hope" — once a recipe looks right, its output
+- You never need to "re-roll and hope" - once a recipe looks right, its output
   is locked. Commit the recipe, not just the GLB.
 
 ## 5. Using the output in a Babylon.js project
@@ -102,14 +102,14 @@ scene.getAnimationGroupByName("walk")?.start(true);
 ```
 
 For **worlds**, read `manifest.json`: each entry in `chunks[]` has a `file` and
-a world-space `position` — load each chunk GLB (chunk-local origin) and place it
+a world-space `position` - load each chunk GLB (chunk-local origin) and place it
 at its `position`. `pois[]` list placed structures with their own `file`,
 `position`, and `spawn_points`; `roads`/`rivers` are polylines.
 
 ## 6. Gotchas worth knowing
 
 - **`ffmpeg` is only needed for video** (`showcase`, world `--flyover`). GLB
-  generation and PNG previews are fully standalone — never make video a
+  generation and PNG previews are fully standalone - never make video a
   dependency of producing an asset.
 - **Worlds emit a directory**, not a single file: `manifest.json` + one GLB per
   chunk (+ per-POI GLBs). Point `-o` at a directory.
@@ -119,11 +119,11 @@ at its `position`. `pois[]` list placed structures with their own `file`,
 - **`custom` builds anything**: a node-graph DSL (primitives, CSG, bevel,
   subdivision, bones, animations, baked PBR textures). Reach for it when no
   built-in `kind` fits. Its full field list is in `imaginu schema`.
-- Malformed or invalid recipes exit non-zero with a clear `error: …` message —
+- Malformed or invalid recipes exit non-zero with a clear `error: …` message -
   read it, fix the JSON, retry.
 
 ## Reference vs. workflow
 
-This skill is the **workflow**. The **reference** is always `imaginu schema` —
+This skill is the **workflow**. The **reference** is always `imaginu schema` -
 consult it for exact fields rather than memorizing them here, because the schema
 is versioned with the binary.
