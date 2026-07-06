@@ -667,6 +667,24 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  // smooth subdivision bodies, mitten hands, faces (eyes/brows/nose/mouth),
  // facial morph targets: smile, blink, angry, surprised (glTF blend shapes)
 
+{"kind":"monster","body":"quadruped_beast","class":"none","size":1.0,"seed":1,
+ "horns":0,"spikes":0,"plates":0,"tail":-1,"wings":-1,"eyes":-1,"maw":-1,
+ "menace":0,"age":0,"emissive":-1,"detail":1.0,"animate":true}
+ // body (alias "species"): biped_brute | quadruped_beast | serpent (alias
+ //   wyrm) | arachnid | winged_flyer | ooze (alias blob) | insectoid |
+ //   aberration - each a skeleton template driving limb count, gait, collider
+ // class: none | predator | brute | elemental | undead | aberration | swarm -
+ //   a preset bundle over the knobs (explicit fields still win); elemental,
+ //   undead, aberration also default the palette to infernal/necrotic/fungal
+ // size (alias "bulk"): scales geometry, collider, and mass (mass ~ size^3)
+ // knobs 0..1: horns, spikes (dorsal ridge), plates (armor), menace, age,
+ //   emissive (glowing accent markings); maw = jaw/teeth prominence
+ // tail/wings/maw/emissive: -1 = let the body plan/class decide (0 disables)
+ // eyes: -1 = plan default; else 0..12 emissive eyes (glow with the accent)
+ // gaits/clips per plan: idle + walk|slither|fly|crawl|pulse + attack, hurt,
+ //   death (+ roar when the plan has a head). Family-restricted skinning.
+ // collider auto-fits the plan (capsule/box/elongated-capsule/trimesh).
+
 {"kind":"custom","name":"anything","seed":1,
  "physics":{"collider":"auto|box|sphere|capsule|trimesh","mass":0,
             "friction":0.6,"restitution":0},

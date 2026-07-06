@@ -832,4 +832,53 @@ mod tests {
             .build()
             .unwrap();
     }
+
+    #[test]
+    fn monster_is_deterministic() {
+        let json = r#"{"kind":"monster","body":"wyrm","seed":7,"class":"elemental"}"#;
+        let a = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
+        let b = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn monster_survives_hostile_input() {
+        // absurd numeric values must clamp, not panic or explode the grid
+        for json in [
+            r#"{"kind":"monster","size":1e30,"detail":1e30,"horns":-5.0,"eyes":999999}"#,
+            r#"{"kind":"monster","body":"arachnid","size":-1.0,"maw":1e30,"spikes":-9.0}"#,
+            r#"{"kind":"monster","body":"aberration","class":"aberration","emissive":50.0}"#,
+        ] {
+            Recipe::parse(json).unwrap().build().unwrap();
+        }
+    }
+
+    #[test]
+    fn every_body_plan_and_class_builds() {
+        for body in [
+            "biped_brute",
+            "quadruped_beast",
+            "serpent",
+            "arachnid",
+            "winged_flyer",
+            "ooze",
+            "insectoid",
+            "aberration",
+        ] {
+            let j = format!(r#"{{"kind":"monster","body":"{body}"}}"#);
+            Recipe::parse(&j).unwrap().build().unwrap();
+        }
+        for class in [
+            "none",
+            "predator",
+            "brute",
+            "elemental",
+            "undead",
+            "aberration",
+            "swarm",
+        ] {
+            let j = format!(r#"{{"kind":"monster","class":"{class}"}}"#);
+            Recipe::parse(&j).unwrap().build().unwrap();
+        }
+    }
 }
