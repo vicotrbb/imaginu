@@ -218,6 +218,16 @@ fn srgbv(r: u8, g: u8, b: u8) -> Vec3 {
     crate::palette::srgb(r, g, b)
 }
 
+/// Encode a height-gradient normal in f64. In-process float-state drift
+/// (rounding-mode/FPCR level, observed on macOS ARM: identical inputs,
+/// 1-ULP-different f32 results after other work ran) can flip u8 encoding
+/// on knife-edge pixels; f64 headroom makes that probability vanish.
+fn sobel_normal(dx: f64, dy: f64) -> [u8; 3] {
+    let len = (dx * dx + dy * dy + 1.0).sqrt();
+    let enc = |c: f64| ((c / len) * 0.5 + 0.5) * 255.0;
+    [enc(-dx) as u8, enc(-dy) as u8, enc(1.0) as u8]
+}
+
 fn wood(p: &Pat, u: f32, v: f32) -> Sample {
     // two planks per tile, grain running along v
     let planks = 2.0;
@@ -623,22 +633,24 @@ pub fn bake(spec: &TextureSpec) -> Result<BakedTexture, String> {
     };
     for y in 0..res as i64 {
         for x in 0..res as i64 {
-            let dx = (hgt(x + 1, y - 1) + 2.0 * hgt(x + 1, y) + hgt(x + 1, y + 1))
-                - (hgt(x - 1, y - 1) + 2.0 * hgt(x - 1, y) + hgt(x - 1, y + 1));
-            let dy = (hgt(x - 1, y + 1) + 2.0 * hgt(x, y + 1) + hgt(x + 1, y + 1))
-                - (hgt(x - 1, y - 1) + 2.0 * hgt(x, y - 1) + hgt(x + 1, y - 1));
+            // f64 throughout: in-process rounding-state drift gives 1-ULP f32
+            // differences that flip u8 encoding on knife-edge pixels
+            let g = |x: i64, y: i64| hgt(x, y) as f64;
+            let dx = (g(x + 1, y - 1) + 2.0 * g(x + 1, y) + g(x + 1, y + 1))
+                - (g(x - 1, y - 1) + 2.0 * g(x - 1, y) + g(x - 1, y + 1));
+            let dy = (g(x - 1, y + 1) + 2.0 * g(x, y + 1) + g(x + 1, y + 1))
+                - (g(x - 1, y - 1) + 2.0 * g(x, y - 1) + g(x + 1, y - 1));
             // clamp slopes so hard height steps don't blow out into white rims
-            let (dx, dy) = ((dx * strength).clamp(-0.85, 0.85), (dy * strength).clamp(-0.85, 0.85));
-            let n = Vec3::new(-dx, -dy, 1.0).normalize();
-            normal.put(
-                x as u32,
-                y as u32,
-                [
-                    ((n.x * 0.5 + 0.5) * 255.0) as u8,
-                    ((n.y * 0.5 + 0.5) * 255.0) as u8,
-                    ((n.z * 0.5 + 0.5) * 255.0) as u8,
-                ],
+            // black_box pins the codegen: the auto-vectorized form of this
+            // loop produced process-history-dependent results on macOS ARM
+            // (same binary, same inputs, two stable outcomes)
+            let (dx, dy) = (std::hint::black_box(dx), std::hint::black_box(dy));
+            let (dx, dy) = (
+                (dx * strength as f64).clamp(-0.85, 0.85),
+                (dy * strength as f64).clamp(-0.85, 0.85),
             );
+            let n = sobel_normal(dx, dy);
+            normal.put(x as u32, y as u32, n);
         }
     }
 
@@ -649,6 +661,123 @@ pub fn bake(spec: &TextureSpec) -> Result<BakedTexture, String> {
         normal,
         orm,
     })
+}
+
+/// Bake a face texture for a spherically-unwrapped head: skin mottling,
+/// cheek blush, eye-socket shading, and age wrinkles (forehead lines,
+/// crow's feet, nasolabial folds). Convention: u = azimuth with the face
+/// centered at u = 0.5, v = 0 at the crown → 1 at the chin.
+pub fn bake_face(skin: Vec3, age: f32, seed: u64, res: u32) -> BakedTexture {
+    let res = res.clamp(64, 1024);
+    let pat = Pat {
+        n: Noise2::new(seed.wrapping_add(0xFACE)),
+        n2: Noise2::new(seed.wrapping_add(0xFACE2)),
+        ramp_cols: Vec::new(),
+    };
+    let age = age.clamp(0.0, 1.0);
+    // soft darkened stroke along a horizontal arc
+    let line = |u: f32, v: f32, cu: f32, cv: f32, half_w: f32, sag: f32, thick: f32| -> f32 {
+        if (u - cu).abs() > half_w {
+            return 0.0;
+        }
+        let x = (u - cu) / half_w; // -1..1
+        let target_v = cv + sag * x * x;
+        (1.0 - ((v - target_v) / thick).abs()).clamp(0.0, 1.0)
+    };
+    let mut heights = vec![0.5f32; (res * res) as usize];
+    let mut base = Rgb8Image::new(res, res);
+    let mut orm = Rgb8Image::new(res, res);
+    for y in 0..res {
+        for x in 0..res {
+            let u = x as f32 / res as f32;
+            let v = y as f32 / res as f32;
+            let mut c = skin;
+            // gentle mottling
+            let m = pat.tfbm(u, v, 6.0, 6.0, 4);
+            c *= 1.0 + m * 0.05;
+            // cheek warmth
+            for cu in [0.40f32, 0.60] {
+                let d = ((u - cu).powi(2) * 3.0 + (v - 0.58).powi(2)).sqrt();
+                let blush = (1.0 - d / 0.14).clamp(0.0, 1.0);
+                c = lerp(c, c * Vec3::new(1.10, 0.94, 0.90), blush * 0.5);
+            }
+            // eye-socket shading
+            for cu in [0.42f32, 0.58] {
+                let d = ((u - cu).powi(2) * 4.0 + (v - 0.47).powi(2)).sqrt();
+                let s = (1.0 - d / 0.075).clamp(0.0, 1.0);
+                c *= 1.0 - 0.10 * s;
+            }
+            let mut wrinkle = 0.0f32;
+            if age > 0.05 {
+                // forehead lines
+                for (i, cv) in [0.30f32, 0.345, 0.39].iter().enumerate() {
+                    if age > 0.2 + i as f32 * 0.25 {
+                        wrinkle = wrinkle.max(line(u, v, 0.5, *cv, 0.13, 0.03, 0.012));
+                    }
+                }
+                // crow's feet
+                for (cu, dir) in [(0.345f32, -1.0f32), (0.655, 1.0)] {
+                    for dv in [-0.012f32, 0.0, 0.012] {
+                        let x = (u - cu) * dir;
+                        if (0.0..0.045).contains(&x) {
+                            let target = 0.47 + dv + x * (dv * 14.0);
+                            wrinkle = wrinkle
+                                .max(((1.0 - ((v - target) / 0.008).abs()).clamp(0.0, 1.0)) * 0.8);
+                        }
+                    }
+                }
+                // nasolabial folds
+                for (cu, dir) in [(0.46f32, -1.0f32), (0.54, 1.0)] {
+                    let t = ((v - 0.60) / 0.10).clamp(0.0, 1.0);
+                    let target_u = cu + dir * (0.015 + t * 0.035);
+                    if (0.60..0.70).contains(&v) {
+                        wrinkle = wrinkle
+                            .max(((1.0 - ((u - target_u) / 0.008).abs()).clamp(0.0, 1.0)) * 0.9);
+                    }
+                }
+                wrinkle *= age;
+                c *= 1.0 - 0.16 * wrinkle;
+            }
+            heights[(y * res + x) as usize] = 0.5 + m * 0.08 - wrinkle * 0.22;
+            let ao = 1.0 - 0.05 * wrinkle;
+            base.put(x, y, to_srgb8(c));
+            orm.put(x, y, [(ao * 255.0) as u8, 178, 0]);
+        }
+    }
+    // Sobel normal pass (same as bake)
+    let mut normal = Rgb8Image::new(res, res);
+    let strength = 1.0 * res as f32 / 256.0;
+    let hgt = |x: i64, y: i64| -> f32 {
+        let x = x.rem_euclid(res as i64) as u32;
+        let y = y.rem_euclid(res as i64) as u32;
+        heights[(y * res + x) as usize]
+    };
+    for y in 0..res as i64 {
+        for x in 0..res as i64 {
+            // f64 throughout (see the twin comment in `bake`)
+            let g = |x: i64, y: i64| hgt(x, y) as f64;
+            let dx = (g(x + 1, y - 1) + 2.0 * g(x + 1, y) + g(x + 1, y + 1))
+                - (g(x - 1, y - 1) + 2.0 * g(x - 1, y) + g(x - 1, y + 1));
+            let dy = (g(x - 1, y + 1) + 2.0 * g(x, y + 1) + g(x + 1, y + 1))
+                - (g(x - 1, y - 1) + 2.0 * g(x, y - 1) + g(x + 1, y - 1));
+            // black_box pins the codegen: the auto-vectorized form of this
+            // loop produced process-history-dependent results on macOS ARM
+            // (same binary, same inputs, two stable outcomes)
+            let (dx, dy) = (std::hint::black_box(dx), std::hint::black_box(dy));
+            let (dx, dy) = (
+                (dx * strength as f64).clamp(-0.85, 0.85),
+                (dy * strength as f64).clamp(-0.85, 0.85),
+            );
+            let n = sobel_normal(dx, dy);
+            normal.put(x as u32, y as u32, n);
+        }
+    }
+    BakedTexture {
+        key: format!("face:{skin}:{age}:{seed}:{res}"),
+        base_color: base,
+        normal,
+        orm,
+    }
 }
 
 #[cfg(test)]

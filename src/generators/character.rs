@@ -608,13 +608,47 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     body.merge(&buckle);
     }
 
-    // head: shaped skull + facial features (with morph targets) + hair
+    // head: shaped skull as its own part with a painted face texture
+    // (skin mottling, blush, socket shading, age wrinkles); geometry
+    // eyes/brows/mouth stay in the body part so morphs keep working
     let head_r = h * 0.075;
     let head_c = jw(HEAD) + Vec3::new(0.0, head_r * 0.9, 0.0);
-    let mut head = head_shape(head_r, w.skin);
+    let mut head = head_shape(head_r, Vec3::ONE); // texture carries the skin
     head.translate(head_c);
+    // spherical unwrap: u = azimuth (face at 0.5), v = crown(0) -> chin(1)
+    head.uvs = head
+        .positions
+        .iter()
+        .map(|p| {
+            let d = (*p - head_c).normalize_or(Vec3::Z);
+            glam::Vec2::new(
+                0.5 + d.x.atan2(d.z) / core::f32::consts::TAU,
+                d.y.clamp(-1.0, 1.0).acos() / core::f32::consts::PI,
+            )
+        })
+        .collect();
+    head.tangents = head
+        .normals
+        .iter()
+        .map(|n| {
+            let t = Vec3::new(-n.z, 0.0, n.x).normalize_or(Vec3::X);
+            glam::Vec4::new(t.x, t.y, t.z, 1.0)
+        })
+        .collect();
     head.bind_all_to_joint(HEAD as u16);
-    body.merge(&head);
+    let head_part = Part {
+        mesh: head,
+        material: Material {
+            roughness: 0.75,
+            texture: Some(std::sync::Arc::new(crate::texture::bake_face(
+                w.skin,
+                p.age.clamp(0.0, 1.0),
+                p.seed,
+                512,
+            ))),
+            ..Default::default()
+        },
+    };
 
     let mut features = face(head_c, head_r, &w, p.expressions);
     features.bind_all_to_joint(HEAD as u16);
@@ -810,10 +844,13 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
 
     body.validate().expect("character mesh invalid");
 
-    let mut parts = vec![Part {
-        mesh: body,
-        material: Material { roughness: 0.85, ..Default::default() },
-    }];
+    let mut parts = vec![
+        Part {
+            mesh: body,
+            material: Material { roughness: 0.85, ..Default::default() },
+        },
+        head_part,
+    ];
     if dressed {
         let ctx = GarmentCtx {
             rig: &rig,

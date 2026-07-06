@@ -212,6 +212,10 @@ pub struct CharacterParams {
     /// Trim motif for garment borders: meander|zigzag|dots|diamonds|scroll|runes.
     #[serde(default)]
     pub trim_motif: Option<String>,
+    /// 0..1 — painted age detail on the face (forehead lines, crow's feet,
+    /// nasolabial folds).
+    #[serde(default)]
+    pub age: f32,
 }
 fn d_ornament() -> f32 { 0.6 }
 fn d_char_h() -> f32 { 1.7 }
@@ -474,9 +478,9 @@ mod tests {
         // deterministic incl. baked garment paint
         let b = Recipe::parse(j).unwrap().build().unwrap();
         assert_eq!(crate::gltf::to_glb(&a), crate::gltf::to_glb(&b));
-        // plain stays single-part
+        // plain = body + painted-face head only
         let p = Recipe::parse(r#"{"kind":"character","seed":9}"#).unwrap().build().unwrap();
-        assert_eq!(p.parts.len(), 1);
+        assert_eq!(p.parts.len(), 2);
     }
 
     #[test]
