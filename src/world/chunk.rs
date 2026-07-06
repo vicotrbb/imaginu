@@ -157,6 +157,14 @@ pub fn build(m: &WorldModel, cx: u32, cz: u32) -> Asset {
             if !roll || h < sea + 0.6 || s > 0.7 || t_alt > treeline {
                 continue;
             }
+            // clear settlements and dungeon mouths
+            let (wxs, wzs) = (x + ox, z + oz);
+            if m.pois.iter().any(|p| {
+                let rr = p.radius * 1.45;
+                (wxs - p.x).powi(2) + (wzs - p.z).powi(2) < rr * rr
+            }) {
+                continue;
+            }
             let vi = if is_tree { r.gen_range(0..3usize) } else { 3 + r.gen_range(0..2usize) };
             let scale = range(&mut r, 0.5, 1.15) * variants[vi].1;
             let yaw = range(&mut r, 0.0, core::f32::consts::TAU);

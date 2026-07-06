@@ -66,6 +66,20 @@ pub fn render(m: &WorldModel, px: usize) -> (usize, usize, Vec<u8>) {
             out[idx + 2] = (c.z.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0) as u8;
         }
     }
+    // POI markers (outlined dots, color per kind)
+    for s in &m.pois {
+        let px = (s.x + m.size_x * 0.5) / m.size_x * w as f32;
+        let py = (s.z + m.size_z * 0.5) / m.size_z * h as f32;
+        let (col, r): ([u8; 3], f32) = match s.kind {
+            super::poi::PoiKind::City => ([226, 48, 44], 6.0),
+            super::poi::PoiKind::Village => ([238, 150, 46], 4.0),
+            super::poi::PoiKind::Castle => ([164, 70, 224], 5.0),
+            super::poi::PoiKind::Watchtower => ([245, 245, 245], 3.0),
+            super::poi::PoiKind::Dungeon => ([20, 20, 24], 4.0),
+        };
+        dot(&mut out, w, h, px, py, r + 1.5, [250, 250, 250]);
+        dot(&mut out, w, h, px, py, r, col);
+    }
     (w, h, out)
 }
 

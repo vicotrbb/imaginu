@@ -366,6 +366,23 @@ fn run() -> Result<(), String> {
             if !errors.is_empty() {
                 return Err(errors.join("\n"));
             }
+            // POI GLBs (skipped in lazy --chunk mode)
+            if chunk.is_none() {
+                for (i, site) in model.pois.iter().enumerate() {
+                    let asset = imaginu::world::poi::build_asset(site, &model.pal);
+                    let glb = imaginu::gltf::to_glb(&asset);
+                    let path = out.join(imaginu::world::poi::poi_file(site, i));
+                    std::fs::write(&path, &glb).map_err(|e| e.to_string())?;
+                    if preview {
+                        let cam = auto_camera(&asset, 35.0, 24.0, 0.9);
+                        render_png(&asset, &cam, 800, 600, &path.with_extension("png"))
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
+                if !model.pois.is_empty() {
+                    println!("wrote {} POI GLB(s)", model.pois.len());
+                }
+            }
             println!(
                 "wrote {}/manifest.json + {} chunk GLB(s) ({}×{} grid, {}×{} m)",
                 out.display(),
@@ -426,7 +443,10 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  "zone_size":900,
  "zones":[{"kind":"forest","weight":2},{"kind":"plains","weight":2},
           {"kind":"mountains","weight":1.2},
-          {"kind":"lake","at":[300,-500],"radius":400}]}
+          {"kind":"lake","at":[300,-500],"radius":400}],
+ "pois":[{"kind":"city","count":2},{"kind":"village","count":5},
+         {"kind":"castle","at":[500,-800],"name":"Castle Hightower"},
+         {"kind":"watchtower","count":3},{"kind":"dungeon","count":2}]}
  // whole streaming map: imaginu world <recipe> -o mapdir/ writes
  // manifest.json + one GLB per chunk (chunk-local origin; place each at its
  // manifest "position"). Heights/colors are pure functions of world coords +
@@ -436,7 +456,12 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  // Voronoi regions (~zone_size m across) with smooth blending — each brings
  // its own height character, ground colors and scatter mix. "at"+"radius"
  // pins a zone at a world position. --map renders <out>/map.png (zones +
- // hillshade + water); --map-only skips chunk builds for layout iteration.
+ // hillshade + water + POI markers); --map-only skips chunk builds.
+ // pois: city|village|castle|watchtower|dungeon — a deterministic solver
+ // scores slope/zone/altitude/prominence/water, flattens sites into the
+ // world height function (seamless across chunk borders), names them, and
+ // exports each as its own GLB with world transform + spawn points in the
+ // manifest (omit "pois" for area-scaled defaults, [] for none).
  // Check output: imaginu validate-world mapdir/
 
 {"kind":"tree","style":"oak|pine|palm|dead","height":6,"seed":1}

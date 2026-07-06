@@ -8,6 +8,7 @@ pub mod chunk;
 pub mod manifest;
 pub mod minimap;
 pub mod model;
+pub mod poi;
 pub mod zones;
 
 use serde::{Deserialize, Serialize};
@@ -57,6 +58,10 @@ pub struct WorldParams {
     /// Approximate zone region diameter in meters.
     #[serde(default = "d_zone_size")]
     pub zone_size: f32,
+    /// POIs: omit for area-scaled defaults, `[]` for none, or
+    /// `[{"kind":"city","count":2},{"kind":"castle","at":[500,-800]}]`.
+    #[serde(default)]
+    pub pois: Option<Vec<poi::PoiSpec>>,
 }
 fn d_zone_size() -> f32 { 900.0 }
 
@@ -231,6 +236,96 @@ mod tests {
             let w = lake.zones.weights(x, z);
             let sum: f32 = w.iter().sum();
             assert!((sum - 1.0).abs() < 1e-3, "weights sum {sum} at ({x},{z})");
+        }
+    }
+
+    #[test]
+    fn pois_place_and_flatten() {
+        let p = WorldParams::parse(
+            r#"{"kind":"world","seed":9,"size":1536,"chunk_size":256,
+                "chunk_resolution":32,"sea_level":0,"scatter":false,
+                "zones":[{"kind":"plains","weight":2},{"kind":"forest","weight":1},
+                         {"kind":"mountains","weight":1}],
+                "pois":[{"kind":"city","count":1},{"kind":"village","count":2},
+                        {"kind":"watchtower","count":1},
+                        {"kind":"castle","at":[200,180],"name":"Pinhold"}]}"#,
+        )
+        .unwrap();
+        let m = model::WorldModel::new(&p).unwrap();
+        // pinned castle honored (position + name)
+        let castle = m
+            .pois
+            .iter()
+            .find(|s| s.kind == poi::PoiKind::Castle)
+            .expect("pinned castle placed");
+        assert_eq!((castle.x, castle.z), (200.0, 180.0));
+        assert_eq!(castle.name, "Pinhold");
+        let cities = m.pois.iter().filter(|s| s.kind == poi::PoiKind::City).count();
+        assert_eq!(cities, 1);
+        // every settlement sits above water on flat ground
+        for s in &m.pois {
+            assert!(s.ground > m.p.sea_level, "{} underwater", s.name);
+            if s.kind == poi::PoiKind::Dungeon {
+                continue;
+            }
+            let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+            for i in 0..24 {
+                let a = i as f32 / 24.0 * core::f32::consts::TAU;
+                let d = if i % 2 == 0 { 0.45 } else { 0.9 } * s.radius;
+                let h = m.height(s.x + a.cos() * d, s.z + a.sin() * d);
+                lo = lo.min(h);
+                hi = hi.max(h);
+            }
+            assert!(
+                hi - lo < 1.5,
+                "{} ground not flat: span {}",
+                s.name,
+                hi - lo
+            );
+        }
+        // determinism: same recipe → same sites
+        let m2 = model::WorldModel::new(&p).unwrap();
+        assert_eq!(m.pois.len(), m2.pois.len());
+        for (a, b) in m.pois.iter().zip(&m2.pois) {
+            assert_eq!((a.x, a.z, a.seed, a.name.clone()), (b.x, b.z, b.seed, b.name.clone()));
+        }
+        // manifest carries them with files + spawn points
+        let man = manifest::create(&m);
+        assert_eq!(man.pois.len(), m.pois.len());
+        assert!(man.pois.iter().all(|p| p.file.is_some() && !p.spawn_points.is_empty()));
+    }
+
+    #[test]
+    fn poi_assets_build_and_validate() {
+        let pal = crate::palette::by_name("verdant");
+        for kind in [
+            poi::PoiKind::City,
+            poi::PoiKind::Village,
+            poi::PoiKind::Castle,
+            poi::PoiKind::Watchtower,
+            poi::PoiKind::Dungeon,
+        ] {
+            let site = poi::PoiSite {
+                kind,
+                name: format!("Test {}", kind.name()),
+                x: 0.0,
+                z: 0.0,
+                ground: 10.0,
+                radius: kind.radius(),
+                seed: 77,
+            };
+            let a = poi::build_asset(&site, &pal);
+            a.validate().unwrap_or_else(|e| panic!("{}: {e}", kind.name()));
+            assert!(
+                a.parts.iter().map(|p| p.mesh.triangle_count()).sum::<usize>() > 50,
+                "{} too small",
+                kind.name()
+            );
+            let g1 = to_glb(&a);
+            let g2 = to_glb(&poi::build_asset(&site, &pal));
+            assert_eq!(g1, g2, "{} not deterministic", kind.name());
+            crate::validate::validate_glb_bytes(&g1)
+                .unwrap_or_else(|e| panic!("{} glb: {e}", kind.name()));
         }
     }
 

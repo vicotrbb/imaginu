@@ -116,7 +116,19 @@ pub fn create(m: &WorldModel) -> Manifest {
         grid: [m.nx, m.nz],
         sea_level: m.p.sea_level,
         chunks,
-        pois: Vec::new(),
+        pois: m
+            .pois
+            .iter()
+            .enumerate()
+            .map(|(i, s)| Poi {
+                name: s.name.clone(),
+                kind: s.kind.name().into(),
+                position: [s.x, s.ground, s.z],
+                radius: s.radius,
+                file: Some(super::poi::poi_file(s, i)),
+                spawn_points: super::poi::spawn_points(s),
+            })
+            .collect(),
         roads: Vec::new(),
         rivers: Vec::new(),
         zones: m

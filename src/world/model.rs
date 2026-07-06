@@ -15,6 +15,9 @@ pub struct WorldModel {
     pub pal: Palette,
     pub n: Noise2,
     pub zones: ZoneField,
+    /// Placed POI sites (computed once from the recipe; part of the pure
+    /// world function — all chunks see the same list).
+    pub pois: Vec<super::poi::PoiSite>,
     /// Grid dimensions in chunks.
     pub nx: u32,
     pub nz: u32,
@@ -50,17 +53,22 @@ impl WorldModel {
         p.chunk_resolution = p.chunk_resolution.clamp(16, 512);
         let n_chunks = (p.size / p.chunk_size).round().clamp(1.0, 64.0) as u32;
         let size = n_chunks as f32 * p.chunk_size;
-        Ok(Self {
+        let specs = p.pois.clone();
+        let mut model = Self {
             pal: palette::by_name(&p.palette),
             n: Noise2::new(p.seed),
             zones: ZoneField::new(p.seed, &p.zones, p.zone_size),
+            pois: Vec::new(),
             nx: n_chunks,
             nz: n_chunks,
             size_x: size,
             size_z: size,
             amp: 70.0 * p.mountainousness.clamp(0.05, 3.0),
             p,
-        })
+        };
+        // placement samples the pre-flattening base height (pois empty here)
+        model.pois = super::poi::place(&model, specs.as_deref());
+        Ok(model)
     }
 
     /// World-space center of chunk (cx, cz). The world spans
@@ -118,7 +126,25 @@ impl WorldModel {
         // banks instead of a z-fighting speckle band (pure function of h)
         let d = h - sea;
         let w = 3.0;
-        if d.abs() < w { sea + w * d.signum() * (d.abs() / w).powf(0.6) } else { h }
+        let mut h =
+            if d.abs() < w { sea + w * d.signum() * (d.abs() / w).powf(0.6) } else { h };
+        // POI flattening: blend toward each site's plateau with a smooth
+        // skirt — part of the world function, so a city split across four
+        // chunks stays seamless
+        for s in &self.pois {
+            if matches!(s.kind, super::poi::PoiKind::Dungeon) {
+                continue;
+            }
+            let (dx, dz) = (wx - s.x, wz - s.z);
+            let r_out = s.radius * 1.7;
+            let d2 = dx * dx + dz * dz;
+            if d2 < r_out * r_out {
+                let t = ((r_out - d2.sqrt()) / (r_out - s.radius)).clamp(0.0, 1.0);
+                let t = t * t * (3.0 - 2.0 * t);
+                h += (s.ground - h) * t * 0.96;
+            }
+        }
+        h
     }
 
     /// Ground albedo at a world position given its height and slope
@@ -149,6 +175,21 @@ impl WorldModel {
         c = c * (1.0 - snow) + pal.terrain[5] * snow;
         let shore = (1.0 - ((h - sea).abs() / 2.2)).clamp(0.0, 1.0);
         c = c * (1.0 - shore * 0.7) + pal.terrain[0] * shore * 0.7;
+        // packed-dirt ground inside settlements
+        for s in &self.pois {
+            if matches!(
+                s.kind,
+                super::poi::PoiKind::City | super::poi::PoiKind::Village | super::poi::PoiKind::Castle
+            ) {
+                let (dx, dz) = (wx - s.x, wz - s.z);
+                let r_out = s.radius * 1.15;
+                let d2 = dx * dx + dz * dz;
+                if d2 < r_out * r_out {
+                    let t = ((r_out - d2.sqrt()) / (r_out * 0.35)).clamp(0.0, 1.0);
+                    c = crate::palette::lerp(c, pal.trunk * 0.85, t * 0.55);
+                }
+            }
+        }
         vary(c, 0.10, self.n.sample(wx * 0.13 + 31.0, wz * 0.13 + 17.0) * 0.5 + 0.5)
     }
 
