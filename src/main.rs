@@ -118,6 +118,22 @@ enum Cmd {
     },
     /// Validate a world output directory (manifest + all chunk GLBs).
     ValidateWorld { dir: PathBuf },
+    /// Compile a `{"kind":"dungeon"}` recipe into a themed layout: one merged
+    /// GLB for a single room, otherwise a directory of per-room GLBs +
+    /// manifest.json.
+    Dungeon {
+        /// Recipe file path, or inline JSON starting with '{'
+        recipe: String,
+        /// Output directory (created if missing)
+        #[arg(short, long, default_value = "dungeon_out")]
+        out: PathBuf,
+        /// Render a near-top-down, ceiling-less beauty shot of the interior
+        /// to <out>/overview.png
+        #[arg(long)]
+        overview: bool,
+    },
+    /// Validate a dungeon output directory (manifest + all room GLBs).
+    ValidateDungeon { dir: PathBuf },
 }
 
 fn load_recipe(s: &str) -> Result<Recipe, String> {
@@ -481,6 +497,29 @@ fn run() -> Result<(), String> {
             println!("OK   {}  {}", dir.display(), summary);
             Ok(())
         }
+        Cmd::Dungeon {
+            recipe,
+            out,
+            overview,
+        } => {
+            let r = load_recipe(&recipe)?;
+            let params = match &r {
+                Recipe::Dungeon { params, .. } => params.clone(),
+                _ => {
+                    return Err(
+                        "recipe is not a dungeon (expected \"kind\":\"dungeon\")".to_string()
+                    );
+                }
+            };
+            let pal_name = r.resolved_palette().to_string();
+            build_dungeon(&params, &pal_name, &out, overview)?;
+            Ok(())
+        }
+        Cmd::ValidateDungeon { dir } => {
+            let summary = imaginu::generators::dungeon::manifest::validate_dir(&dir)?;
+            println!("OK   {}  {}", dir.display(), summary);
+            Ok(())
+        }
         Cmd::Validate { files } => {
             let mut failures = 0;
             for f in &files {
@@ -574,6 +613,57 @@ fn fly_over(
     }
     std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
     println!("wrote {}", mp4.display());
+    Ok(())
+}
+
+/// Build a dungeon from resolved params + palette into `out`. A single-room
+/// dungeon writes one merged `dungeon.glb`; anything larger writes per-room
+/// GLBs + `manifest.json`. `--overview` adds a ceiling-less top-down render.
+/// Factored out of the CLI arm so it is unit-testable.
+fn build_dungeon(
+    params: &imaginu::recipe::DungeonParams,
+    pal_name: &str,
+    out: &std::path::Path,
+    overview: bool,
+) -> Result<(), String> {
+    use imaginu::generators::dungeon;
+    if !imaginu::palette::PALETTES.contains(&pal_name) {
+        return Err(format!(
+            "unknown palette '{pal_name}' (available: {})",
+            imaginu::palette::PALETTES.join(", ")
+        ));
+    }
+    let pal = imaginu::palette::by_name(pal_name);
+    let model = dungeon::model::DungeonModel::new(params, &pal)?;
+    std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    if model.rooms.len() <= 1 {
+        let asset = dungeon::merged_asset(&model);
+        let glb = imaginu::gltf::to_glb(&asset);
+        let path = out.join("dungeon.glb");
+        std::fs::write(&path, &glb).map_err(|e| e.to_string())?;
+        let tris: usize = asset.parts.iter().map(|p| p.mesh.triangle_count()).sum();
+        println!(
+            "wrote {} ({} KiB, {tris} triangles)",
+            path.display(),
+            glb.len() / 1024
+        );
+    } else {
+        dungeon::manifest::write_dir(&model, out)?;
+        println!(
+            "wrote {}/manifest.json + {} room GLB(s) ({} corridors, {} doors)",
+            out.display(),
+            model.rooms.len(),
+            model.corridors.len(),
+            model.doors.len()
+        );
+    }
+    if overview {
+        let asset = dungeon::overview_asset(&model);
+        let cam = auto_camera(&asset, 40.0, 68.0, 1.0);
+        let path = out.join("overview.png");
+        render_png(&asset, &cam, 1400, 1000, &path).map_err(|e| e.to_string())?;
+        println!("wrote {}", path.display());
+    }
     Ok(())
 }
 
@@ -756,3 +846,44 @@ Channel easing: "ease":"cubic_in|cubic_out|cubic_in_out" (baked to dense keys);
 multi-axis rotation via "keys_euler":[[x,y,z]deg,...].
 See animation frames: imaginu render <recipe> --animation walk [--at 0.5]
 Film a clip:         imaginu showcase <recipe> --animation dance -o dance.mp4"##;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use imaginu::recipe::DungeonParams;
+
+    fn dungeon_params(json: &str) -> DungeonParams {
+        match Recipe::parse(json).unwrap() {
+            Recipe::Dungeon { params, .. } => params,
+            _ => panic!("expected a dungeon recipe"),
+        }
+    }
+
+    #[test]
+    fn build_dungeon_writes_a_validatable_directory() {
+        let params = dungeon_params(r#"{"kind":"dungeon","type":"crypt","size":"medium"}"#);
+        let dir = std::env::temp_dir().join(format!("imaginu_maintest_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        build_dungeon(&params, "necrotic", &dir, false).unwrap();
+        let manifest = dir.join("manifest.json");
+        assert!(manifest.exists(), "manifest.json must exist");
+        let summary =
+            imaginu::generators::dungeon::manifest::validate_dir(&dir).expect("dir validates");
+        assert!(summary.contains("rooms"), "summary: {summary}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_dungeon_single_room_writes_one_glb() {
+        let params = dungeon_params(r#"{"kind":"dungeon","type":"crypt","rooms":1}"#);
+        let dir = std::env::temp_dir().join(format!("imaginu_maintest1_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        build_dungeon(&params, "necrotic", &dir, false).unwrap();
+        assert!(
+            dir.join("dungeon.glb").exists(),
+            "single-room GLB must exist"
+        );
+        assert!(!dir.join("manifest.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

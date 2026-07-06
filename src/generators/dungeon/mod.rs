@@ -9,7 +9,7 @@ mod dress;
 mod geom;
 mod layout;
 pub mod manifest;
-mod model;
+pub mod model;
 
 use glam::Vec3;
 
@@ -50,9 +50,16 @@ fn dress_meshes(model: &DungeonModel, room: &Room) -> (Mesh, Mesh) {
 }
 
 /// A single room's carved shell (used by both the merged asset and the
-/// per-room manifest output).
-fn carved_room(model: &DungeonModel, room: &Room) -> Mesh {
-    let walls = geom::room_mesh(room, model.p.theme, &model.pal, model.p.detail);
+/// per-room manifest output). `include_ceiling` is false for the top-down
+/// overview so the interior is visible from above.
+fn carved_room(model: &DungeonModel, room: &Room, include_ceiling: bool) -> Mesh {
+    let walls = geom::room_mesh(
+        room,
+        model.p.theme,
+        &model.pal,
+        model.p.detail,
+        include_ceiling,
+    );
     let doors: Vec<Door> = model
         .doors
         .iter()
@@ -92,11 +99,11 @@ fn assemble(opaque: Mesh, emissive: Mesh) -> Asset {
     )
 }
 
-fn merged_asset(model: &DungeonModel) -> Asset {
+fn build_merged(model: &DungeonModel, include_ceiling: bool) -> Asset {
     let mut opaque = Mesh::new();
     let mut emissive = Mesh::new();
     for room in &model.rooms {
-        opaque.merge(&carved_room(model, room));
+        opaque.merge(&carved_room(model, room, include_ceiling));
         let (o, e) = dress_meshes(model, room);
         opaque.merge(&o);
         emissive.merge(&e);
@@ -107,15 +114,29 @@ fn merged_asset(model: &DungeonModel) -> Asset {
             model.p.theme,
             &model.pal,
             model.p.detail,
+            include_ceiling,
         ));
     }
     assemble(opaque, emissive)
 }
 
+/// The whole dungeon merged into one asset, WITH ceilings (the render /
+/// small-dungeon path). Byte-stable — the single-GLB output must not drift.
+pub fn merged_asset(model: &DungeonModel) -> Asset {
+    build_merged(model, true)
+}
+
+/// The whole dungeon merged WITHOUT ceilings, for a near-top-down beauty shot:
+/// floor, walls, dressing props and glowing torches read from above. Not part
+/// of any streamed output — render-only.
+pub fn overview_asset(model: &DungeonModel) -> Asset {
+    build_merged(model, false)
+}
+
 /// Self-contained asset for one room (its carved shell + dressing + the
 /// corridors it owns), for the per-room directory output.
 pub(crate) fn room_asset(model: &DungeonModel, room: &Room) -> Asset {
-    let mut opaque = carved_room(model, room);
+    let mut opaque = carved_room(model, room, true);
     // own the corridors whose lower-id endpoint is this room, so each corridor
     // is written exactly once across the room set
     for c in &model.corridors {
@@ -125,6 +146,7 @@ pub(crate) fn room_asset(model: &DungeonModel, room: &Room) -> Asset {
                 model.p.theme,
                 &model.pal,
                 model.p.detail,
+                true,
             ));
         }
     }

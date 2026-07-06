@@ -36,8 +36,16 @@ fn floor_color(pal: &Palette) -> Vec3 {
     pal.terrain[1]
 }
 
-/// A single room's solid shell: floor slab, four extruded walls, ceiling.
-pub fn room_mesh(room: &Room, theme: DungeonTheme, pal: &Palette, detail: f32) -> Mesh {
+/// A single room's solid shell: floor slab, four extruded walls, and (when
+/// `include_ceiling`) a ceiling slab. The ceiling-less variant powers the
+/// top-down overview render where the interior must be visible from above.
+pub fn room_mesh(
+    room: &Room,
+    theme: DungeonTheme,
+    pal: &Palette,
+    detail: f32,
+    include_ceiling: bool,
+) -> Mesh {
     let _ = detail; // boxes need no tessellation; kept for interface parity
     let wall = wall_color(theme, pal);
     let floor_c = floor_color(pal);
@@ -57,11 +65,13 @@ pub fn room_mesh(room: &Room, theme: DungeonTheme, pal: &Palette, detail: f32) -
         floor_c,
     ));
     // ceiling slab
-    m.merge(&cuboid(
-        Vec3::new(cx, h + T * 0.5, cz),
-        Vec3::new(hx + T, T * 0.5, hz + T),
-        ceil_c,
-    ));
+    if include_ceiling {
+        m.merge(&cuboid(
+            Vec3::new(cx, h + T * 0.5, cz),
+            Vec3::new(hx + T, T * 0.5, hz + T),
+            ceil_c,
+        ));
+    }
     // four walls, interior faces flush with [mn, mx]
     m.merge(&cuboid(
         Vec3::new(cx, h * 0.5, mn.z - T * 0.5),
@@ -105,7 +115,13 @@ pub fn carve_doorways(mut walls: Mesh, doors: &[Door]) -> Mesh {
 
 /// A corridor shell: floor + ceiling + two side walls along each straight
 /// segment, ends left open so it meets the carved room doorways.
-pub fn corridor_mesh(c: &Corridor, theme: DungeonTheme, pal: &Palette, detail: f32) -> Mesh {
+pub fn corridor_mesh(
+    c: &Corridor,
+    theme: DungeonTheme,
+    pal: &Palette,
+    detail: f32,
+    include_ceiling: bool,
+) -> Mesh {
     let _ = detail;
     let wall = wall_color(theme, pal) * 0.92;
     let floor_c = floor_color(pal);
@@ -115,12 +131,22 @@ pub fn corridor_mesh(c: &Corridor, theme: DungeonTheme, pal: &Palette, detail: f
     let mut m = Mesh::new();
     for seg in c.path.windows(2) {
         let (a, b) = (seg[0], seg[1]);
-        segment_shell(&mut m, a, b, h, floor_c, wall, ceil_c);
+        segment_shell(&mut m, a, b, h, floor_c, wall, ceil_c, include_ceiling);
     }
     m
 }
 
-fn segment_shell(m: &mut Mesh, a: Vec3, b: Vec3, h: f32, floor_c: Vec3, wall: Vec3, ceil_c: Vec3) {
+#[allow(clippy::too_many_arguments)]
+fn segment_shell(
+    m: &mut Mesh,
+    a: Vec3,
+    b: Vec3,
+    h: f32,
+    floor_c: Vec3,
+    wall: Vec3,
+    ceil_c: Vec3,
+    include_ceiling: bool,
+) {
     let center = (a + b) * 0.5;
     let along_x = (b.x - a.x).abs() >= (b.z - a.z).abs();
     let len = if along_x {
@@ -143,11 +169,13 @@ fn segment_shell(m: &mut Mesh, a: Vec3, b: Vec3, h: f32, floor_c: Vec3, wall: Ve
         floor_c,
     ));
     // ceiling
-    m.merge(&cuboid(
-        Vec3::new(center.x, h + T * 0.5, center.z),
-        Vec3::new(half_x + T, T * 0.5, half_z + T),
-        ceil_c,
-    ));
+    if include_ceiling {
+        m.merge(&cuboid(
+            Vec3::new(center.x, h + T * 0.5, center.z),
+            Vec3::new(half_x + T, T * 0.5, half_z + T),
+            ceil_c,
+        ));
+    }
     // side walls (both sides of the run)
     if along_x {
         for sz in [-1.0f32, 1.0] {
@@ -183,13 +211,25 @@ mod tests {
     fn room_geometry_has_floor_walls_ceiling_and_carved_door() {
         let p = params(r#"{"kind":"dungeon","type":"crypt","rooms":2}"#);
         let m = DungeonModel::new(&p, &by_name("necrotic")).unwrap();
-        let solid = room_mesh(&m.rooms[0], DungeonTheme::Crypt, &by_name("necrotic"), 1.0);
+        let solid = room_mesh(
+            &m.rooms[0],
+            DungeonTheme::Crypt,
+            &by_name("necrotic"),
+            1.0,
+            true,
+        );
         solid.validate().unwrap();
         // room 0's own doors
         let doors: Vec<Door> = m.doors.iter().filter(|d| d.room == 0).cloned().collect();
         assert!(!doors.is_empty(), "connected room 0 must have a doorway");
         let carved = carve_doorways(
-            room_mesh(&m.rooms[0], DungeonTheme::Crypt, &by_name("necrotic"), 1.0),
+            room_mesh(
+                &m.rooms[0],
+                DungeonTheme::Crypt,
+                &by_name("necrotic"),
+                1.0,
+                true,
+            ),
             &doors,
         );
         carved.validate().unwrap();
@@ -208,8 +248,19 @@ mod tests {
             DungeonTheme::Mine,
             &by_name("volcanic"),
             1.0,
+            true,
         );
         c.validate().unwrap();
         assert!(c.triangle_count() > 0);
+        // ceiling-less corridor omits the ceiling slab: fewer triangles.
+        let open = corridor_mesh(
+            &m.corridors[0],
+            DungeonTheme::Mine,
+            &by_name("volcanic"),
+            1.0,
+            false,
+        );
+        open.validate().unwrap();
+        assert!(open.triangle_count() < c.triangle_count());
     }
 }

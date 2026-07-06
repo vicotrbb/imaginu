@@ -530,6 +530,26 @@ impl Recipe {
         }
     }
 
+    /// The palette actually used to build this recipe. Usually the recipe's
+    /// own `palette`, but a monster class or dungeon theme substitutes a
+    /// thematic default when the user left the palette unset — an explicit
+    /// palette always wins. Exposed so the CLI's dungeon path resolves the
+    /// palette exactly as `build` does.
+    pub fn resolved_palette(&self) -> &str {
+        // A monster class carries a preferred palette (Elemental->infernal,
+        // Undead->necrotic, Aberration->fungal); a dungeon theme carries one
+        // too. Substitute it ONLY when the user left the default palette.
+        match self {
+            Recipe::Monster { palette, params } if *palette == d_palette() => {
+                preferred_palette(params.class).unwrap_or(palette.as_str())
+            }
+            Recipe::Dungeon { palette, params } if *palette == d_palette() => {
+                theme_palette(params.theme)
+            }
+            _ => self.palette_name(),
+        }
+    }
+
     /// Compile the recipe into an asset.
     pub fn build(&self) -> Result<Asset, String> {
         if !palette::PALETTES.contains(&self.palette_name()) {
@@ -539,18 +559,7 @@ impl Recipe {
                 palette::PALETTES.join(", ")
             ));
         }
-        // A monster class carries a preferred palette (Elemental->infernal,
-        // Undead->necrotic, Aberration->fungal). Substitute it ONLY when the
-        // user left the default palette; an explicit palette always wins.
-        let pal_name: &str = match self {
-            Recipe::Monster { palette, params } if *palette == d_palette() => {
-                preferred_palette(params.class).unwrap_or(palette.as_str())
-            }
-            Recipe::Dungeon { palette, params } if *palette == d_palette() => {
-                theme_palette(params.theme)
-            }
-            _ => self.palette_name(),
-        };
+        let pal_name: &str = self.resolved_palette();
         let pal = palette::by_name(pal_name);
         let asset = match self {
             Recipe::Terrain { params, .. } => crate::generators::terrain::generate(params, &pal),
