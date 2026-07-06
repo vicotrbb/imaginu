@@ -7,7 +7,7 @@ use glam::{Quat, Vec3};
 use rand::Rng;
 
 use crate::gltf::{Asset, Collider, InstancedPart, Material, Part, Physics};
-use crate::mesh::{Mesh, to_flat_shaded};
+use crate::mesh::Mesh;
 
 use super::model::WorldModel;
 use crate::generators::{range, rng};
@@ -17,8 +17,33 @@ use crate::generators::{range, rng};
 /// contract holds bit-exactly: shared edge vertices of adjacent chunks have
 /// identical positions AND colors (slopes come from the ring, i.e. from the
 /// same world samples the neighbor uses).
+/// Vertex on the `eff`-resolution edge lattice, computed exactly as the
+/// (possibly coarser) neighbor computes it: heights at the shared world
+/// coordinates, slope from central differences at `eff` spacing.
+fn lattice_vertex(
+    m: &WorldModel,
+    ox: f32,
+    oz: f32,
+    cs: f32,
+    eff: u32,
+    x_edge: bool,
+    side: f32,
+    j: u32,
+) -> (f32, Vec3, Vec3) {
+    let cell = cs / eff as f32;
+    let along = (j as f32 / eff as f32 - 0.5) * cs;
+    let (lx, lz) = if x_edge { (side * cs, along) } else { (along, side * cs) };
+    let (wx, wz) = (ox + lx, oz + lz);
+    let h = m.height(wx, wz);
+    let hx = m.height(wx + cell, wz) - m.height(wx - cell, wz);
+    let hz = m.height(wx, wz + cell) - m.height(wx, wz - cell);
+    let slope = (hx * hx + hz * hz).sqrt() / (2.0 * cell);
+    let nrm = Vec3::new(-hx, 2.0 * cell, -hz).normalize_or(Vec3::Y);
+    (h, nrm, m.color(wx, wz, h, slope))
+}
+
 pub fn vertex_grid(m: &WorldModel, cx: u32, cz: u32) -> (Vec<f32>, Mesh) {
-    let res = m.p.chunk_resolution as usize;
+    let res = m.chunk_res(cx, cz) as usize;
     let cs = m.p.chunk_size;
     let (ox, oz) = m.chunk_origin(cx, cz);
     let cell = cs / res as f32;
@@ -32,23 +57,63 @@ pub fn vertex_grid(m: &WorldModel, cx: u32, cz: u32) -> (Vec<f32>, Mesh) {
         }
     }
     let g = |ix: i64, iz: i64| grid[(iz + 1) as usize * n1 + (ix + 1) as usize];
+    // effective per-edge resolution: min(own, neighbor) — both sides compute
+    // the same value (pure function), so stitching is crack-free
+    let res32 = res as u32;
+    let eff_w = if cx > 0 { m.chunk_res(cx - 1, cz).min(res32) } else { res32 };
+    let eff_e = if cx + 1 < m.nx { m.chunk_res(cx + 1, cz).min(res32) } else { res32 };
+    let eff_n = if cz > 0 { m.chunk_res(cx, cz - 1).min(res32) } else { res32 };
+    let eff_s = if cz + 1 < m.nz { m.chunk_res(cx, cz + 1).min(res32) } else { res32 };
+    let stitch = |i_along: usize, eff: u32, x_edge: bool, side: f32| -> (f32, Vec3, Vec3) {
+        let ratio = res / eff as usize;
+        let j = (i_along / ratio) as u32;
+        let fr = (i_along % ratio) as f32 / ratio as f32;
+        let (h0, n0, c0) = lattice_vertex(m, ox, oz, cs, eff, x_edge, side, j);
+        if fr == 0.0 {
+            (h0, n0, c0)
+        } else {
+            let (h1, n1, c1) = lattice_vertex(m, ox, oz, cs, eff, x_edge, side, j + 1);
+            (
+                h0 + (h1 - h0) * fr,
+                (n0 + (n1 - n0) * fr).normalize_or(Vec3::Y),
+                c0 + (c1 - c0) * fr,
+            )
+        }
+    };
     let mut smooth = Mesh::new();
     for iz in 0..=(res as i64) {
         for ix in 0..=(res as i64) {
             let (lx, lz) = (local(ix), local(iz));
-            let h = g(ix, iz);
-            let hx = g(ix + 1, iz) - g(ix - 1, iz);
-            let hz = g(ix, iz + 1) - g(ix, iz - 1);
-            let slope = (hx * hx + hz * hz).sqrt() / (2.0 * cell);
-            let c = m.color(lx + ox, lz + oz, h, slope);
-            smooth.push_vertex(Vec3::new(lx, h, lz), Vec3::Y, c);
+            let over = if ix == 0 && eff_w < res32 {
+                Some(stitch(iz as usize, eff_w, true, -0.5))
+            } else if ix == res as i64 && eff_e < res32 {
+                Some(stitch(iz as usize, eff_e, true, 0.5))
+            } else if iz == 0 && eff_n < res32 {
+                Some(stitch(ix as usize, eff_n, false, -0.5))
+            } else if iz == res as i64 && eff_s < res32 {
+                Some(stitch(ix as usize, eff_s, false, 0.5))
+            } else {
+                None
+            };
+            let (h, nrm, c) = match over {
+                Some(hnc) => hnc,
+                None => {
+                    let h = g(ix, iz);
+                    let hx = g(ix + 1, iz) - g(ix - 1, iz);
+                    let hz = g(ix, iz + 1) - g(ix, iz - 1);
+                    let slope = (hx * hx + hz * hz).sqrt() / (2.0 * cell);
+                    let nrm = Vec3::new(-hx, 2.0 * cell, -hz).normalize_or(Vec3::Y);
+                    (h, nrm, m.color(lx + ox, lz + oz, h, slope))
+                }
+            };
+            smooth.push_vertex(Vec3::new(lx, h, lz), nrm, c);
         }
     }
     (grid, smooth)
 }
 
 pub fn build(m: &WorldModel, cx: u32, cz: u32) -> Asset {
-    let res = m.p.chunk_resolution as usize;
+    let res = m.chunk_res(cx, cz) as usize;
     let cs = m.p.chunk_size;
     let sea = m.p.sea_level;
     let n1 = res + 3;
@@ -70,7 +135,9 @@ pub fn build(m: &WorldModel, cx: u32, cz: u32) -> Asset {
             }
         }
     }
-    let ground = to_flat_shaded(&smooth);
+    // smooth-shaded indexed mesh: 6× smaller than flat-shading, normals from
+    // world-space central differences (bit-identical at seams)
+    let ground = smooth;
 
     let mut parts = vec![Part {
         mesh: ground,
@@ -199,7 +266,16 @@ pub fn build(m: &WorldModel, cx: u32, cz: u32) -> Asset {
             {
                 continue;
             }
-            let vi = if is_tree { r.gen_range(0..3usize) } else { 3 + r.gen_range(0..2usize) };
+            // scree/talus: rocks pile up on steep mountain flanks
+            let scree = s > 0.38
+                && (zw[crate::world::zones::ZoneKind::Mountains.index()]
+                    + zw[crate::world::zones::ZoneKind::Badlands.index()])
+                    > 0.3;
+            let vi = if is_tree && !scree {
+                r.gen_range(0..3usize)
+            } else {
+                3 + r.gen_range(0..2usize)
+            };
             let scale = range(&mut r, 0.5, 1.15) * variants[vi].1;
             let yaw = range(&mut r, 0.0, core::f32::consts::TAU);
             placements[vi].push((

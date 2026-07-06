@@ -5,6 +5,7 @@
 //! built in a full run.
 
 pub mod chunk;
+pub mod erosion;
 pub mod manifest;
 pub mod minimap;
 pub mod model;
@@ -71,7 +72,19 @@ pub struct WorldParams {
     /// bridges where roads cross rivers).
     #[serde(default = "d_true")]
     pub roads: bool,
+    /// World-scale erosion strength 0..1: a global coarse heightmap is
+    /// eroded once and upsampled, so gullies span chunks seamlessly.
+    #[serde(default = "d_erosion")]
+    pub erosion: f32,
+    /// Pick per-chunk mesh resolution by terrain roughness/POI presence
+    /// (flat plains coarse, mountains & settlements fine; edges stitched).
+    #[serde(default = "d_true")]
+    pub adaptive_resolution: bool,
+    /// Embed N decimated LOD levels per chunk (MSFT_lod).
+    #[serde(default)]
+    pub lods: u32,
 }
+fn d_erosion() -> f32 { 0.5 }
 fn d_zone_size() -> f32 { 900.0 }
 
 impl WorldParams {
@@ -103,6 +116,7 @@ mod tests {
         WorldParams::parse(
             r#"{"kind":"world","seed":11,"size":192,"chunk_size":64,
                 "chunk_resolution":32,"sea_level":-2.0,"scatter":false,
+                "adaptive_resolution":false,
                 "zones":[{"kind":"forest","weight":2},{"kind":"mountains","weight":1},
                          {"kind":"lake","at":[0,0],"radius":60}]}"#,
         )
@@ -349,6 +363,136 @@ mod tests {
         let man = manifest::create(&m);
         assert!(!man.rivers.is_empty());
         assert_eq!(man.roads.len(), 1);
+    }
+
+    #[test]
+    fn global_erosion_field_is_seamless_and_deterministic() {
+        let base = r#"{"kind":"world","seed":13,"size":768,"chunk_size":256,
+            "chunk_resolution":32,"sea_level":0,"scatter":false,
+            "adaptive_resolution":false,"pois":[],"rivers":0,
+            "zones":[{"kind":"mountains","weight":1},{"kind":"plains","weight":1}],
+            "erosion":ER}"#;
+        let with = model::WorldModel::new(
+            &WorldParams::parse(&base.replace("ER", "0.8")).unwrap(),
+        )
+        .unwrap();
+        let without = model::WorldModel::new(
+            &WorldParams::parse(&base.replace("ER", "0.0")).unwrap(),
+        )
+        .unwrap();
+        // erosion actually moves terrain
+        let mut moved = 0;
+        for i in 0..100 {
+            let (x, z) = (i as f32 * 7.1 - 350.0, (i as f32 * 3.7) % 700.0 - 350.0);
+            if (with.height(x, z) - without.height(x, z)).abs() > 0.05 {
+                moved += 1;
+            }
+        }
+        assert!(moved > 30, "erosion changed only {moved}/100 samples");
+        // deterministic across model rebuilds
+        let with2 = model::WorldModel::new(
+            &WorldParams::parse(&base.replace("ER", "0.8")).unwrap(),
+        )
+        .unwrap();
+        for i in 0..50 {
+            let (x, z) = (i as f32 * 11.3 - 300.0, i as f32 * 5.9 - 200.0);
+            assert_eq!(with.height(x, z).to_bits(), with2.height(x, z).to_bits());
+        }
+        // seams: chunk edges still bit-identical with erosion on
+        let a = chunk::vertex_grid(&with, 0, 1).1;
+        let b = chunk::vertex_grid(&with, 1, 1).1;
+        let cs = with.p.chunk_size;
+        let ea: Vec<u32> = a
+            .positions
+            .iter()
+            .filter(|p| p.x == cs / 2.0)
+            .map(|p| p.y.to_bits())
+            .collect();
+        let eb: Vec<u32> = b
+            .positions
+            .iter()
+            .filter(|p| p.x == -cs / 2.0)
+            .map(|p| p.y.to_bits())
+            .collect();
+        assert_eq!(ea, eb);
+    }
+
+    #[test]
+    fn adaptive_resolution_stitches_without_cracks() {
+        // mountains pinned in one corner chunk, dead-flat plains elsewhere →
+        // neighboring chunks pick different resolutions
+        let p = WorldParams::parse(
+            r#"{"kind":"world","seed":5,"size":768,"chunk_size":256,
+                "chunk_resolution":64,"sea_level":-30,"scatter":false,
+                "pois":[],"rivers":0,"erosion":0,
+                "zones":[{"kind":"plains","weight":1},
+                         {"kind":"mountains","at":[-256,-256],"radius":150}]}"#,
+        )
+        .unwrap();
+        let m = model::WorldModel::new(&p).unwrap();
+        let r00 = m.chunk_res(1, 0);
+        let r10 = m.chunk_res(2, 0);
+        assert!(r00 > r10, "expected mountain-side chunk finer: {r00} vs {r10}");
+        let fine = chunk::vertex_grid(&m, 1, 0).1;
+        let coarse = chunk::vertex_grid(&m, 2, 0).1;
+        let cs = m.p.chunk_size;
+        // coarse edge vertices must appear bit-identically in the fine edge
+        let fine_edge: std::collections::BTreeMap<i64, (u32, [u32; 3])> = fine
+            .positions
+            .iter()
+            .zip(&fine.colors)
+            .filter(|(p, _)| p.x == cs / 2.0)
+            .map(|(p, c)| {
+                (
+                    p.z.to_bits() as i64,
+                    (p.y.to_bits(), [c.x.to_bits(), c.y.to_bits(), c.z.to_bits()]),
+                )
+            })
+            .collect();
+        let mut coarse_hits = 0;
+        for (p, _c) in coarse.positions.iter().zip(&coarse.colors) {
+            if p.x != -cs / 2.0 {
+                continue;
+            }
+            let key = p.z.to_bits() as i64;
+            let (fy, _fc) = fine_edge.get(&key).expect("coarse edge vertex missing from fine edge");
+            assert_eq!(*fy, p.y.to_bits(), "height crack at z={}", p.z);
+            coarse_hits += 1;
+        }
+        assert!(coarse_hits > r10 as usize / 2);
+        // fine midpoints must lie exactly on the coarse segments
+        let ratio = (r00 / r10) as usize;
+        let mut checked = 0;
+        let fine_sorted: Vec<(f32, f32)> = {
+            let mut v: Vec<(f32, f32)> = fine
+                .positions
+                .iter()
+                .filter(|p| p.x == cs / 2.0)
+                .map(|p| (p.z, p.y))
+                .collect();
+            v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            v.dedup_by(|a, b| a.0 == b.0);
+            v
+        };
+        for s in (0..fine_sorted.len().saturating_sub(ratio)).step_by(ratio) {
+            let w = &fine_sorted[s..=s + ratio];
+            let (z0, y0) = w[0];
+            let (z1, y1) = w[ratio];
+            for k in 1..ratio {
+                let (zk, yk) = w[k];
+                let t = (zk - z0) / (z1 - z0);
+                let expect = y0 + (y1 - y0) * t;
+                assert!(
+                    (yk - expect).abs() < 1e-3,
+                    "crack at z={zk}: {yk} vs {expect}"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 8, "checked only {checked} midpoints");
+        // budget: finest chunk stays comfortably under 2M tris
+        let a = chunk::build(&m, 1, 0);
+        assert!(a.parts[0].mesh.triangle_count() < 2_000_000);
     }
 
     #[test]

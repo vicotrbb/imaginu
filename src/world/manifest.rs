@@ -40,6 +40,10 @@ pub struct ChunkEntry {
     /// Conservative world-space AABB (probed heights, padded).
     pub min: [f32; 3],
     pub max: [f32; 3],
+    /// Mesh grid resolution of this chunk (adaptive).
+    pub resolution: u32,
+    /// Embedded MSFT_lod levels.
+    pub lods: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -102,6 +106,8 @@ pub fn create(m: &WorldModel) -> Manifest {
                 position: [ox, 0.0, oz],
                 min: [ox - cs / 2.0, lo, oz - cs / 2.0],
                 max: [ox + cs / 2.0, hi, oz + cs / 2.0],
+                resolution: m.chunk_res(cx, cz),
+                lods: m.p.lods,
             });
         }
     }

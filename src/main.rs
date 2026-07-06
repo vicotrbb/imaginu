@@ -341,7 +341,10 @@ fn run() -> Result<(), String> {
                             break;
                         }
                         let (cx, cz) = jobs[i];
-                        let asset = imaginu::world::chunk::build(&model, cx, cz);
+                        let mut asset = imaginu::world::chunk::build(&model, cx, cz);
+                        if model.p.lods > 0 {
+                            asset.generate_lods(model.p.lods);
+                        }
                         let glb = imaginu::gltf::to_glb(&asset);
                         let path = out.join(imaginu::world::manifest::chunk_file(cx, cz));
                         if let Err(e) = std::fs::write(&path, &glb) {
@@ -441,8 +444,9 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  "texture":{"pattern":"rock","scale":9,"colors":["#8a6a4c","#d8b287"]}}
  // any size (4..4096). For seamless world tiles: skirt=false and offset_x/z
  // = chunk world position; adjacent chunks share identical edge heights.
- // erosion (hydraulic droplets) + rivers (carved, with water ribbons) are
- // chunk-local: don't combine them with seamless tiling. paths = flattened
+ // erosion (hydraulic droplets) + rivers here are chunk-local diorama
+ // features — for seamless multi-chunk maps with world-scale erosion and
+ // rivers use {"kind":"world"} instead. paths = flattened
  // dirt splines. texture drapes a baked material (strata on cliffs).
  // scatter exports as GPU instances (EXT_mesh_gpu_instancing): dense
  // forests at a fraction of the file size.
@@ -457,7 +461,8 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  "pois":[{"kind":"city","count":2},{"kind":"village","count":5},
          {"kind":"castle","at":[500,-800],"name":"Castle Hightower"},
          {"kind":"watchtower","count":3},{"kind":"dungeon","count":2}],
- "rivers":4,"roads":true}
+ "rivers":4,"roads":true,
+ "erosion":0.5,"adaptive_resolution":true,"lods":0}
  // whole streaming map: imaginu world <recipe> -o mapdir/ writes
  // manifest.json + one GLB per chunk (chunk-local origin; place each at its
  // manifest "position"). Heights/colors are pure functions of world coords +
@@ -479,6 +484,13 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  // river-averse), flattened into the terrain; where a road must cross a
  // river a stone bridge GLB spawns (manifest poi kind "bridge", rotation
  // baked). Polylines land in manifest roads/rivers.
+ // erosion: a global coarse heightmap is eroded ONCE and C1-upsampled, so
+ // gullies/fans span chunks without breaking edge identity. Ground color:
+ // zone splat blend + cliff strata bands + dry-grass patches + dune
+ // ripple + shoreline foam + waterfall whitening + scree under cliffs.
+ // adaptive_resolution: flat chunks halve, mountains/POIs double (edges
+ // stitch crack-free); manifest lists per-chunk resolution. lods: N
+ // embeds decimated MSFT_lod levels per chunk.
  // Check output: imaginu validate-world mapdir/
 
 {"kind":"tree","style":"oak|pine|palm|dead","height":6,"seed":1}
