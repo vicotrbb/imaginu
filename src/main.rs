@@ -95,6 +95,14 @@ enum Cmd {
         /// Render an oblique PNG preview next to each built chunk GLB
         #[arg(long)]
         preview: bool,
+        /// Render a top-down minimap PNG (zones + hillshade + water + POIs)
+        /// to <out>/map.png
+        #[arg(long)]
+        map: bool,
+        /// Only write manifest.json + map.png — no chunk builds (fast layout
+        /// iteration)
+        #[arg(long)]
+        map_only: bool,
     },
     /// Validate a world output directory (manifest + all chunk GLBs).
     ValidateWorld {
@@ -278,7 +286,7 @@ fn run() -> Result<(), String> {
             println!("{}", SCHEMA_HELP);
             Ok(())
         }
-        Cmd::World { recipe, out, chunk, preview } => {
+        Cmd::World { recipe, out, chunk, preview, map, map_only } => {
             let json = if recipe.trim_start().starts_with('{') {
                 recipe.clone()
             } else {
@@ -290,6 +298,15 @@ fn run() -> Result<(), String> {
             let man = imaginu::world::manifest::create(&model);
             let man_json = serde_json::to_string_pretty(&man).map_err(|e| e.to_string())?;
             std::fs::write(out.join("manifest.json"), man_json).map_err(|e| e.to_string())?;
+            if map || map_only {
+                let px = ((model.size_x / 8.0) as usize).clamp(256, 1600);
+                let (w, h, rgb) = imaginu::world::minimap::render(&model, px);
+                imaginu::world::minimap::write_png(&out.join("map.png"), w, h, &rgb)?;
+                println!("wrote {}/map.png ({w}x{h})", out.display());
+            }
+            if map_only {
+                return Ok(());
+            }
             let jobs: Vec<(u32, u32)> = match &chunk {
                 Some(s) => {
                     let (a, b) = s
@@ -405,12 +422,21 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
 
 {"kind":"world","name":"everdale","seed":1,"palette":"verdant",
  "size":2048,"chunk_size":256,"chunk_resolution":128,
- "mountainousness":1.0,"sea_level":0.0,"scatter":true,"scatter_density":1.0}
+ "mountainousness":1.0,"sea_level":0.0,"scatter":true,"scatter_density":1.0,
+ "zone_size":900,
+ "zones":[{"kind":"forest","weight":2},{"kind":"plains","weight":2},
+          {"kind":"mountains","weight":1.2},
+          {"kind":"lake","at":[300,-500],"radius":400}]}
  // whole streaming map: imaginu world <recipe> -o mapdir/ writes
  // manifest.json + one GLB per chunk (chunk-local origin; place each at its
  // manifest "position"). Heights/colors are pure functions of world coords +
  // seed: adjacent chunks share bit-identical edges, and chunks build lazily
  // (--chunk x,z) or in parallel. sea_level is an absolute elevation (m).
+ // zones: mountains|forest|plains|desert|swamp|lake|coast|badlands, seeded
+ // Voronoi regions (~zone_size m across) with smooth blending — each brings
+ // its own height character, ground colors and scatter mix. "at"+"radius"
+ // pins a zone at a world position. --map renders <out>/map.png (zones +
+ // hillshade + water); --map-only skips chunk builds for layout iteration.
  // Check output: imaginu validate-world mapdir/
 
 {"kind":"tree","style":"oak|pine|palm|dead","height":6,"seed":1}

@@ -126,19 +126,38 @@ pub fn build(m: &WorldModel, cx: u32, cz: u32) -> Asset {
                 + g(ix + 1, iz + 1) * dx * dz
         };
         let density = m.p.scatter_density.clamp(0.1, 8.0);
-        let count = (cs * cs * 0.004 * density) as usize;
+        let count = (cs * cs * 0.010 * density) as usize;
+        let (ox, oz) = m.chunk_origin(cx, cz);
         let mut placements: Vec<Vec<(Vec3, Quat, Vec3)>> = vec![Vec::new(); variants.len()];
         for _ in 0..count {
             let x = range(&mut r, -cs * 0.49, cs * 0.49);
             let z = range(&mut r, -cs * 0.49, cs * 0.49);
+            // zone-driven density + mix: smooth across borders (weights), so
+            // forests thin out into plains instead of stopping at a line
+            let zw = m.zones.weights(x + ox, z + oz);
+            let mut dens = 0.0f32;
+            let mut best = 0usize;
+            for i in 0..crate::world::zones::NK {
+                dens += zw[i] * crate::world::zones::scatter_profile(crate::world::zones::KINDS[i]).0;
+                if zw[i] > zw[best] {
+                    best = i;
+                }
+            }
+            let keep = (dens / 2.4).clamp(0.0, 1.0) as f64;
+            let roll = r.gen_bool(keep.max(1e-9));
             let h = sample(x, z);
             let probe = 1.2;
             let s = ((sample(x + probe, z) - h).abs() + (sample(x, z + probe) - h).abs()) / probe;
-            let t_alt = ((h - sea) / (m.amp * 1.5)).clamp(0.0, 1.0);
-            if h < sea + 0.6 || s > 0.7 || t_alt > 0.68 {
+            let t_alt = ((h - sea) / (m.amp * 3.5)).clamp(0.0, 1.0).powf(0.5);
+            let tree_frac =
+                crate::world::zones::scatter_profile(crate::world::zones::KINDS[best]).1;
+            let is_tree = r.gen_bool(tree_frac);
+            // treeline drops in mountain zones: bare rocky heights
+            let treeline = 0.58 - zw[crate::world::zones::ZoneKind::Mountains.index()] * 0.22;
+            if !roll || h < sea + 0.6 || s > 0.7 || t_alt > treeline {
                 continue;
             }
-            let vi = if r.gen_bool(0.75) { r.gen_range(0..3usize) } else { 3 + r.gen_range(0..2usize) };
+            let vi = if is_tree { r.gen_range(0..3usize) } else { 3 + r.gen_range(0..2usize) };
             let scale = range(&mut r, 0.5, 1.15) * variants[vi].1;
             let yaw = range(&mut r, 0.0, core::f32::consts::TAU);
             placements[vi].push((

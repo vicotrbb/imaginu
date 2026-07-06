@@ -6,7 +6,9 @@
 
 pub mod chunk;
 pub mod manifest;
+pub mod minimap;
 pub mod model;
+pub mod zones;
 
 use serde::{Deserialize, Serialize};
 
@@ -48,7 +50,15 @@ pub struct WorldParams {
     pub scatter: bool,
     #[serde(default = "d_one")]
     pub scatter_density: f32,
+    /// Zone mix: `[{"kind":"forest","weight":2}, {"kind":"lake",
+    /// "at":[300,-500],"radius":400}]`. Empty → a sensible default mix.
+    #[serde(default)]
+    pub zones: Vec<zones::ZoneSpec>,
+    /// Approximate zone region diameter in meters.
+    #[serde(default = "d_zone_size")]
+    pub zone_size: f32,
 }
+fn d_zone_size() -> f32 { 900.0 }
 
 impl WorldParams {
     /// Parse a `{"kind":"world"}` recipe.
@@ -74,9 +84,13 @@ mod tests {
     use crate::gltf::to_glb;
 
     fn tiny() -> WorldParams {
+        // pinned lake at the origin: its feathered override crosses every
+        // inner seam, so the seam test also covers zone blending
         WorldParams::parse(
             r#"{"kind":"world","seed":11,"size":192,"chunk_size":64,
-                "chunk_resolution":32,"sea_level":-2.0,"scatter":false}"#,
+                "chunk_resolution":32,"sea_level":-2.0,"scatter":false,
+                "zones":[{"kind":"forest","weight":2},{"kind":"mountains","weight":1},
+                         {"kind":"lake","at":[0,0],"radius":60}]}"#,
         )
         .unwrap()
     }
@@ -180,5 +194,59 @@ mod tests {
         let j1 = serde_json::to_string_pretty(&man).unwrap();
         let j2 = serde_json::to_string_pretty(&manifest::create(&m)).unwrap();
         assert_eq!(j1, j2);
+        // zone summary present
+        assert!(!man.zones.is_empty());
+    }
+
+    #[test]
+    fn zones_shape_the_terrain() {
+        let mk = |zone: &str| {
+            let p = WorldParams::parse(&format!(
+                r#"{{"kind":"world","seed":3,"size":1024,"chunk_size":256,
+                    "sea_level":0.0,
+                    "zones":[{{"kind":"plains","weight":1}},
+                             {{"kind":"{zone}","at":[0,0],"radius":700}}]}}"#
+            ))
+            .unwrap();
+            model::WorldModel::new(&p).unwrap()
+        };
+        // pinned lake sinks the center below sea level; the sea plane fills it
+        let lake = mk("lake");
+        assert!(lake.height(0.0, 0.0) < 0.0, "lake pin must scoop below sea");
+        // pinned mountains tower over the plains baseline
+        let mtn = mk("mountains");
+        let plains_ref = mk("plains");
+        let mut hi_m = f32::NEG_INFINITY;
+        let mut hi_p = f32::NEG_INFINITY;
+        for i in 0..64 {
+            let a = i as f32 / 64.0 * core::f32::consts::TAU;
+            let (x, z) = (a.cos() * 300.0, a.sin() * 300.0);
+            hi_m = hi_m.max(mtn.height(x, z));
+            hi_p = hi_p.max(plains_ref.height(x, z));
+        }
+        assert!(hi_m > hi_p + 15.0, "mountains {hi_m} vs plains {hi_p}");
+        // weights are normalized everywhere
+        for i in 0..40 {
+            let (x, z) = (i as f32 * 47.3 - 900.0, i as f32 * 31.7 - 600.0);
+            let w = lake.zones.weights(x, z);
+            let sum: f32 = w.iter().sum();
+            assert!((sum - 1.0).abs() < 1e-3, "weights sum {sum} at ({x},{z})");
+        }
+    }
+
+    #[test]
+    fn minimap_renders_deterministically() {
+        let m = model::WorldModel::new(&tiny()).unwrap();
+        let (w, h, a) = minimap::render(&m, 96);
+        let (_, _, b) = minimap::render(&m, 96);
+        assert_eq!((w, h), (96, 96));
+        assert_eq!(a.len(), 96 * 96 * 3);
+        assert_eq!(a, b);
+        // water must appear somewhere (pinned lake) and land elsewhere
+        let water = m.pal.water;
+        let wr = (water.x.powf(1.0 / 2.2) * 255.0) as i32;
+        let has_dark_blue = a.chunks(3).any(|c| (c[2] as i32) > c[0] as i32 + 10);
+        assert!(has_dark_blue, "expected water pixels (ref r {wr})");
     }
 }
+

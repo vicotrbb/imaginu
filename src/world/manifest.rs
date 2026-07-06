@@ -119,7 +119,15 @@ pub fn create(m: &WorldModel) -> Manifest {
         pois: Vec::new(),
         roads: Vec::new(),
         rivers: Vec::new(),
-        zones: Vec::new(),
+        zones: m
+            .zones
+            .cells_in(
+                [-m.size_x / 2.0, -m.size_z / 2.0],
+                [m.size_x / 2.0, m.size_z / 2.0],
+            )
+            .into_iter()
+            .map(|(kind, center)| ZoneSummary { kind: kind.name().into(), center })
+            .collect(),
     }
 }
 
