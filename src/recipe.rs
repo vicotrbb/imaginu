@@ -259,6 +259,102 @@ fn d_char_h() -> f32 {
     1.7
 }
 
+fn d_zero() -> f32 {
+    0.0
+}
+/// Sentinel meaning "let the body plan / class decide" for optional f32 knobs.
+fn d_neg1() -> f32 {
+    -1.0
+}
+/// Sentinel meaning "let the body plan / class decide" for the eye count.
+fn d_neg1_i32() -> i32 {
+    -1
+}
+
+/// Monster body plan — the skeleton template that drives limb count/placement,
+/// gait, and collider shape.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BodyPlan {
+    BipedBrute,
+    #[default]
+    QuadrupedBeast,
+    #[serde(alias = "wyrm")]
+    Serpent,
+    Arachnid,
+    WingedFlyer,
+    #[serde(alias = "blob")]
+    Ooze,
+    Insectoid,
+    Aberration,
+}
+
+/// Preset bundle over the monster knobs, like character `class`. `None` leaves
+/// every knob at its plan default.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MonsterClass {
+    #[default]
+    None,
+    Predator,
+    Brute,
+    Elemental,
+    Undead,
+    Aberration,
+    Swarm,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MonsterParams {
+    #[serde(default = "d_seed")]
+    pub seed: u64,
+    /// One of the 8 body plans (accepts `species` as an alias).
+    #[serde(default, alias = "species")]
+    pub body: BodyPlan,
+    /// Preset bundle applied before the plan builds (explicit knobs still win).
+    #[serde(default)]
+    pub class: MonsterClass,
+    /// Overall scale — drives geometry, collider size, and mass (accepts `bulk`).
+    #[serde(default = "d_one", alias = "bulk")]
+    pub size: f32,
+    /// 0..1 — horn prominence.
+    #[serde(default = "d_zero")]
+    pub horns: f32,
+    /// 0..1 — dorsal spike ridge.
+    #[serde(default = "d_zero")]
+    pub spikes: f32,
+    /// 0..1 — armor plating.
+    #[serde(default = "d_zero")]
+    pub plates: f32,
+    /// 0..1 tail length; `-1` = plan default, `0` disables.
+    #[serde(default = "d_neg1")]
+    pub tail: f32,
+    /// 0..1 wing size; `-1` = plan default, `0` disables.
+    #[serde(default = "d_neg1")]
+    pub wings: f32,
+    /// Eye count; `-1` = plan/class default.
+    #[serde(default = "d_neg1_i32")]
+    pub eyes: i32,
+    /// 0..1 jaw/teeth prominence; `-1` = plan default.
+    #[serde(default = "d_neg1")]
+    pub maw: f32,
+    /// 0..1 — proportion slider (heavier, more threatening build).
+    #[serde(default = "d_zero")]
+    pub menace: f32,
+    /// 0..1 — wear/erosion detail (ancient, undead reads).
+    #[serde(default = "d_zero")]
+    pub age: f32,
+    /// 0..1 fraction of the body lit with the palette accent as emissive
+    /// markings; `-1` = class default.
+    #[serde(default = "d_neg1")]
+    pub emissive: f32,
+    /// Tessellation multiplier 0.5..2.0.
+    #[serde(default = "d_one")]
+    pub detail: f32,
+    #[serde(default = "d_true")]
+    pub animate: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Recipe {
@@ -304,6 +400,12 @@ pub enum Recipe {
         #[serde(flatten)]
         params: CharacterParams,
     },
+    Monster {
+        #[serde(default = "d_palette")]
+        palette: String,
+        #[serde(flatten)]
+        params: MonsterParams,
+    },
     /// Fully generic declarative geometry DSL — build anything.
     Custom {
         #[serde(flatten)]
@@ -324,7 +426,8 @@ impl Recipe {
             | Recipe::Crystal { palette, .. }
             | Recipe::Building { palette, .. }
             | Recipe::Prop { palette, .. }
-            | Recipe::Character { palette, .. } => palette,
+            | Recipe::Character { palette, .. }
+            | Recipe::Monster { palette, .. } => palette,
             Recipe::Custom { .. } => "verdant",
         }
     }
@@ -349,6 +452,7 @@ impl Recipe {
             Recipe::Character { params, .. } => {
                 crate::generators::character::generate(params, &pal)
             }
+            Recipe::Monster { params, .. } => crate::generators::monster::generate(params, &pal),
             Recipe::Custom { params } => crate::generators::custom::generate(params)?,
         };
         asset.validate()?;
@@ -680,5 +784,24 @@ mod tests {
         let a = crate::gltf::to_glb(&Recipe::parse(j).unwrap().build().unwrap());
         let b = crate::gltf::to_glb(&Recipe::parse(j).unwrap().build().unwrap());
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn monster_parses_and_builds() {
+        let r =
+            Recipe::parse(r#"{"kind":"monster","species":"wyrm","palette":"infernal"}"#).unwrap();
+        let asset = r.build().expect("monster builds");
+        assert!(!asset.parts.is_empty());
+        assert!(asset.physics.is_some());
+        // aliases resolve: body/serpent and bulk
+        Recipe::parse(r#"{"kind":"monster","body":"serpent","bulk":1.5}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        // blob alias for ooze
+        Recipe::parse(r#"{"kind":"monster","body":"blob"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
     }
 }
