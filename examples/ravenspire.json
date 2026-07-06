@@ -1,0 +1,28 @@
+{
+  "kind": "world",
+  "name": "Ravenspire",
+  "seed": 12,
+  "palette": "mystic",
+  "size": 4096,
+  "chunk_size": 256,
+  "chunk_resolution": 128,
+  "sea_level": 0,
+  "erosion": 0.65,
+  "rivers": 5,
+  "zones": [
+    { "kind": "forest", "weight": 2 },
+    { "kind": "plains", "weight": 1.6 },
+    { "kind": "mountains", "weight": 1.6 },
+    { "kind": "lake", "weight": 0.8 },
+    { "kind": "swamp", "weight": 0.6 },
+    { "kind": "badlands", "weight": 0.5 },
+    { "kind": "coast", "weight": 0.6 }
+  ],
+  "pois": [
+    { "kind": "city", "count": 4 },
+    { "kind": "castle", "count": 4 },
+    { "kind": "village", "count": 6 },
+    { "kind": "watchtower", "count": 5 },
+    { "kind": "dungeon", "count": 4 }
+  ]
+}
