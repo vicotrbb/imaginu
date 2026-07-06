@@ -2,7 +2,7 @@
 name = "imaginu"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.87"
 description = "AI-drivable procedural 3D asset compiler: JSON recipes -> beautiful game-ready GLB for Babylon.js"
 authors = ["Victor Bona <victor.bona.vb@gmail.com>"]
 license = "MIT"

@@ -6,7 +6,7 @@ pure Rust. This guide covers the dev loop and the two rules that are
 
 ## Dev setup
 
-You need a recent stable Rust toolchain (edition 2024, `rustc >= 1.85`):
+You need a recent stable Rust toolchain (edition 2024, `rustc >= 1.87`):
 
 ```sh
 git clone https://github.com/vicotrbb/imaginu
