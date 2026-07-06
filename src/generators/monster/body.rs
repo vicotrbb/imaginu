@@ -143,18 +143,30 @@ pub fn build_body(rig: &MonsterRig, p: &MonsterParams, pal: &Palette) -> Mesh {
     mesh_field(lo, hi, cell, &field, &color)
 }
 
-/// Fit a physics collider around the rig. Quadrupeds get a lying capsule
-/// (long along the body's Z axis, approximated as an axis-aligned capsule
-/// sized to the torso). Mass scales with the cube of size.
+/// Fit a physics collider around the rig, shaped per body plan. Mass scales
+/// with the cube of size.
 pub fn fit_collider(rig: &MonsterRig, p: &MonsterParams) -> Physics {
+    use crate::recipe::BodyPlan;
     let s = p.size.clamp(0.2, 4.0);
     let (lo, hi) = rig.bounds;
     let ext = hi - lo;
-    // torso radius from the vertical extent, capsule length along the body.
-    let radius = (ext.y.min(ext.x) * 0.42).max(0.05);
-    let height = ext.z.max(radius * 2.0);
+    let half = ext * 0.5;
+    let collider = match p.body {
+        // sprawling / spindly plans: use the render mesh as a static collider
+        BodyPlan::Arachnid | BodyPlan::Aberration => Collider::TriMesh,
+        // low squat blob / bug: an axis-aligned box hugs the silhouette
+        BodyPlan::Ooze | BodyPlan::Insectoid => Collider::Box {
+            half_extents: half.max(Vec3::splat(0.05)),
+        },
+        // everything with a clear long axis: a capsule along the body
+        _ => {
+            let radius = (ext.y.min(ext.x) * 0.42).max(0.05);
+            let height = ext.z.max(ext.y).max(radius * 2.0);
+            Collider::Capsule { radius, height }
+        }
+    };
     Physics {
-        collider: Collider::Capsule { radius, height },
+        collider,
         mass: 55.0 * s * s * s,
         friction: 0.6,
         restitution: 0.15,

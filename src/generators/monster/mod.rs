@@ -51,23 +51,32 @@ pub fn generate(p: &MonsterParams, pal: &Palette) -> Asset {
 /// Segment set (proximal-joint pairs) → per-joint influence chain.
 type Pairs = Vec<(usize, usize)>;
 
-/// Inverse-distance weights over up to 4 segments, each attributing weight to
-/// its proximal joint `pair.0` (mirrors `character::seg_w`).
+/// Inverse-distance weights over the 4 NEAREST segments (each attributing
+/// weight to its proximal joint `pair.0`). Picking the nearest 4 — rather than
+/// the first 4 — is essential for long chains (e.g. a 10-segment serpent
+/// spine), where a tail vertex must weight tail segments, not head ones.
+/// Deterministic: ties resolve by joint index.
 fn seg_w(p: Vec3, world: &[Vec3], pairs: &[(usize, usize)]) -> ([u16; 4], [f32; 4]) {
+    let mut dists: Vec<(f32, u16)> = pairs
+        .iter()
+        .map(|&(ja, jb)| {
+            let (a, b) = (world[ja], world[jb]);
+            let ab = b - a;
+            let t = if ab.length_squared() < 1e-12 {
+                0.0
+            } else {
+                ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
+            };
+            (p.distance(a + ab * t), ja as u16)
+        })
+        .collect();
+    dists.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap().then(x.1.cmp(&y.1)));
     let mut joints = [0u16; 4];
     let mut weights = [0f32; 4];
     let mut sum = 0.0;
-    for (i, &(ja, jb)) in pairs.iter().enumerate().take(4) {
-        let (a, b) = (world[ja], world[jb]);
-        let ab = b - a;
-        let t = if ab.length_squared() < 1e-12 {
-            0.0
-        } else {
-            ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
-        };
-        let d = p.distance(a + ab * t);
+    for (i, &(d, ja)) in dists.iter().take(4).enumerate() {
         let wgt = 1.0 / (d + 1e-4).powi(4);
-        joints[i] = ja as u16;
+        joints[i] = ja;
         weights[i] = wgt;
         sum += wgt;
     }
@@ -88,62 +97,134 @@ fn top2(j: [u16; 4], w: [f32; 4]) -> [(u16, f32); 2] {
     [v[0], v[1]]
 }
 
-/// Family-restricted smooth skinning. Each vertex is bound only to the bone
-/// chain of the region that owns it — the trunk to the spine chain, each leg
-/// to its own segments, the tail to the tail chain — with a smoothstep blend
-/// ONLY across a true trunk/limb junction. A hip vertex can never grab a leg
-/// bone, so strides can't drag a membrane along (the phase-2 flying-shoulder
-/// lesson, generalized). This does NOT use the global `skeleton_segments`.
+/// Find-with-path-compression for the limb union-find.
+fn uf_find(uf: &mut [usize], x: usize) -> usize {
+    let mut r = x;
+    while uf[r] != r {
+        r = uf[r];
+    }
+    let mut c = x;
+    while uf[c] != r {
+        let nx = uf[c];
+        uf[c] = r;
+        c = nx;
+    }
+    r
+}
+
+/// Trunk weight: the spine chain, or a rigid bind to the root when the trunk
+/// is a single joint (e.g. an ooze with no spine to slide along).
+fn trunk_weight(
+    p: Vec3,
+    world: &[Vec3],
+    pairs: &[(usize, usize)],
+    root: usize,
+) -> ([u16; 4], [f32; 4]) {
+    if pairs.is_empty() {
+        ([root as u16, 0, 0, 0], [1.0, 0.0, 0.0, 0.0])
+    } else {
+        seg_w(p, world, pairs)
+    }
+}
+
+/// Family-restricted smooth skinning, generalized to any body plan. Family 0
+/// is the trunk (every rank<=1 primitive, bound to the spine chain). Each
+/// rank>=2 primitive is a limb; limbs are separated into families by JOINT
+/// CONNECTIVITY (union-find over the non-trunk joints they touch), so legs,
+/// arms, wings, tail, and tentacles each become their own family automatically
+/// — no per-plan bookkeeping. Classification is by nearest-primitive SDF (NOT
+/// bone-segment distance: the belly is deep inside the torso yet close to a
+/// buried limb bone; segment distance would hand it to a limb and shatter it
+/// mid-stride), then each vertex binds to its family's own bone segments with
+/// a smoothstep junction blend to the trunk. A trunk vertex can never grab a
+/// limb bone. Does NOT use the global `skeleton_segments`.
 fn skin_body(mesh: &mut Mesh, rig: &MonsterRig) {
+    use std::collections::{HashMap, HashSet};
     let world = rig.world();
     let g = &rig.gait;
+    let skel = &rig.skeleton;
+    let n = skel.joints.len();
     let scale = (rig.bounds.1 - rig.bounds.0).length().max(1.0);
 
-    // trunk: the full spine chain (hips..head)
-    let trunk_pairs: Pairs = g.spine.windows(2).map(|w| (w[0], w[1])).collect();
-    let hips = g.spine[0];
-
-    // tail: anchored at the hips so its base rides the pelvis
-    let mut tail_pairs: Pairs = Vec::new();
-    if !g.tail.is_empty() {
-        tail_pairs.push((hips, g.tail[0]));
-        for w in g.tail.windows(2) {
-            tail_pairs.push((w[0], w[1]));
+    // trunk joints = the spine chain + anything a rank<=1 primitive references
+    let mut is_trunk = vec![false; n];
+    for &j in &g.spine {
+        is_trunk[j] = true;
+    }
+    for d in &rig.prims {
+        if d.fold_rank <= 1 {
+            is_trunk[d.joint_a] = true;
+            is_trunk[d.joint_b] = true;
         }
     }
 
-    // one segment chain per leg (root..foot)
-    let leg_pairs: Vec<Pairs> = g
-        .legs
-        .iter()
-        .map(|chain| chain.windows(2).map(|w| (w[0], w[1])).collect())
-        .collect();
-
-    // Family classification uses the primitive SDF, NOT bone-segment distance:
-    // the belly underside is deep INSIDE the torso ellipsoid (very negative)
-    // yet lies close to a buried leg-bone line — segment distance would hand
-    // the belly to a leg and shatter it mid-stride. Map each prim to a family:
-    // 0 = trunk (rank <= 1), 1..=nlegs = legs, nlegs+1 = tail.
-    let n_legs = g.legs.len();
-    let tail_fam = n_legs + 1;
-    let prim_fam: Vec<usize> = rig
-        .prims
-        .iter()
-        .map(|d| {
-            if d.fold_rank <= 1 {
-                0
-            } else if let Some(i) = g
-                .legs
-                .iter()
-                .position(|chain| chain.contains(&d.joint_a) || chain.contains(&d.joint_b))
-            {
-                i + 1
-            } else {
-                tail_fam
+    // union non-trunk joints touched together by the same rank>=2 primitive
+    let mut uf: Vec<usize> = (0..n).collect();
+    for d in &rig.prims {
+        if d.fold_rank >= 2 && !is_trunk[d.joint_a] && !is_trunk[d.joint_b] {
+            let (ra, rb) = (uf_find(&mut uf, d.joint_a), uf_find(&mut uf, d.joint_b));
+            if ra != rb {
+                uf[ra] = rb;
             }
+        }
+    }
+
+    // assign a 1-based family id per limb component (deterministic: prim order)
+    let mut fam_of_root: HashMap<usize, usize> = HashMap::new();
+    let mut fam_joints: Vec<Vec<usize>> = Vec::new();
+    let mut prim_fam: Vec<usize> = vec![0; rig.prims.len()];
+    for (pi, d) in rig.prims.iter().enumerate() {
+        if d.fold_rank <= 1 {
+            continue;
+        }
+        let limb_j = if !is_trunk[d.joint_a] {
+            Some(d.joint_a)
+        } else if !is_trunk[d.joint_b] {
+            Some(d.joint_b)
+        } else {
+            None
+        };
+        if let Some(j) = limb_j {
+            let root = uf_find(&mut uf, j);
+            let next = fam_joints.len() + 1;
+            let fam = *fam_of_root.entry(root).or_insert(next);
+            if fam > fam_joints.len() {
+                fam_joints.push(Vec::new());
+            }
+            prim_fam[pi] = fam;
+        }
+    }
+    for (j, &trunk) in is_trunk.iter().enumerate() {
+        if trunk {
+            continue;
+        }
+        let root = uf_find(&mut uf, j);
+        if let Some(&fam) = fam_of_root.get(&root) {
+            fam_joints[fam - 1].push(j);
+        }
+    }
+    let n_fam = fam_joints.len() + 1;
+
+    // trunk bone segments (spine chain)
+    let trunk_pairs: Pairs = g.spine.windows(2).map(|w| (w[0], w[1])).collect();
+    let trunk_root = *g.spine.first().unwrap_or(&0);
+
+    // per-family bone segments: internal parent->child edges of the component
+    let limb_pairs: Vec<Pairs> = fam_joints
+        .iter()
+        .map(|joints| {
+            let set: HashSet<usize> = joints.iter().copied().collect();
+            let mut pairs = Pairs::new();
+            for &j in joints {
+                if let Some(pj) = skel.joints[j].parent {
+                    if set.contains(&pj) {
+                        pairs.push((pj, j));
+                    }
+                }
+            }
+            pairs
         })
         .collect();
-    let n_fam = tail_fam + 1;
 
     mesh.joints = Vec::with_capacity(mesh.positions.len());
     mesh.weights = Vec::with_capacity(mesh.positions.len());
@@ -165,7 +246,7 @@ fn skin_body(mesh: &mut Mesh, rig: &MonsterRig) {
             }
         }
         let trunk_d = fam_d[0];
-        // best (nearest) limb family among legs + tail
+        // nearest limb family
         let mut limb_d = f32::INFINITY;
         let mut limb_fam = 1usize;
         for (f, &d) in fam_d.iter().enumerate().skip(1) {
@@ -174,20 +255,17 @@ fn skin_body(mesh: &mut Mesh, rig: &MonsterRig) {
                 limb_fam = f;
             }
         }
-        let limb_pairs: &Pairs = if limb_fam == tail_fam {
-            &tail_pairs
-        } else {
-            &leg_pairs[limb_fam - 1]
-        };
+        let has_limb = n_fam > 1 && limb_d.is_finite();
 
-        let trunk = seg_w(p, &world, &trunk_pairs);
-        let (j, wt) = if limb_pairs.is_empty() || trunk_d + near < limb_d {
+        let trunk = trunk_weight(p, &world, &trunk_pairs, trunk_root);
+        let (j, wt) = if !has_limb || trunk_d + near < limb_d {
             // firmly trunk
             trunk
         } else if limb_d + near < trunk_d {
             // firmly limb
-            seg_w(p, &world, limb_pairs)
+            seg_w(p, &world, &limb_pairs[limb_fam - 1])
         } else {
+            let limb_pairs = &limb_pairs[limb_fam - 1];
             // junction: smoothstep blend of the two families. Half-width =
             // `near` so s = 0 at delta = -near and s = 1 at delta = +near,
             // meeting the firmly-trunk/firmly-limb branches continuously.
