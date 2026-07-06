@@ -13,7 +13,7 @@ use crate::palette::Palette;
 use crate::recipe::MonsterParams;
 use crate::sdf::{mesh_field, sd_ellipsoid, sd_round_cone, smin};
 
-use super::rig::{MonsterRig, PrimKind, PrimitiveDesc};
+use super::rig::{MonsterRig, PrimKind, PrimTint, PrimitiveDesc};
 
 /// Evaluate one primitive at world point `p` given the joint world positions.
 pub(super) fn eval_prim(d: &PrimitiveDesc, world: &[Vec3], p: Vec3) -> f32 {
@@ -76,17 +76,18 @@ pub fn organic_field(rig: &MonsterRig) -> impl Fn(Vec3) -> f32 {
     }
 }
 
-/// Nearest-primitive family classifier used for coloring: which body region
-/// (0 = torso, 1 = head/neck, 2 = leg, 3 = tail) owns point `p`.
-fn region_of(rig: &MonsterRig, world: &[Vec3], p: Vec3) -> u8 {
-    let mut best = (f32::INFINITY, 0u8);
+/// Nearest-primitive family classifier used for coloring: returns the owning
+/// primitive's `(fold_rank, tint)` — rank picks the body region (0 = torso,
+/// 1 = head/neck, 2 = leg, 3 = tail), tint flags bone/eye feature knobs.
+fn region_of(rig: &MonsterRig, world: &[Vec3], p: Vec3) -> (u8, PrimTint) {
+    let mut best = (f32::INFINITY, 0u8, PrimTint::Body);
     for d in &rig.prims {
         let dist = eval_prim(d, world, p);
         if dist < best.0 {
-            best = (dist, d.fold_rank);
+            best = (dist, d.fold_rank, d.tint);
         }
     }
-    best.1
+    (best.1, best.2)
 }
 
 /// Mesh the body from the composed field, colored by region from the palette.
@@ -107,6 +108,9 @@ pub fn build_body(rig: &MonsterRig, p: &MonsterParams, pal: &Palette) -> Mesh {
     let dark = base * 0.6; // belly + limbs, same hue
     let head_c = base * 0.88; // subtle definition, same hue
     let accent = pal.accent;
+    // bone/keratin tone for horns, spikes, plates, teeth — a warm off-white
+    // shaded toward the hide so armor still reads as part of the same animal.
+    let bone = crate::palette::lerp(crate::palette::srgb(206, 196, 172), dark, 0.25);
     let mid_y = (lo.y + hi.y) * 0.5;
     let seed = p.seed;
     // clamp already yields 0.0 for the negative sentinel/class-default
@@ -122,7 +126,14 @@ pub fn build_body(rig: &MonsterRig, p: &MonsterParams, pal: &Palette) -> Mesh {
     };
 
     let color = |q: Vec3| -> Vec3 {
-        let c = match region_of(rig, &world, q) {
+        let (rank, tint) = region_of(rig, &world, q);
+        // feature-knob tints override the region hide coloring
+        match tint {
+            PrimTint::Eye => return accent, // glowing eye, full accent, no jitter
+            PrimTint::Horn => return crate::palette::vary(bone, 0.05, hash01(q)),
+            PrimTint::Body => {}
+        }
+        let c = match rank {
             // torso: darker belly underside, mid back
             0 => {
                 if q.y < mid_y {

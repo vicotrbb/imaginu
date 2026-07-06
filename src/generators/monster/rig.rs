@@ -18,6 +18,16 @@ pub enum PrimKind {
     Ellipsoid,
 }
 
+/// Coloring role of a primitive. `Body` uses the fold-rank region coloring
+/// (torso/head/legs/tail); `Horn` paints a bone/armor tone (horns, spikes,
+/// plates, teeth); `Eye` paints the emissive accent (glowing eyes).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrimTint {
+    Body,
+    Horn,
+    Eye,
+}
+
 /// One flesh primitive spanning two skeleton joints. `fold_rank` orders the
 /// smooth-min compose (0 = core torso, higher = later/outer). `k` is the
 /// smooth-min blend radius used when this primitive folds into its rank band.
@@ -35,6 +45,8 @@ pub struct PrimitiveDesc {
     /// joint span (spheres / joint-elongated ellipsoids / round cones). Used
     /// to build genuinely FLAT sheets (thin on one axis) like flyer wings.
     pub radii: Option<Vec3>,
+    /// Coloring role (feature knobs paint bone/eye tones; body prims default).
+    pub tint: PrimTint,
 }
 
 /// Locomotion style — drives which procedural clip driver builds the
@@ -90,7 +102,7 @@ impl MonsterRig {
 /// Dispatch on the body plan. Every plan builds a fold-ranked [`MonsterRig`]
 /// fed to the same shared body/skin/anim pipeline.
 pub fn build_rig(p: &MonsterParams) -> MonsterRig {
-    match p.body {
+    let mut rig = match p.body {
         BodyPlan::QuadrupedBeast => plan_quadruped_beast(p),
         BodyPlan::Ooze => plan_ooze(p),
         BodyPlan::Serpent => plan_serpent(p),
@@ -99,7 +111,9 @@ pub fn build_rig(p: &MonsterParams) -> MonsterRig {
         BodyPlan::Arachnid => plan_arachnid(p),
         BodyPlan::Insectoid => plan_insectoid(p),
         BodyPlan::Aberration => plan_aberration(p),
-    }
+    };
+    apply_knobs(&mut rig, p);
+    rig
 }
 
 /// Incremental rig builder: joints are added by WORLD position (converted to
@@ -148,6 +162,7 @@ impl RigBuilder {
             fold_rank,
             k,
             radii: None,
+            tint: PrimTint::Body,
         });
     }
 
@@ -161,6 +176,7 @@ impl RigBuilder {
             fold_rank,
             k,
             radii: None,
+            tint: PrimTint::Body,
         });
     }
 
@@ -176,6 +192,7 @@ impl RigBuilder {
             fold_rank,
             k,
             radii: Some(radii),
+            tint: PrimTint::Body,
         });
     }
 
@@ -309,6 +326,7 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
         fold_rank,
         k,
         radii: None,
+        tint: PrimTint::Body,
     };
     let el = |a: usize, b: usize, r1: f32, r2: f32, fold_rank: u8, k: f32| PrimitiveDesc {
         kind: PrimKind::Ellipsoid,
@@ -319,6 +337,7 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
         fold_rank,
         k,
         radii: None,
+        tint: PrimTint::Body,
     };
     let mut prims = vec![
         // rank 0: torso core (ellipsoid barrel + filling tube)
@@ -722,9 +741,409 @@ fn plan_aberration(p: &MonsterParams) -> MonsterRig {
     })
 }
 
+// ===================== M8: composable feature knobs =====================
+// Each knob appends fold-ranked-LAST primitives (and their own tiny joint
+// chains) on top of a finished plan. Protruding features (horns, spikes,
+// teeth, eyes) get a 2-joint chain parented under a trunk joint so they form
+// their own clean skin family that rides that joint rigidly — never a web.
+// Every knob value is clamped so hostile input cannot panic or explode the grid.
+
+use std::collections::HashSet;
+
+/// Sentinel-resolved, clamped knob values for a specific rig.
+struct Knobs {
+    horns: f32,
+    spikes: f32,
+    plates: f32,
+    tail: f32,
+    wings: f32,
+    eyes: i32,
+    maw: f32,
+}
+
+/// Resolve the `-1` "plan decides" sentinels to concrete values and clamp
+/// everything to safe ranges. Plan defaults depend on what the rig actually
+/// has (a tail chain, wings, a head joint).
+fn resolve_knobs(rig: &MonsterRig, p: &MonsterParams) -> Knobs {
+    let has_head = rig.gait.head.is_some();
+    let tail = if p.tail < 0.0 {
+        if rig.gait.tail.is_empty() { 0.0 } else { 1.0 }
+    } else {
+        p.tail.clamp(0.0, 1.0)
+    };
+    let wings = if p.wings < 0.0 {
+        if rig.gait.wings.is_empty() { 0.0 } else { 1.0 }
+    } else {
+        p.wings.clamp(0.0, 1.0)
+    };
+    let eyes = if p.eyes < 0 {
+        if has_head { 2 } else { 0 }
+    } else {
+        p.eyes.clamp(0, 12)
+    };
+    let maw = if p.maw < 0.0 {
+        0.0
+    } else {
+        p.maw.clamp(0.0, 1.0)
+    };
+    Knobs {
+        horns: p.horns.clamp(0.0, 1.0),
+        spikes: p.spikes.clamp(0.0, 1.0),
+        plates: p.plates.clamp(0.0, 1.0),
+        tail,
+        wings,
+        eyes,
+        maw,
+    }
+}
+
+/// Append a leaf joint at `world_pos` under `parent`, returning its index.
+fn add_joint(rig: &mut MonsterRig, parent: usize, name: &str, world_pos: Vec3) -> usize {
+    let pw = rig.joint_world(parent);
+    let i = rig.skeleton.joints.len();
+    rig.skeleton.joints.push(Joint {
+        name: name.into(),
+        parent: Some(parent),
+        translation: world_pos - pw,
+        rotation: Quat::IDENTITY,
+    });
+    i
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_cone(
+    rig: &mut MonsterRig,
+    a: usize,
+    b: usize,
+    r1: f32,
+    r2: f32,
+    fold_rank: u8,
+    k: f32,
+    tint: PrimTint,
+) {
+    rig.prims.push(PrimitiveDesc {
+        kind: PrimKind::RoundCone,
+        joint_a: a,
+        joint_b: b,
+        r1,
+        r2,
+        fold_rank,
+        k,
+        radii: None,
+        tint,
+    });
+}
+
+fn push_flat(
+    rig: &mut MonsterRig,
+    a: usize,
+    b: usize,
+    radii: Vec3,
+    fold_rank: u8,
+    k: f32,
+    tint: PrimTint,
+) {
+    rig.prims.push(PrimitiveDesc {
+        kind: PrimKind::Ellipsoid,
+        joint_a: a,
+        joint_b: b,
+        r1: 0.0,
+        r2: 0.0,
+        fold_rank,
+        k,
+        radii: Some(radii),
+        tint,
+    });
+}
+
+/// Sample a world point + its proximal spine joint at parameter `t` (0..1)
+/// along the spine polyline. Returns `(point, proximal_joint)`.
+fn spine_sample(rig: &MonsterRig, t: f32) -> (Vec3, usize) {
+    let spine = &rig.gait.spine;
+    if spine.len() < 2 {
+        let j = *spine.first().unwrap_or(&0);
+        return (rig.joint_world(j), j);
+    }
+    let segs = spine.len() - 1;
+    let ft = (t.clamp(0.0, 1.0) * segs as f32).min(segs as f32 - 1e-4);
+    let i = ft as usize;
+    let f = ft - i as f32;
+    let a = rig.joint_world(spine[i]);
+    let b = rig.joint_world(spine[i + 1]);
+    (a.lerp(b, f), spine[i])
+}
+
+/// Apply all M8 feature knobs to a finished rig, then recompute bounds.
+fn apply_knobs(rig: &mut MonsterRig, p: &MonsterParams) {
+    let s = p.size.clamp(0.2, 4.0);
+    let k = resolve_knobs(rig, p);
+    // ranks strictly above every plan prim so each knob folds LAST (crisp
+    // attach, its own cross-band k) and cannot perturb existing bands.
+    let base = rig.prims.iter().map(|d| d.fold_rank).max().unwrap_or(0);
+
+    scale_tail(rig, k.tail);
+    scale_wings(rig, k.wings);
+
+    if k.horns > 0.0 {
+        add_horns(rig, s, k.horns, base.saturating_add(1));
+    }
+    if k.spikes > 0.0 {
+        add_spikes(rig, s, k.spikes, base.saturating_add(2));
+    }
+    if k.plates > 0.0 {
+        add_plates(rig, s, k.plates, base.saturating_add(3));
+    }
+    if k.eyes > 0 {
+        add_eyes(rig, s, k.eyes, base.saturating_add(4));
+    }
+    if k.maw > 0.0 {
+        add_maw(rig, s, k.maw, base.saturating_add(5));
+    }
+
+    rig.bounds = compute_bounds(rig);
+}
+
+/// tail knob: 0 removes the tail chain's prims; other values scale thickness.
+fn scale_tail(rig: &mut MonsterRig, v: f32) {
+    if rig.gait.tail.is_empty() {
+        return;
+    }
+    let set: HashSet<usize> = rig.gait.tail.iter().copied().collect();
+    let touches = |d: &PrimitiveDesc| set.contains(&d.joint_a) || set.contains(&d.joint_b);
+    if v <= 0.0 {
+        rig.prims.retain(|d| !touches(d));
+        rig.gait.tail.clear();
+    } else if (v - 1.0).abs() > 1e-3 {
+        for d in rig.prims.iter_mut().filter(|d| touches(d)) {
+            d.r1 *= v;
+            d.r2 *= v;
+            if let Some(r) = d.radii.as_mut() {
+                *r *= v;
+            }
+        }
+    }
+}
+
+/// wings knob: 0 removes the wing prims (and clears the gait); else scales.
+fn scale_wings(rig: &mut MonsterRig, v: f32) {
+    if rig.gait.wings.is_empty() {
+        return;
+    }
+    let set: HashSet<usize> = rig.gait.wings.iter().copied().collect();
+    let touches = |d: &PrimitiveDesc| set.contains(&d.joint_a) || set.contains(&d.joint_b);
+    if v <= 0.0 {
+        rig.prims.retain(|d| !touches(d));
+        rig.gait.wings.clear();
+    } else if (v - 1.0).abs() > 1e-3 {
+        for d in rig.prims.iter_mut().filter(|d| touches(d)) {
+            d.r1 *= v;
+            d.r2 *= v;
+            if let Some(r) = d.radii.as_mut() {
+                *r *= v;
+            }
+        }
+    }
+}
+
+/// Two tapered horns curving up and back off the head, scaled by `v`.
+fn add_horns(rig: &mut MonsterRig, s: f32, v: f32, rank: u8) {
+    let Some(head) = rig.gait.head else {
+        return; // no head joint (ooze / aberration) -> nothing to mount on
+    };
+    let hp = rig.joint_world(head);
+    for side in [-1.0f32, 1.0] {
+        let base_w = hp + Vec3::new(side * 0.07 * s, 0.09 * s, -0.02 * s);
+        // mid + tip sweep up and back, growing with the knob value
+        let mid_w = base_w
+            + Vec3::new(
+                side * 0.04 * s,
+                (0.10 + 0.10 * v) * s,
+                -(0.06 + 0.08 * v) * s,
+            );
+        let tip_w = mid_w
+            + Vec3::new(
+                side * 0.05 * s,
+                (0.04 + 0.06 * v) * s,
+                -(0.08 + 0.12 * v) * s,
+            );
+        let b0 = add_joint(rig, head, "horn", base_w);
+        let b1 = add_joint(rig, b0, "horn_mid", mid_w);
+        let b2 = add_joint(rig, b1, "horn_tip", tip_w);
+        let r0 = (0.05 * s * (0.5 + 0.5 * v)).max(0.012);
+        let r1 = r0 * 0.6;
+        push_cone(rig, b0, b1, r0, r1, rank, 0.02 * s, PrimTint::Horn);
+        push_cone(rig, b1, b2, r1, 0.008 * s, rank, 0.015 * s, PrimTint::Horn);
+    }
+}
+
+/// A dorsal ridge of small spikes along the spine, count + size scaled by `v`.
+fn add_spikes(rig: &mut MonsterRig, s: f32, v: f32, rank: u8) {
+    let count = (2.0 + 6.0 * v).round() as usize;
+    if count == 0 {
+        return;
+    }
+    let height = (0.08 + 0.16 * v) * s;
+    let rad = (0.028 + 0.03 * v) * s;
+    for i in 0..count {
+        let t = 0.18 + 0.62 * (i as f32 / (count.max(2) - 1) as f32);
+        let (pt, parent) = spine_sample(rig, t);
+        // taper spikes toward the tail end of the run
+        let scale = 1.0 - 0.4 * (i as f32 / count as f32);
+        let base_w = pt + Vec3::new(0.0, 0.16 * s, 0.0);
+        let tip_w = base_w + Vec3::new(0.0, height * scale, -0.03 * s);
+        let b0 = add_joint(rig, parent, "spike", base_w);
+        let b1 = add_joint(rig, b0, "spike_tip", tip_w);
+        push_cone(
+            rig,
+            b0,
+            b1,
+            rad * scale,
+            0.006 * s,
+            rank,
+            0.012 * s,
+            PrimTint::Horn,
+        );
+    }
+}
+
+/// A few flattened ellipsoid armor plates over the back/shoulders.
+fn add_plates(rig: &mut MonsterRig, s: f32, v: f32, rank: u8) {
+    let count = (1.0 + 2.0 * v).round() as usize;
+    if count == 0 {
+        return;
+    }
+    let w = (0.16 + 0.10 * v) * s;
+    for i in 0..count {
+        let t = 0.28 + 0.44 * (i as f32 / (count.max(2) - 1) as f32);
+        let (pt, parent) = spine_sample(rig, t);
+        let base_w = pt + Vec3::new(0.0, 0.14 * s, 0.0);
+        let tip_w = base_w + Vec3::new(0.0, 0.0, -0.02 * s);
+        let b0 = add_joint(rig, parent, "plate", base_w);
+        let b1 = add_joint(rig, b0, "plate_b", tip_w);
+        let radii = Vec3::new(w, 0.045 * s, w * 0.85);
+        push_flat(rig, b0, b1, radii, rank, 0.02 * s, PrimTint::Horn);
+    }
+}
+
+/// Emissive eyes on the head, placed symmetrically (clustered for many).
+fn add_eyes(rig: &mut MonsterRig, s: f32, count: i32, rank: u8) {
+    let Some(head) = rig.gait.head else {
+        return; // guard: headless plans get no eyes
+    };
+    let hp = rig.joint_world(head);
+    let er = (0.05 * s).max(0.012);
+    // rows of pairs down the face; an odd count adds a central eye
+    let pairs = count / 2;
+    let center = count % 2 == 1;
+    let r = er * (1.0 - 0.03 * count as f32).clamp(0.5, 1.0);
+    for i in 0..pairs {
+        let row = i as f32;
+        let dy = 0.05 * s - row * 0.06 * s;
+        let dz = 0.10 * s;
+        let dx = (0.06 + 0.02 * row) * s;
+        for side in [-1.0f32, 1.0] {
+            let base_w = hp + Vec3::new(side * dx, dy, dz);
+            let out_w = base_w + Vec3::new(side * 0.01 * s, 0.0, 0.02 * s);
+            let b0 = add_joint(rig, head, "eye", base_w);
+            let b1 = add_joint(rig, b0, "eye_out", out_w);
+            push_cone(rig, b0, b1, r, r * 0.7, rank, 0.006 * s, PrimTint::Eye);
+        }
+    }
+    if center {
+        let base_w = hp + Vec3::new(0.0, 0.09 * s, 0.11 * s);
+        let out_w = base_w + Vec3::new(0.0, 0.0, 0.02 * s);
+        let b0 = add_joint(rig, head, "eye", base_w);
+        let b1 = add_joint(rig, b0, "eye_out", out_w);
+        push_cone(rig, b0, b1, r, r * 0.7, rank, 0.006 * s, PrimTint::Eye);
+    }
+}
+
+/// Widen and lower the head's jaw; add small teeth cones at high values.
+fn add_maw(rig: &mut MonsterRig, s: f32, v: f32, rank: u8) {
+    let Some(head) = rig.gait.head else {
+        return; // guard: headless plans have no jaw
+    };
+    let hp = rig.joint_world(head);
+    // a broad lower jaw jutting forward-down, widening with the knob
+    let jaw_base = hp + Vec3::new(0.0, -0.10 * s, 0.04 * s);
+    let jaw_tip = hp + Vec3::new(0.0, -(0.12 + 0.06 * v) * s, (0.14 + 0.10 * v) * s);
+    let j0 = add_joint(rig, head, "jaw", jaw_base);
+    let j1 = add_joint(rig, j0, "jaw_tip", jaw_tip);
+    let jr = (0.10 + 0.08 * v) * s;
+    push_cone(rig, j0, j1, jr, 0.05 * s, rank, 0.03 * s, PrimTint::Body);
+    // teeth appear once the maw is prominent
+    if v > 0.5 {
+        let n = (2.0 + 4.0 * v).round() as usize;
+        for i in 0..n {
+            let f = if n > 1 {
+                i as f32 / (n - 1) as f32
+            } else {
+                0.5
+            };
+            let side = (f - 0.5) * 2.0;
+            let root = jaw_base.lerp(jaw_tip, 0.4) + Vec3::new(side * jr * 0.7, 0.02 * s, 0.0);
+            let tip = root + Vec3::new(0.0, 0.05 * s, 0.01 * s);
+            let t0 = add_joint(rig, head, "tooth", root);
+            let t1 = add_joint(rig, t0, "tooth_tip", tip);
+            push_cone(
+                rig,
+                t0,
+                t1,
+                0.018 * s,
+                0.003 * s,
+                rank,
+                0.006 * s,
+                PrimTint::Horn,
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn params_from(json: &str) -> MonsterParams {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn horns_and_eyes_add_geometry() {
+        let base = build_rig(&params_from(
+            r#"{"kind":"monster","body":"quadruped_beast"}"#,
+        ));
+        let horned = build_rig(&params_from(
+            r#"{"kind":"monster","body":"quadruped_beast","horns":1.0,"eyes":4}"#,
+        ));
+        assert!(
+            horned.prims.len() > base.prims.len(),
+            "horns/eyes add prims"
+        );
+    }
+
+    #[test]
+    fn hostile_knob_input_cannot_panic() {
+        // absurd values must clamp, never panic or explode the joint count
+        let rig = build_rig(&params_from(
+            r#"{"kind":"monster","body":"biped_brute","horns":-5.0,"spikes":1e30,
+                "plates":-1.0,"eyes":999999,"maw":1e30,"tail":-9.0,"wings":50.0}"#,
+        ));
+        let n = rig.skeleton.joints.len();
+        assert!(rig.prims.iter().all(|d| d.joint_a < n && d.joint_b < n));
+        assert!(n < 400, "eye count clamp keeps joints bounded: {n}");
+    }
+
+    #[test]
+    fn tail_zero_disables_chain() {
+        let with = build_rig(&params_from(
+            r#"{"kind":"monster","body":"quadruped_beast"}"#,
+        ));
+        let without = build_rig(&params_from(
+            r#"{"kind":"monster","body":"quadruped_beast","tail":0.0}"#,
+        ));
+        assert!(without.gait.tail.is_empty());
+        assert!(without.prims.len() < with.prims.len(), "tail prims removed");
+    }
 
     #[test]
     fn quadruped_rig_is_wellformed() {
