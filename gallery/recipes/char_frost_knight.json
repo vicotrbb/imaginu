@@ -1,0 +1,11 @@
+{
+  "kind": "character",
+  "class": "warrior",
+  "palette": "arctic",
+  "seed": 21,
+  "bulk": 1.25,
+  "detail": 2.0,
+  "hair": "short",
+  "beard": "short",
+  "age": 0.35
+}

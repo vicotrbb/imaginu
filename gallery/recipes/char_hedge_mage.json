@@ -1,0 +1,15 @@
+{
+  "kind": "character",
+  "class": "mage",
+  "palette": "mystic",
+  "seed": 31,
+  "detail": 2.0,
+  "hair": "long",
+  "beard": "long",
+  "hair_color": "#dcd8ce",
+  "age": 0.8,
+  "outfit": "robe",
+  "ornamentation": 0.8,
+  "trim_motif": "runes",
+  "accessories": ["staff", "necklace"]
+}

@@ -10,3 +10,4 @@ BIN=${BIN:-target/release/imaginu}
 "$BIN" showcase gallery/recipes/char_mage.json --animation dance -o gallery/showcase_dance.mp4 --duration 4
 "$BIN" showcase examples/elder_sage.json -o gallery/showcase_elder_sage.mp4 --duration 6
 "$BIN" showcase examples/elder_sage.json --animation walk -o gallery/showcase_elder_walk.mp4 --duration 4
+"$BIN" showcase gallery/recipes/char_hedge_mage.json --animation walk -o gallery/showcase_hedge_mage_walk.mp4 --duration 4

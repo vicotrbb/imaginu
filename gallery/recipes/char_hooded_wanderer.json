@@ -1,0 +1,10 @@
+{
+  "kind": "character",
+  "class": "rogue",
+  "palette": "autumn",
+  "seed": 8,
+  "detail": 2.0,
+  "hair": "bald",
+  "beard": "mustache",
+  "age": 0.5
+}

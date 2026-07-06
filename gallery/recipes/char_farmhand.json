@@ -1,0 +1,10 @@
+{
+  "kind": "character",
+  "class": "villager",
+  "palette": "verdant",
+  "seed": 14,
+  "detail": 1.5,
+  "hair": "bun",
+  "outfit": "tunic",
+  "age": 0.25
+}
