@@ -97,42 +97,50 @@ pub fn build_body(rig: &MonsterRig, p: &MonsterParams, pal: &Palette) -> Mesh {
     // cell scaled by detail; clamp so huge/tiny creatures stay affordable.
     let cell = (0.028 * s / detail).clamp(0.012, 0.12);
 
-    let body = pal.terrain[2];
-    let belly = pal.terrain[1];
-    let limb = pal.rock[0];
-    let head_c = pal.terrain[3];
+    // ONE cohesive hide colour: a mid palette tone for the back/flanks, a
+    // darker shade of the SAME hue for the belly and the extremities (legs,
+    // feet) so the creature reads as one animal, not two materials.
+    let base = pal.terrain[2];
+    let dark = base * 0.6; // belly + limbs, same hue
+    let head_c = base * 0.88; // subtle definition, same hue
     let accent = pal.accent;
+    let mid_y = (lo.y + hi.y) * 0.5;
+    let seed = p.seed;
     let emissive_frac = if p.emissive < 0.0 {
         0.0
     } else {
         p.emissive.clamp(0.0, 1.0)
     };
 
+    // deterministic 0..1 hash of a quantized world point (+ seed).
+    let hash01 = |q: Vec3| -> f32 {
+        let key = ((q.x * 53.0) as i32).wrapping_mul(73856093)
+            ^ ((q.y * 53.0) as i32).wrapping_mul(19349663)
+            ^ ((q.z * 53.0) as i32).wrapping_mul(83492791)
+            ^ (seed as i32).wrapping_mul(2654435761u32 as i32);
+        (key.rem_euclid(1000) as f32) / 1000.0
+    };
+
     let color = |q: Vec3| -> Vec3 {
-        let base = match region_of(rig, &world, q) {
+        let c = match region_of(rig, &world, q) {
+            // torso: darker belly underside, mid back
             0 => {
-                // darker underside belly, lighter back
-                if q.y < (lo.y + hi.y) * 0.5 {
-                    belly
+                if q.y < mid_y {
+                    dark
                 } else {
-                    body
+                    base
                 }
             }
-            1 => head_c,
-            2 => limb,
-            _ => belly,
+            1 => head_c, // head/neck/muzzle
+            2 => dark,   // legs + feet (same hue, darker)
+            _ => base,   // tail reads like the body (no accent leak)
         };
-        if emissive_frac > 0.0 {
-            // deterministic speckle keyed on a quantized position hash
-            let key = ((q.x * 53.0) as i32).wrapping_mul(73856093)
-                ^ ((q.y * 53.0) as i32).wrapping_mul(19349663)
-                ^ ((q.z * 53.0) as i32).wrapping_mul(83492791);
-            let f = (key.rem_euclid(1000) as f32) / 1000.0;
-            if f < emissive_frac {
-                return accent;
-            }
+        // subtle seeded value jitter for an organic, non-plastic hide
+        let c = crate::palette::vary(c, 0.07, hash01(q));
+        if emissive_frac > 0.0 && hash01(q + Vec3::splat(11.0)) < emissive_frac {
+            return accent;
         }
-        base
+        c
     };
 
     mesh_field(lo, hi, cell, &field, &color)

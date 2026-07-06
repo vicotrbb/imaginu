@@ -112,6 +112,9 @@ const RL_FT: usize = 15;
 const RR_UP: usize = 16;
 const RR_LO: usize = 17;
 const RR_FT: usize = 18;
+// appended leaf joints (kept at the end so leg indices stay stable)
+const SNOUT: usize = 19; // muzzle tip, child of HEAD
+const TAIL3: usize = 20; // tail point, child of TAIL2
 
 /// Build the quadruped-beast template: a horizontal torso along +Z, a neck +
 /// head reaching forward-up, a two-segment tail, and four three-joint legs.
@@ -135,10 +138,12 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
         (None, "hips", Vec3::new(0.0, hy, -0.35 * s)),
         (Some(HIPS), "spine1", Vec3::new(0.0, 0.02 * s, 0.30 * s)),
         (Some(SPINE1), "spine2", Vec3::new(0.0, 0.02 * s, 0.32 * s)),
-        (Some(SPINE2), "neck", Vec3::new(0.0, 0.10 * s, 0.20 * s)),
-        (Some(NECK), "head", Vec3::new(0.0, 0.06 * s, 0.16 * s)),
-        (Some(HIPS), "tail1", Vec3::new(0.0, 0.05 * s, -0.20 * s)),
-        (Some(TAIL1), "tail2", Vec3::new(0.0, 0.01 * s, -0.24 * s)),
+        // neck reaches forward, head drops BELOW the back line (predatory)
+        (Some(SPINE2), "neck", Vec3::new(0.0, 0.06 * s, 0.22 * s)),
+        (Some(NECK), "head", Vec3::new(0.0, -0.06 * s, 0.20 * s)),
+        // tapering tail chain sweeping back + down
+        (Some(HIPS), "tail1", Vec3::new(0.0, 0.02 * s, -0.18 * s)),
+        (Some(TAIL1), "tail2", Vec3::new(0.0, -0.03 * s, -0.22 * s)),
         // front-left leg (swing joint at the torso underside)
         (Some(SPINE2), "fl_upper", Vec3::new(0.18 * s, fl_drop, 0.0)),
         (Some(FL_UP), "fl_lower", Vec3::new(0.0, -leg_seg, 0.0)),
@@ -155,6 +160,9 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
         (Some(HIPS), "rr_upper", Vec3::new(-0.18 * s, rl_drop, 0.0)),
         (Some(RR_UP), "rr_lower", Vec3::new(0.0, -leg_seg, 0.0)),
         (Some(RR_LO), "rr_foot", Vec3::new(0.0, -leg_seg, -0.02 * s)),
+        // leaf joints (muzzle + tail point) drive geometry only
+        (Some(HEAD), "snout", Vec3::new(0.0, -0.02 * s, 0.15 * s)),
+        (Some(TAIL2), "tail3", Vec3::new(0.0, -0.05 * s, -0.20 * s)),
     ];
 
     let skeleton = Skeleton {
@@ -171,11 +179,11 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
 
     // radii (scaled by size + menace bulk)
     let torso_r = 0.28 * s * bulk;
-    let neck_r = 0.15 * s * bulk;
-    let head_r = 0.17 * s;
-    let leg_up_r = 0.11 * s * bulk;
-    let leg_lo_r = 0.075 * s;
-    let foot_r = 0.05 * s;
+    let neck_r = 0.16 * s * bulk;
+    let head_r = 0.16 * s;
+    let leg_up_r = 0.14 * s * bulk; // beefy haunch
+    let leg_lo_r = 0.08 * s;
+    let foot_r = 0.055 * s;
 
     // fold ranks: 0 = core torso, 1 = neck/head, 2 = legs, 3 = tail. k is
     // large near the core (smooth flesh) and small at tips (crisp junctions).
@@ -199,13 +207,14 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
             fold_rank: 0,
             k: 0.11 * s,
         },
-        // --- rank 1: neck + head ---
+        // --- rank 1: thick neck bridge + head + elongated muzzle ---
+        // a fat cone off the shoulders fuses into a real neck (moderate k)
         PrimitiveDesc {
             kind: PrimKind::RoundCone,
             joint_a: SPINE2,
             joint_b: NECK,
-            r1: torso_r * 0.66,
-            r2: neck_r,
+            r1: torso_r * 0.6,
+            r2: neck_r * 1.05,
             fold_rank: 1,
             k: 0.06 * s,
         },
@@ -214,26 +223,27 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
             joint_a: NECK,
             joint_b: HEAD,
             r1: neck_r,
-            r2: head_r * 0.9,
+            r2: head_r * 0.85,
             fold_rank: 1,
             k: 0.05 * s,
         },
+        // head as an ellipsoid ELONGATED along head->snout = a muzzle
         PrimitiveDesc {
             kind: PrimKind::Ellipsoid,
             joint_a: HEAD,
-            joint_b: HEAD,
+            joint_b: SNOUT,
             r1: head_r,
-            r2: 0.0,
+            r2: 0.015 * s,
             fold_rank: 1,
-            k: 0.05 * s,
+            k: 0.045 * s,
         },
-        // --- rank 3: tail (declared before legs; rank drives order) ---
+        // --- rank 3: 3-segment tapering tail (declared before legs) ---
         PrimitiveDesc {
             kind: PrimKind::RoundCone,
             joint_a: HIPS,
             joint_b: TAIL1,
-            r1: torso_r * 0.42,
-            r2: 0.08 * s,
+            r1: torso_r * 0.5,
+            r2: 0.12 * s,
             fold_rank: 3,
             k: 0.03 * s,
         },
@@ -241,10 +251,19 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
             kind: PrimKind::RoundCone,
             joint_a: TAIL1,
             joint_b: TAIL2,
-            r1: 0.08 * s,
-            r2: 0.025 * s,
+            r1: 0.12 * s,
+            r2: 0.06 * s,
             fold_rank: 3,
-            k: 0.025 * s,
+            k: 0.028 * s,
+        },
+        PrimitiveDesc {
+            kind: PrimKind::RoundCone,
+            joint_a: TAIL2,
+            joint_b: TAIL3,
+            r1: 0.06 * s,
+            r2: 0.018 * s,
+            fold_rank: 3,
+            k: 0.022 * s,
         },
     ];
     let mut prims = prims;
@@ -257,14 +276,16 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
         (RR_UP, RR_LO, RR_FT),
     ];
     for (up, lo, ft) in legs_joints {
+        // small upper-leg k -> a TIGHT haunch/shoulder join (defined crease
+        // instead of a melted blob) via the tighter rank-2 cross-band merge
         prims.push(PrimitiveDesc {
             kind: PrimKind::RoundCone,
             joint_a: up,
             joint_b: lo,
             r1: leg_up_r,
-            r2: leg_lo_r * 1.05,
+            r2: leg_lo_r * 1.15,
             fold_rank: 2,
-            k: 0.03 * s,
+            k: 0.018 * s,
         });
         prims.push(PrimitiveDesc {
             kind: PrimKind::RoundCone,
@@ -273,7 +294,7 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
             r1: leg_lo_r,
             r2: foot_r,
             fold_rank: 2,
-            k: 0.028 * s,
+            k: 0.026 * s,
         });
     }
 
@@ -284,7 +305,7 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
             .collect(),
         spine: vec![HIPS, SPINE1, SPINE2, NECK, HEAD],
         wings: Vec::new(),
-        tail: vec![TAIL1, TAIL2],
+        tail: vec![TAIL1, TAIL2, TAIL3],
         head: Some(HEAD),
         style: Gait::Walk,
     };
