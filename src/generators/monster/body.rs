@@ -124,8 +124,7 @@ pub fn build_body(rig: &MonsterRig, p: &MonsterParams, pal: &Palette) -> Mesh {
         };
         if emissive_frac > 0.0 {
             // deterministic speckle keyed on a quantized position hash
-            let key = ((q.x * 53.0) as i32)
-                .wrapping_mul(73856093)
+            let key = ((q.x * 53.0) as i32).wrapping_mul(73856093)
                 ^ ((q.y * 53.0) as i32).wrapping_mul(19349663)
                 ^ ((q.z * 53.0) as i32).wrapping_mul(83492791);
             let f = (key.rem_euclid(1000) as f32) / 1000.0;

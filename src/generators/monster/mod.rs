@@ -4,12 +4,13 @@
 //! organic pass (smooth-min compose -> surface-net mesh -> family-restricted
 //! skin -> procedural clips).
 
+mod anim;
 mod body;
 mod rig;
 
 use glam::Vec3;
 
-use crate::gltf::{Asset, Material, Part, Physics};
+use crate::gltf::{Asset, Material, Part};
 use crate::mesh::Mesh;
 use crate::palette::Palette;
 use crate::recipe::MonsterParams;
@@ -21,7 +22,11 @@ pub fn generate(p: &MonsterParams, pal: &Palette) -> Asset {
     let mut mesh = body::build_body(&r, p, pal);
     skin_body(&mut mesh, &r);
     let phys = body::fit_collider(&r, p);
-    let animations = Vec::new(); // clips wired in M5
+    let animations = if p.animate {
+        anim::build_clips(&r, p)
+    } else {
+        Vec::new()
+    };
     mesh.validate().expect("monster mesh invalid");
     let emissive = if p.emissive > 0.0 {
         pal.accent * p.emissive.clamp(0.0, 1.0) * 0.6
@@ -213,18 +218,9 @@ fn skin_body(mesh: &mut Mesh, rig: &MonsterRig) {
     }
 }
 
-/// Collider re-export for callers/tests that want it without the whole asset.
-#[allow(dead_code)]
-pub fn collider(p: &MonsterParams) -> Physics {
-    body::fit_collider(&rig::build_rig(p), p)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::anim::{pose_at, skin_mesh};
-    use crate::gltf::{AnimationClip, Channel, ChannelData};
-    use glam::{Mat4, Quat};
 
     /// Largest per-edge length ratio (posed / bind) — a stretched-triangle
     /// probe for skinning webs.
@@ -247,37 +243,29 @@ mod tests {
         let p = MonsterParams::default();
         let pal = crate::palette::by_name("verdant");
         let asset = generate(&p, &pal);
-        let skel = asset.skeleton.as_ref().unwrap();
         let bind = &asset.parts[0].mesh;
 
-        // M4: hand-built clip swinging one front leg 30° (replaced by the
-        // real walk clip in M5's `quadruped_has_expected_clips` neighborhood).
-        let r = rig::build_rig(&p);
-        let leg_root = r.gait.legs[0][0];
-        let clip = AnimationClip {
-            name: "probe".into(),
-            channels: vec![Channel {
-                joint: leg_root,
-                times: vec![0.0, 1.0],
-                data: ChannelData::Rotation(vec![
-                    Quat::IDENTITY,
-                    Quat::from_rotation_x(0.52),
-                ]),
-            }],
-        };
-        let globals = pose_at(skel, &clip, 1.0);
-        let ibms: Vec<Mat4> = (0..skel.joints.len())
-            .map(|i| skel.global(i).inverse())
-            .collect();
-        let posed = skin_mesh(bind, &globals, &ibms);
+        // pose at the mid-frame of the real walk clip
+        let walk = asset
+            .animations
+            .iter()
+            .find(|c| c.name == "walk")
+            .expect("walk clip exists");
+        let dur = crate::anim::clip_duration(walk);
+        let posed_asset = crate::anim::pose_asset(&asset, "walk", dur * 0.5).unwrap();
+        let posed = &posed_asset.parts[0].mesh;
+
         // the pose must actually move vertices
         let moved = bind
             .positions
             .iter()
             .zip(&posed.positions)
             .any(|(a, b)| a.distance(*b) > 0.01);
-        assert!(moved, "leg swing should deform the mesh");
-        let stretch = max_edge_stretch(bind, &posed);
-        assert!(stretch < 2.5, "edge stretch {stretch} indicates skinning web");
+        assert!(moved, "walk pose should deform the mesh");
+        let stretch = max_edge_stretch(bind, posed);
+        assert!(
+            stretch < 2.5,
+            "edge stretch {stretch} indicates skinning web"
+        );
     }
 }

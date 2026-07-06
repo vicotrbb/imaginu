@@ -31,8 +31,11 @@ pub struct PrimitiveDesc {
 }
 
 /// Locomotion style — drives which procedural clip driver builds the
-/// creature's movement clip and how idle behaves.
+/// creature's movement clip and how idle behaves. Only `Walk` is emitted for
+/// the M2-M5 quadruped scope; the other styles are consumed by the clip driver
+/// and wired up as later body plans (serpent/flyer/ooze) land.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum Gait {
     Walk,
     Slither,
