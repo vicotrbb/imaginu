@@ -247,15 +247,13 @@ impl WorldModel {
             let ripple = self.n.sample(wx / 7.0 + wz / 2.3, wz / 34.0);
             c *= 1.0 + ripple * 0.06 * desert;
         }
-        // waterfall whitening where a river channel drops steeply
-        if slope > 0.35 && self.network.river_mask(wx, wz) > 0.0 {
-            c = crate::palette::lerp(c, Vec3::new(0.80, 0.87, 0.90), 0.5);
-        }
-        // shoreline foam band just above the waterline
-        let foam = (1.0 - ((h - sea - 0.25) / 0.45).abs()).clamp(0.0, 1.0);
+        // shoreline foam: a thin, broken surf line right at the waterline —
+        // flat beaches only (wide banks turned into chalky margins)
+        let foam = (1.0 - ((h - sea - 0.12) / 0.16).abs()).clamp(0.0, 1.0)
+            * (1.0 - (slope / 0.25).min(1.0));
         if foam > 0.0 {
-            let fnz = self.n.sample(wx * 0.9 + 3.0, wz * 0.9) * 0.5 + 0.5;
-            c = crate::palette::lerp(c, Vec3::splat(0.90), foam * fnz * 0.45);
+            let fnz = (self.n.sample(wx * 0.9 + 3.0, wz * 0.9) - 0.15).max(0.0);
+            c = crate::palette::lerp(c, Vec3::splat(0.82), foam * fnz * 0.28);
         }
         let shore = (1.0 - ((h - sea).abs() / 2.2)).clamp(0.0, 1.0);
         c = c * (1.0 - shore * 0.55) + pal.terrain[0] * shore * 0.55;
