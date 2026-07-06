@@ -379,8 +379,18 @@ fn run() -> Result<(), String> {
                             .map_err(|e| e.to_string())?;
                     }
                 }
-                if !model.pois.is_empty() {
-                    println!("wrote {} POI GLB(s)", model.pois.len());
+                for (i, b) in model.network.bridges.iter().enumerate() {
+                    let asset = imaginu::world::poi::bridge_asset(b, &model.pal);
+                    let glb = imaginu::gltf::to_glb(&asset);
+                    std::fs::write(out.join(format!("poi_bridge_{i}.glb")), &glb)
+                        .map_err(|e| e.to_string())?;
+                }
+                if !model.pois.is_empty() || !model.network.bridges.is_empty() {
+                    println!(
+                        "wrote {} POI GLB(s) + {} bridge(s)",
+                        model.pois.len(),
+                        model.network.bridges.len()
+                    );
                 }
             }
             println!(
@@ -446,7 +456,8 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
           {"kind":"lake","at":[300,-500],"radius":400}],
  "pois":[{"kind":"city","count":2},{"kind":"village","count":5},
          {"kind":"castle","at":[500,-800],"name":"Castle Hightower"},
-         {"kind":"watchtower","count":3},{"kind":"dungeon","count":2}]}
+         {"kind":"watchtower","count":3},{"kind":"dungeon","count":2}],
+ "rivers":4,"roads":true}
  // whole streaming map: imaginu world <recipe> -o mapdir/ writes
  // manifest.json + one GLB per chunk (chunk-local origin; place each at its
  // manifest "position"). Heights/colors are pure functions of world coords +
@@ -462,6 +473,12 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  // world height function (seamless across chunk borders), names them, and
  // exports each as its own GLB with world transform + spawn points in the
  // manifest (omit "pois" for area-scaled defaults, [] for none).
+ // rivers: traced downhill on a depression-filled global heightfield from
+ // mountain springs to lakes/sea, carved into every chunk they cross, with
+ // per-chunk water ribbons. roads: A* between settlements (slope-penalized,
+ // river-averse), flattened into the terrain; where a road must cross a
+ // river a stone bridge GLB spawns (manifest poi kind "bridge", rotation
+ // baked). Polylines land in manifest roads/rivers.
  // Check output: imaginu validate-world mapdir/
 
 {"kind":"tree","style":"oak|pine|palm|dead","height":6,"seed":1}

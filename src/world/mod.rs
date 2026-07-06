@@ -8,6 +8,7 @@ pub mod chunk;
 pub mod manifest;
 pub mod minimap;
 pub mod model;
+pub mod network;
 pub mod poi;
 pub mod zones;
 
@@ -62,6 +63,14 @@ pub struct WorldParams {
     /// `[{"kind":"city","count":2},{"kind":"castle","at":[500,-800]}]`.
     #[serde(default)]
     pub pois: Option<Vec<poi::PoiSpec>>,
+    /// World-scale rivers traced from mountain springs to lakes/sea.
+    /// Omit for an area-scaled default count.
+    #[serde(default)]
+    pub rivers: Option<u32>,
+    /// Road network connecting cities/villages/castles (A*, slope-penalized,
+    /// bridges where roads cross rivers).
+    #[serde(default = "d_true")]
+    pub roads: bool,
 }
 fn d_zone_size() -> f32 { 900.0 }
 
@@ -289,10 +298,73 @@ mod tests {
         for (a, b) in m.pois.iter().zip(&m2.pois) {
             assert_eq!((a.x, a.z, a.seed, a.name.clone()), (b.x, b.z, b.seed, b.name.clone()));
         }
-        // manifest carries them with files + spawn points
+        // manifest carries them with files + spawn points (+ bridges)
         let man = manifest::create(&m);
-        assert_eq!(man.pois.len(), m.pois.len());
+        let non_bridge = man.pois.iter().filter(|p| p.kind != "bridge").count();
+        assert_eq!(non_bridge, m.pois.len());
         assert!(man.pois.iter().all(|p| p.file.is_some() && !p.spawn_points.is_empty()));
+    }
+
+    #[test]
+    fn rivers_and_roads_carve_the_world() {
+        // mountains north feed a river; two pinned villages get a road
+        let p = WorldParams::parse(
+            r#"{"kind":"world","seed":21,"size":1536,"chunk_size":256,
+                "chunk_resolution":32,"sea_level":0,"scatter":false,
+                "zones":[{"kind":"plains","weight":3},
+                         {"kind":"mountains","at":[0,-500],"radius":550},
+                         {"kind":"lake","at":[100,550],"radius":320}],
+                "pois":[{"kind":"village","at":[-450,300]},
+                        {"kind":"village","at":[450,300]}],
+                "rivers":2}"#,
+        )
+        .unwrap();
+        let m = model::WorldModel::new(&p).unwrap();
+        assert!(!m.network.rivers.is_empty(), "expected at least one river");
+        assert_eq!(m.network.roads.len(), 1, "two villages → one road");
+        for r in &m.network.rivers {
+            // beds descend monotonically
+            for w in r.points.windows(2) {
+                assert!(w[1].y <= w[0].y + 1e-4, "river bed must not climb");
+            }
+            // channel is carved: center lower than 25 m to the side
+            let mid = r.points[r.points.len() / 2];
+            let h_center = m.height(mid.x, mid.z);
+            let h_side = m.height(mid.x + 25.0, mid.z).max(m.height(mid.x - 25.0, mid.z));
+            assert!(
+                h_center < h_side - 0.5,
+                "river channel not carved: {h_center} vs {h_side}"
+            );
+        }
+        // road deck is walkable: terrain under the road midpoint ≈ deck
+        let road = &m.network.roads[0];
+        let mid = road.points[road.points.len() / 2];
+        let h = m.height(mid.x, mid.z);
+        assert!((h - mid.y).abs() < 1.0, "road not flattened: {h} vs deck {}", mid.y);
+        // determinism
+        let m2 = model::WorldModel::new(&p).unwrap();
+        assert_eq!(m.network.rivers.len(), m2.network.rivers.len());
+        assert_eq!(m.network.roads[0].points.len(), m2.network.roads[0].points.len());
+        // manifest carries polylines
+        let man = manifest::create(&m);
+        assert!(!man.rivers.is_empty());
+        assert_eq!(man.roads.len(), 1);
+    }
+
+    #[test]
+    fn bridge_asset_builds() {
+        let b = network::Bridge {
+            pos: glam::Vec2::new(0.0, 0.0),
+            yaw: 0.7,
+            len: 18.0,
+            deck: 5.0,
+        };
+        let pal = crate::palette::by_name("verdant");
+        let a = poi::bridge_asset(&b, &pal);
+        a.validate().unwrap();
+        assert_eq!(to_glb(&a), to_glb(&poi::bridge_asset(&b, &pal)));
+        let (lo, hi) = a.parts[0].mesh.bounds();
+        assert!(hi.x - lo.x > 12.0, "bridge should span its length");
     }
 
     #[test]
@@ -344,4 +416,5 @@ mod tests {
         assert!(has_dark_blue, "expected water pixels (ref r {wr})");
     }
 }
+
 

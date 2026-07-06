@@ -77,6 +77,38 @@ pub fn build(m: &WorldModel, cx: u32, cz: u32) -> Asset {
         material: Material { roughness: 0.95, ..Default::default() },
     }];
 
+    // river water ribbons: world polyline segments clipped to this chunk
+    // (world-space, so ribbons continue exactly across borders)
+    let (ox, oz) = m.chunk_origin(cx, cz);
+    let ribbons = m.network.river_ribbons_in(
+        glam::Vec2::new(ox - cs / 2.0, oz - cs / 2.0),
+        glam::Vec2::new(ox + cs / 2.0, oz + cs / 2.0),
+    );
+    if !ribbons.is_empty() {
+        let mut ribbon = Mesh::new();
+        let wc = m.pal.water;
+        for (a, b, w) in &ribbons {
+            let surf = m.network.river_depth * 0.55;
+            let a = Vec3::new(a.x - ox, a.y + surf, a.z - oz);
+            let b = Vec3::new(b.x - ox, b.y + surf, b.z - oz);
+            let dir = (b - a).normalize_or(Vec3::X);
+            let side = dir.cross(Vec3::Y).normalize_or(Vec3::Z) * (w * 0.75);
+            ribbon.add_flat_quad(a - side, b - side, b + side, a + side, wc);
+        }
+        if ribbon.vertex_count() > 0 {
+            parts.push(Part {
+                mesh: ribbon,
+                material: Material {
+                    roughness: 0.12,
+                    metallic: 0.1,
+                    emissive: if wc.x > wc.z { wc * 0.9 } else { wc * 0.10 },
+                    double_sided: true,
+                    ..Default::default()
+                },
+            });
+        }
+    }
+
     // sea: one continuous world-level plane, clipped to this chunk
     let h_lo = grid.iter().cloned().fold(f32::INFINITY, f32::min);
     if h_lo < sea {
@@ -157,12 +189,14 @@ pub fn build(m: &WorldModel, cx: u32, cz: u32) -> Asset {
             if !roll || h < sea + 0.6 || s > 0.7 || t_alt > treeline {
                 continue;
             }
-            // clear settlements and dungeon mouths
+            // clear settlements, dungeon mouths, roads and river channels
             let (wxs, wzs) = (x + ox, z + oz);
             if m.pois.iter().any(|p| {
                 let rr = p.radius * 1.45;
                 (wxs - p.x).powi(2) + (wzs - p.z).powi(2) < rr * rr
-            }) {
+            }) || m.network.road_mask(wxs, wzs) > 0.12
+                || m.network.river_mask(wxs, wzs) > 0.5
+            {
                 continue;
             }
             let vi = if is_tree { r.gen_range(0..3usize) } else { 3 + r.gen_range(0..2usize) };

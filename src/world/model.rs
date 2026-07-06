@@ -18,6 +18,8 @@ pub struct WorldModel {
     /// Placed POI sites (computed once from the recipe; part of the pure
     /// world function — all chunks see the same list).
     pub pois: Vec<super::poi::PoiSite>,
+    /// Road/river polylines + bridges (computed once, like POIs).
+    pub network: super::network::Network,
     /// Grid dimensions in chunks.
     pub nx: u32,
     pub nz: u32,
@@ -59,6 +61,7 @@ impl WorldModel {
             n: Noise2::new(p.seed),
             zones: ZoneField::new(p.seed, &p.zones, p.zone_size),
             pois: Vec::new(),
+            network: super::network::Network::empty(),
             nx: n_chunks,
             nz: n_chunks,
             size_x: size,
@@ -66,8 +69,13 @@ impl WorldModel {
             amp: 70.0 * p.mountainousness.clamp(0.05, 3.0),
             p,
         };
-        // placement samples the pre-flattening base height (pois empty here)
+        // order matters: rivers first (hydrology), then POIs avoid rivers
+        // and flatten the ground, then roads connect POIs (bridging rivers)
+        let km2 = (model.size_x / 1000.0) * (model.size_z / 1000.0);
+        let n_rivers = model.p.rivers.unwrap_or(((km2 / 6.0).ceil() as u32).min(12));
+        model.network = super::network::build_rivers(&model, n_rivers);
         model.pois = super::poi::place(&model, specs.as_deref());
+        model.network = super::network::with_roads(&model);
         Ok(model)
     }
 
@@ -144,7 +152,8 @@ impl WorldModel {
                 h += (s.ground - h) * t * 0.96;
             }
         }
-        h
+        // rivers carve, roads embank (pure lookups into the fixed network)
+        self.network.apply_height(wx, wz, h)
     }
 
     /// Ground albedo at a world position given its height and slope
@@ -175,6 +184,11 @@ impl WorldModel {
         c = c * (1.0 - snow) + pal.terrain[5] * snow;
         let shore = (1.0 - ((h - sea).abs() / 2.2)).clamp(0.0, 1.0);
         c = c * (1.0 - shore * 0.7) + pal.terrain[0] * shore * 0.7;
+        // dirt roads
+        let rm = self.network.road_mask(wx, wz);
+        if rm > 0.0 {
+            c = crate::palette::lerp(c, pal.trunk * 0.8, rm * 0.7);
+        }
         // packed-dirt ground inside settlements
         for s in &self.pois {
             if matches!(

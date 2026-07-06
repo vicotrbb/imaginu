@@ -272,6 +272,10 @@ pub fn place(model: &WorldModel, specs: Option<&[PoiSpec]>) -> Vec<PoiSite> {
                 break;
             }
             let c = &cands[i];
+            // never straddle a river: disc query over the whole footprint
+            if model.network.river_within(c.x, c.z, kind.radius() * 1.15) {
+                continue;
+            }
             let ok = sites.iter().all(|s| {
                 let d = ((s.x - c.x).powi(2) + (s.z - c.z).powi(2)).sqrt();
                 let min_same = if s.kind == kind { kind.separation() } else { 0.0 };
@@ -682,6 +686,70 @@ fn dungeon(site: &PoiSite, pal: &Palette) -> Asset {
                 },
             },
         ],
+    )
+}
+
+/// Stone arch bridge spanning a river; yaw baked into the mesh so the game
+/// only needs the manifest position. Deck at y=0.
+pub fn bridge_asset(b: &super::network::Bridge, pal: &Palette) -> Asset {
+    let (stone, stone_d) = stone_of(pal);
+    let mut m = Mesh::new();
+    let half = b.len * 0.5;
+    let width = 4.2;
+    let segs = 7;
+    for i in 0..segs {
+        let t0 = i as f32 / segs as f32;
+        let t1 = (i + 1) as f32 / segs as f32;
+        let x0 = (t0 - 0.5) * b.len;
+        let x1 = (t1 - 0.5) * b.len;
+        let arc = |t: f32| ((t - 0.5) * core::f32::consts::PI).cos() * b.len * 0.07;
+        let (y0, y1) = (arc(t0), arc(t1));
+        // deck slab
+        let mut slab = Mesh::new();
+        slab.add_flat_quad(
+            Vec3::new(x0, y0, -width / 2.0),
+            Vec3::new(x1, y1, -width / 2.0),
+            Vec3::new(x1, y1, width / 2.0),
+            Vec3::new(x0, y0, width / 2.0),
+            stone * 1.05,
+        );
+        m.merge(&slab);
+        // under-structure
+        m.merge(&cuboid(
+            Vec3::new((x0 + x1) / 2.0, (y0 + y1) / 2.0 - 0.5, 0.0),
+            Vec3::new((x1 - x0) / 2.0, 0.5, width / 2.0 * 0.92),
+            stone_d,
+        ));
+        // parapets
+        for s in [-1.0f32, 1.0] {
+            m.merge(&cuboid(
+                Vec3::new((x0 + x1) / 2.0, (y0 + y1) / 2.0 + 0.55, s * (width / 2.0 - 0.25)),
+                Vec3::new((x1 - x0) / 2.0, 0.55, 0.25),
+                stone * 0.9,
+            ));
+        }
+    }
+    // piers at 1/3 spans, sunk toward the riverbed
+    for s in [-0.28f32, 0.28] {
+        m.merge(&cuboid(
+            Vec3::new(s * b.len, -2.6, 0.0),
+            Vec3::new(1.0, 2.4, width / 2.0 * 0.8),
+            stone_d,
+        ));
+    }
+    // abutments
+    for s in [-1.0f32, 1.0] {
+        m.merge(&cuboid(
+            Vec3::new(s * (half + 1.0), -0.9, 0.0),
+            Vec3::new(1.4, 1.1, width / 2.0 + 0.6),
+            stone_d * 1.05,
+        ));
+    }
+    m.transform(Mat4::from_rotation_y(b.yaw));
+    Asset::static_mesh(
+        "bridge",
+        vec![Part { mesh: m, material: Material { roughness: 0.85, double_sided: true, ..Default::default() } }],
+        Some(Physics { collider: Collider::TriMesh, mass: 0.0, friction: 0.9, restitution: 0.05 }),
     )
 }
 

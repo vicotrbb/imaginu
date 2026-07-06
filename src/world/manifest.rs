@@ -116,21 +116,52 @@ pub fn create(m: &WorldModel) -> Manifest {
         grid: [m.nx, m.nz],
         sea_level: m.p.sea_level,
         chunks,
-        pois: m
-            .pois
+        pois: {
+            let mut pois: Vec<Poi> = m
+                .pois
+                .iter()
+                .enumerate()
+                .map(|(i, s)| Poi {
+                    name: s.name.clone(),
+                    kind: s.kind.name().into(),
+                    position: [s.x, s.ground, s.z],
+                    radius: s.radius,
+                    file: Some(super::poi::poi_file(s, i)),
+                    spawn_points: super::poi::spawn_points(s),
+                })
+                .collect();
+            for (i, b) in m.network.bridges.iter().enumerate() {
+                pois.push(Poi {
+                    name: format!("Bridge {}", i + 1),
+                    kind: "bridge".into(),
+                    position: [b.pos.x, b.deck, b.pos.y],
+                    radius: b.len * 0.5,
+                    file: Some(format!("poi_bridge_{i}.glb")),
+                    spawn_points: vec![[b.pos.x, b.deck, b.pos.y]],
+                });
+            }
+            pois
+        },
+        roads: m
+            .network
+            .roads
             .iter()
-            .enumerate()
-            .map(|(i, s)| Poi {
-                name: s.name.clone(),
-                kind: s.kind.name().into(),
-                position: [s.x, s.ground, s.z],
-                radius: s.radius,
-                file: Some(super::poi::poi_file(s, i)),
-                spawn_points: super::poi::spawn_points(s),
+            .map(|p| Polyline {
+                kind: "road".into(),
+                width: p.width,
+                points: p.points.iter().map(|v| [v.x, v.y, v.z]).collect(),
             })
             .collect(),
-        roads: Vec::new(),
-        rivers: Vec::new(),
+        rivers: m
+            .network
+            .rivers
+            .iter()
+            .map(|p| Polyline {
+                kind: "river".into(),
+                width: p.width,
+                points: p.points.iter().map(|v| [v.x, v.y, v.z]).collect(),
+            })
+            .collect(),
         zones: m
             .zones
             .cells_in(

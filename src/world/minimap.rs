@@ -66,6 +66,34 @@ pub fn render(m: &WorldModel, px: usize) -> (usize, usize, Vec<u8>) {
             out[idx + 2] = (c.z.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0) as u8;
         }
     }
+    // river + road overlays
+    let to_px = |wx: f32, wz: f32| -> (f32, f32) {
+        (
+            (wx + m.size_x * 0.5) / m.size_x * w as f32,
+            (wz + m.size_z * 0.5) / m.size_z * h as f32,
+        )
+    };
+    let mut draw_poly = |points: &[glam::Vec3], color: [u8; 3], r: f32| {
+        for seg in points.windows(2) {
+            let (x0, y0) = to_px(seg[0].x, seg[0].z);
+            let (x1, y1) = to_px(seg[1].x, seg[1].z);
+            let steps = ((x1 - x0).hypot(y1 - y0).ceil() as usize).max(1);
+            for i in 0..=steps {
+                let t = i as f32 / steps as f32;
+                dot(&mut out, w, h, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, r, color);
+            }
+        }
+    };
+    for p in &m.network.rivers {
+        draw_poly(&p.points, [64, 132, 176], 1.6);
+    }
+    for p in &m.network.roads {
+        draw_poly(&p.points, [148, 106, 62], 1.1);
+    }
+    for b in &m.network.bridges {
+        let (px, py) = to_px(b.pos.x, b.pos.y);
+        dot(&mut out, w, h, px, py, 2.4, [235, 225, 200]);
+    }
     // POI markers (outlined dots, color per kind)
     for s in &m.pois {
         let px = (s.x + m.size_x * 0.5) / m.size_x * w as f32;
