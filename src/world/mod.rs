@@ -10,6 +10,7 @@ pub mod manifest;
 pub mod minimap;
 pub mod model;
 pub mod network;
+pub mod overview;
 pub mod poi;
 pub mod zones;
 

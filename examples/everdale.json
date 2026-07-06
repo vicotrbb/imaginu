@@ -1,0 +1,29 @@
+{
+  "kind": "world",
+  "name": "Everdale",
+  "seed": 7,
+  "palette": "verdant",
+  "size": 6144,
+  "chunk_size": 256,
+  "chunk_resolution": 128,
+  "sea_level": 0,
+  "erosion": 0.6,
+  "rivers": 6,
+  "zones": [
+    { "kind": "forest", "weight": 2 },
+    { "kind": "plains", "weight": 2 },
+    { "kind": "mountains", "weight": 1.4 },
+    { "kind": "lake", "weight": 0.8 },
+    { "kind": "coast", "weight": 0.8 },
+    { "kind": "swamp", "weight": 0.5 },
+    { "kind": "desert", "weight": 0.6 },
+    { "kind": "badlands", "weight": 0.5 }
+  ],
+  "pois": [
+    { "kind": "city", "count": 3 },
+    { "kind": "village", "count": 9 },
+    { "kind": "castle", "count": 2 },
+    { "kind": "watchtower", "count": 5 },
+    { "kind": "dungeon", "count": 4 }
+  ]
+}

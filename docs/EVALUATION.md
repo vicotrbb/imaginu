@@ -102,6 +102,55 @@ Bugs found only by rendering: garment radii vs. the elliptical torso
 (poke-through), sleeve tops as open tubes then as shoulder "chimneys",
 necklace buried under the coat, brocade motifs at wallpaper scale.
 
+## Phase 4 — world-scale maps & terrain fidelity (same rubric)
+
+Target: ONE recipe compiles into a complete streaming map (tens of km²) —
+biome zones, cities, castles, villages, dungeon mouths, roads, rivers with
+bridges — with per-chunk ground quality worth screenshotting, under the
+seam law (every height/color a pure function of world coordinates + seed).
+
+| view | score | notes |
+|---|---|---|
+| minimap (zones + hillshade + networks + POI markers) | 4.5 | reads like a hand-drawn fantasy map; THE layout debugging tool |
+| overview beauty shot (stitched world) | 4.2 | lakes/rivers/roads/settlements all legible at 6 km |
+| mountain chunk (erosion + crags + micro-relief + strata + scree) | 4.4 | biggest fidelity jump of the phase — rugged eroded rock, not wax |
+| forest/lake chunk | 4.3 | dense instanced forest, crisp shorelines with foam bands |
+| plains chunk (adaptive res 64) | 4.0 | dry-grass patches break monotony; cheap where flat |
+| river chunk (carve + ribbon crossing borders) | 4.4 | channel + water ribbon continue bit-exactly across chunk seams |
+| road descending to a bridge crossing | 4.3 | switchbacked dirt road, gap under the span for the bridge GLB |
+| walled city (3 building rings, plaza, gate towers) | 4.2 | reads at both street and map scale; terrain flattened seamlessly |
+| castle / watchtower / dungeon barrow | 4.0–4.2 | CSG gate arch, brazier glow, emissive barrow shards |
+
+Bugs found only by rendering and looking:
+- Zone Gaussian blending at σ=0.42·cell turned the whole map to mush;
+  σ=0.26 keeps borders organic but regions distinct.
+- Altitude ramp saturated on tall massifs → entire mountains snow-white.
+  Root causes (found by numeric probing after three wrong guesses): ramp
+  span too small for stacked zone amplitudes AND slope→rock overlay
+  triggering at ordinary mountain gradients. Snow is now an absolute
+  elevation band; cliffs need slope > 0.85.
+- Naive steepest-descent rivers died in the first noise basin (~200 m).
+  Priority-flood depression filling before tracing sends every river to a
+  lake, the sea, or off the map.
+- CSG cutters built from uncapped lathe tubes (profile not touching the
+  axis) silently failed to carve — the dungeon mouth survived two
+  "fixes" before the open-solid cause was spotted; the barrow is now
+  composed geometry, and the castle gate bore is a capped cylinder.
+- Flat-shaded chunks tripled vertices: 652 MB for 9.4 km² (would blow the
+  2 GB / 50 km² budget). Smooth indexed meshes with ring-derived normals
+  are 6× smaller AND make normals/colors bit-identical at seams.
+- The rasterizer's hard-coded 500 m far plane z-fought km-scale maps into
+  blue speckle; near/far now fit the scene.
+
+Determinism & seams (enforced by tests): 3×3-world bit-identical edges
+(positions AND colors) with zones + pinned lake crossing every seam;
+chunk built alone == chunk built in a full run, across processes;
+adaptive-resolution neighbors stitch crack-free (coarse vertices bit-equal,
+fine midpoints exactly collinear); global erosion deterministic across
+rebuilds and processes. Budgets: 6×6 km Everdale = 576 chunks + 23 POIs +
+5 bridges in ~3 s wall clock, 791 MB on disk (≈1 GB / 50 km²), largest
+chunk 131 k tris (≪ 2 M budget), single lazy chunk ≪ 30 s.
+
 Bug found only by byte-comparison: an in-process determinism heisenbug —
 the auto-vectorized Sobel normal pass returned *different bytes for
 identical inputs* depending on what had run earlier in the process

@@ -103,6 +103,14 @@ enum Cmd {
         /// iteration)
         #[arg(long)]
         map_only: bool,
+        /// Render an oblique full-map beauty shot to <out>/overview.png
+        /// (stitched downsampled world + water + rivers + POI geometry)
+        #[arg(long)]
+        overview: bool,
+        /// Render a flyover MP4 along "x0,z0:x1,z1" (world coords) to
+        /// <out>/flyover.mp4 — real chunks near the path, ffmpeg required
+        #[arg(long)]
+        flyover: Option<String>,
     },
     /// Validate a world output directory (manifest + all chunk GLBs).
     ValidateWorld {
@@ -286,7 +294,7 @@ fn run() -> Result<(), String> {
             println!("{}", SCHEMA_HELP);
             Ok(())
         }
-        Cmd::World { recipe, out, chunk, preview, map, map_only } => {
+        Cmd::World { recipe, out, chunk, preview, map, map_only, overview, flyover } => {
             let json = if recipe.trim_start().starts_with('{') {
                 recipe.clone()
             } else {
@@ -303,6 +311,17 @@ fn run() -> Result<(), String> {
                 let (w, h, rgb) = imaginu::world::minimap::render(&model, px);
                 imaginu::world::minimap::write_png(&out.join("map.png"), w, h, &rgb)?;
                 println!("wrote {}/map.png ({w}x{h})", out.display());
+            }
+            if overview {
+                let grid = ((model.size_x / 10.0) as usize).clamp(160, 720);
+                let asset = imaginu::world::overview::world_asset(&model, grid);
+                let cam = auto_camera(&asset, 40.0, 42.0, 1.0);
+                render_png(&asset, &cam, 1400, 1000, &out.join("overview.png"))
+                    .map_err(|e| e.to_string())?;
+                println!("wrote {}/overview.png", out.display());
+            }
+            if let Some(seg) = &flyover {
+                fly_over(&model, seg, &out)?;
             }
             if map_only {
                 return Ok(());
@@ -429,6 +448,65 @@ fn run() -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+/// Flyover MP4 along a world-space segment: real chunks near the path,
+/// eased camera, ffmpeg encode. Deterministic like everything else.
+fn fly_over(
+    model: &imaginu::world::model::WorldModel,
+    seg: &str,
+    out: &std::path::Path,
+) -> Result<(), String> {
+    let nums: Vec<f32> = seg
+        .split([':', ','])
+        .map(|s| s.trim().parse::<f32>().map_err(|_| format!("bad flyover coord '{s}'")))
+        .collect::<Result<_, _>>()?;
+    if nums.len() != 4 {
+        return Err("--flyover wants \"x0,z0:x1,z1\"".into());
+    }
+    let (a, b) = (glam::Vec2::new(nums[0], nums[1]), glam::Vec2::new(nums[2], nums[3]));
+    eprintln!("building flyover corridor…");
+    let asset = imaginu::world::overview::corridor_asset(model, a, b, 380.0);
+    let (fps, frames, w, h) = (24u32, 96usize, 960usize, 560usize);
+    let dir = out.join("flyover.frames");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    eprint!("rendering {frames} frames ");
+    for f in 0..frames {
+        let t = f as f32 / (frames - 1) as f32;
+        // ease in/out so the flight feels filmed, not scripted
+        let te = t * t * (3.0 - 2.0 * t);
+        let p = a + (b - a) * te;
+        // constant-distance lookahead so the shot never tips straight down
+        let fly_dir = (b - a).normalize_or_zero();
+        let ahead = p + fly_dir * 240.0;
+        let ground = model.height(p.x, p.y).max(model.p.sea_level);
+        let g2 = model.height(ahead.x, ahead.y).max(model.p.sea_level);
+        let eye = glam::Vec3::new(p.x, ground + 70.0, p.y);
+        let target = glam::Vec3::new(ahead.x, g2 + 14.0, ahead.y);
+        let cam = imaginu::render::Camera { eye, target, fov_y: 55f32.to_radians() };
+        render_png(&asset, &cam, w, h, &dir.join(format!("frame_{f:04}.png")))
+            .map_err(|e| e.to_string())?;
+        if f % 8 == 0 {
+            eprint!(".");
+        }
+    }
+    eprintln!(" done");
+    let mp4 = out.join("flyover.mp4");
+    let status = std::process::Command::new("ffmpeg")
+        .args(["-y", "-loglevel", "error", "-framerate"])
+        .arg(fps.to_string())
+        .arg("-i")
+        .arg(dir.join("frame_%04d.png"))
+        .args(["-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart"])
+        .arg(&mp4)
+        .status()
+        .map_err(|e| format!("ffmpeg not found or failed to start: {e}"))?;
+    if !status.success() {
+        return Err("ffmpeg failed to encode the flyover".into());
+    }
+    std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    println!("wrote {}", mp4.display());
+    Ok(())
 }
 
 const SCHEMA_HELP: &str = r##"imaginu recipe cheat-sheet (JSON, all fields except "kind" optional):
