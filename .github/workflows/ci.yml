@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: fmt · clippy · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --release
+
+  determinism:
+    name: determinism (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release
+      - name: Same recipe + seed must produce byte-identical GLB
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=./target/release/imaginu
+          # A character exercises skinning, morph targets and float-heavy math —
+          # the strongest determinism stress, and the surface of the known
+          # macOS-ARM float heisenbug this job exists to catch.
+          R='{"kind":"character","class":"warrior","animate":true,"seed":7}'
+          "$BIN" generate "$R" -o a.glb
+          "$BIN" generate "$R" -o b.glb
+          cmp a.glb b.glb
+          # And a terrain, whose seamless tiling depends on the same guarantee.
+          T='{"kind":"terrain","shape":"canyon","seed":3}'
+          "$BIN" generate "$T" -o t1.glb
+          "$BIN" generate "$T" -o t2.glb
+          cmp t1.glb t2.glb
+          echo "Determinism OK on ${{ matrix.os }}"
