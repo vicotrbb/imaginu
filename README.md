@@ -52,6 +52,51 @@ All fields except `kind` are optional. Same recipe + seed → byte-identical GLB
 
 Palettes: `verdant`, `autumn`, `arctic`, `volcanic`, `desert`, `mystic`.
 
+### Worlds: one recipe → a complete streaming map (phase 4)
+
+`{"kind":"world"}` compiles an entire game map — tens of km² — into a
+directory of seamless chunk GLBs plus a `manifest.json` streaming index:
+
+```sh
+target/release/imaginu world examples/everdale.json -o everdale/ --map --overview
+target/release/imaginu validate-world everdale/
+```
+
+- **Zones**: seeded Voronoi regions (`mountains forest plains desert swamp
+  lake coast badlands`), each with its own height character, ground colors
+  and scatter mix, blended smoothly so borders never show a seam. Pin zones
+  with `"at":[x,z],"radius":…`.
+- **POIs**: a deterministic solver places walled cities, villages, castles,
+  watchtowers and dungeon barrows by suitability (slope, zone, altitude,
+  prominence, water), names them, flattens the terrain under them *through
+  the world-space height function* (a city split across four chunks stays
+  seamless), and exports each as its own GLB with world transform + spawn
+  points in the manifest.
+- **Networks**: rivers trace downhill on a depression-filled global
+  heightfield from mountain springs to lakes/sea and carve every chunk they
+  cross; roads connect settlements via slope-penalized A*, and stone bridge
+  GLBs spawn where they must cross a river.
+- **Fidelity**: world-scale erosion (global sim, C1-upsampled delta),
+  cliff strata, dry-grass patches, dune ripple, shoreline foam, waterfall
+  marks, scree; adaptive per-chunk resolution (flat plains coarse,
+  mountains/settlements fine, edges stitched crack-free) and optional
+  `MSFT_lod` levels per chunk.
+- **The seam law**: every height and color is a pure function of world
+  coordinates + seed. Adjacent chunks share bit-identical edges, any chunk
+  builds lazily (`--chunk x,z`) or in parallel with byte-identical output,
+  and the whole 6×6 km Everdale demo (576 chunks, 23 POIs, 5 bridges)
+  compiles in ~3 s.
+- **Debug views**: `--map` renders a top-down minimap (zones + hillshade +
+  networks + POI markers), `--overview` an oblique full-map beauty shot,
+  `--flyover "x0,z0:x1,z1"` an MP4 camera flight over real chunks.
+
+The committed demo map, **Everdale** ([examples/everdale.json](examples/everdale.json),
+~30 lines), compiles to 576 chunks + 23 named POIs + 5 bridges: see
+[gallery/everdale_map.png](gallery/everdale_map.png),
+[everdale_overview.png](gallery/everdale_overview.png) and the
+[city](gallery/showcase_everdale_city.mp4) /
+[zone-border](gallery/showcase_everdale_zones.mp4) flyovers.
+
 ### Terrains: any size, any shape, seamless worlds
 
 `terrain` supports `shape` masks — `hills`, `mountains`, `island`,

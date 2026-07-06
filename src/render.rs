@@ -62,7 +62,24 @@ fn rasterize(asset: &Asset, cam: &Camera, w: usize, h: usize) -> Framebuffer {
     };
     let aspect = w as f32 / h as f32;
     let view_m = Mat4::look_at_rh(cam.eye, cam.target, Vec3::Y);
-    let proj = Mat4::perspective_rh(cam.fov_y, aspect, 0.05, 500.0);
+    // fit near/far to the scene: world-scale maps need km-range depth
+    // without sacrificing z precision on small assets
+    let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+    for part in &asset.parts {
+        let (a, b) = part.mesh.bounds();
+        lo = lo.min(a);
+        hi = hi.max(b);
+    }
+    if !lo.x.is_finite() {
+        lo = Vec3::splat(-1.0);
+        hi = Vec3::splat(1.0);
+    }
+    let center = (lo + hi) * 0.5;
+    let radius = (hi - lo).length() * 0.5 + 1.0;
+    let dist = (cam.eye - center).length();
+    let far = (dist + radius * 1.6).max(10.0);
+    let near = ((dist - radius * 1.6).max(far / 8000.0)).max(0.05);
+    let proj = Mat4::perspective_rh(cam.fov_y, aspect, near, far);
     let vp = proj * view_m;
 
     // expand GPU-instanced scatter into concrete meshes for rasterization

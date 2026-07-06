@@ -17,3 +17,5 @@ pub mod skinning;
 pub mod subdiv;
 pub mod texture;
 pub mod uv;
+pub mod validate;
+pub mod world;

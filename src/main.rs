@@ -80,6 +80,42 @@ enum Cmd {
         /// GLB files to check
         files: Vec<PathBuf>,
     },
+    /// Compile a `{"kind":"world"}` recipe into a directory of seamless,
+    /// streamable chunk GLBs + manifest.json.
+    World {
+        /// Recipe file path, or inline JSON starting with '{'
+        recipe: String,
+        /// Output directory (created if missing)
+        #[arg(short, long, default_value = "world_out")]
+        out: PathBuf,
+        /// Build only chunk "x,z" (lazy iteration; manifest still covers the
+        /// full grid)
+        #[arg(long)]
+        chunk: Option<String>,
+        /// Render an oblique PNG preview next to each built chunk GLB
+        #[arg(long)]
+        preview: bool,
+        /// Render a top-down minimap PNG (zones + hillshade + water + POIs)
+        /// to <out>/map.png
+        #[arg(long)]
+        map: bool,
+        /// Only write manifest.json + map.png — no chunk builds (fast layout
+        /// iteration)
+        #[arg(long)]
+        map_only: bool,
+        /// Render an oblique full-map beauty shot to <out>/overview.png
+        /// (stitched downsampled world + water + rivers + POI geometry)
+        #[arg(long)]
+        overview: bool,
+        /// Render a flyover MP4 along "x0,z0:x1,z1" (world coords) to
+        /// <out>/flyover.mp4 — real chunks near the path, ffmpeg required
+        #[arg(long)]
+        flyover: Option<String>,
+    },
+    /// Validate a world output directory (manifest + all chunk GLBs).
+    ValidateWorld {
+        dir: PathBuf,
+    },
 }
 
 fn load_recipe(s: &str) -> Result<Recipe, String> {
@@ -258,10 +294,147 @@ fn run() -> Result<(), String> {
             println!("{}", SCHEMA_HELP);
             Ok(())
         }
+        Cmd::World { recipe, out, chunk, preview, map, map_only, overview, flyover } => {
+            let json = if recipe.trim_start().starts_with('{') {
+                recipe.clone()
+            } else {
+                std::fs::read_to_string(&recipe).map_err(|e| format!("cannot read {recipe}: {e}"))?
+            };
+            let params = imaginu::world::WorldParams::parse(&json)?;
+            let model = imaginu::world::model::WorldModel::new(&params)?;
+            std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+            let man = imaginu::world::manifest::create(&model);
+            let man_json = serde_json::to_string_pretty(&man).map_err(|e| e.to_string())?;
+            std::fs::write(out.join("manifest.json"), man_json).map_err(|e| e.to_string())?;
+            if map || map_only {
+                let px = ((model.size_x / 8.0) as usize).clamp(256, 1600);
+                let (w, h, rgb) = imaginu::world::minimap::render(&model, px);
+                imaginu::world::minimap::write_png(&out.join("map.png"), w, h, &rgb)?;
+                println!("wrote {}/map.png ({w}x{h})", out.display());
+            }
+            if overview {
+                let grid = ((model.size_x / 10.0) as usize).clamp(160, 720);
+                let asset = imaginu::world::overview::world_asset(&model, grid);
+                let cam = auto_camera(&asset, 40.0, 42.0, 1.0);
+                render_png(&asset, &cam, 1400, 1000, &out.join("overview.png"))
+                    .map_err(|e| e.to_string())?;
+                println!("wrote {}/overview.png", out.display());
+            }
+            if let Some(seg) = &flyover {
+                fly_over(&model, seg, &out)?;
+            }
+            if map_only {
+                return Ok(());
+            }
+            let jobs: Vec<(u32, u32)> = match &chunk {
+                Some(s) => {
+                    let (a, b) = s
+                        .split_once(',')
+                        .ok_or_else(|| format!("--chunk wants \"x,z\", got '{s}'"))?;
+                    let cx: u32 = a.trim().parse().map_err(|_| format!("bad chunk x '{a}'"))?;
+                    let cz: u32 = b.trim().parse().map_err(|_| format!("bad chunk z '{b}'"))?;
+                    if cx >= model.nx || cz >= model.nz {
+                        return Err(format!(
+                            "chunk {cx},{cz} outside {}×{} grid",
+                            model.nx, model.nz
+                        ));
+                    }
+                    vec![(cx, cz)]
+                }
+                None => (0..model.nz)
+                    .flat_map(|cz| (0..model.nx).map(move |cx| (cx, cz)))
+                    .collect(),
+            };
+            let n_workers = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+                .min(jobs.len().max(1));
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let errors = std::sync::Mutex::new(Vec::<String>::new());
+            let done = std::sync::atomic::AtomicUsize::new(0);
+            std::thread::scope(|scope| {
+                for _ in 0..n_workers {
+                    scope.spawn(|| loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if i >= jobs.len() {
+                            break;
+                        }
+                        let (cx, cz) = jobs[i];
+                        let mut asset = imaginu::world::chunk::build(&model, cx, cz);
+                        if model.p.lods > 0 {
+                            asset.generate_lods(model.p.lods);
+                        }
+                        let glb = imaginu::gltf::to_glb(&asset);
+                        let path = out.join(imaginu::world::manifest::chunk_file(cx, cz));
+                        if let Err(e) = std::fs::write(&path, &glb) {
+                            errors.lock().unwrap().push(format!("{}: {e}", path.display()));
+                            continue;
+                        }
+                        if preview {
+                            let cam = auto_camera(&asset, 35.0, 38.0, 0.85);
+                            let png = path.with_extension("png");
+                            if let Err(e) = render_png(&asset, &cam, 800, 600, &png) {
+                                errors.lock().unwrap().push(format!("{}: {e}", png.display()));
+                            }
+                        }
+                        let d = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                        if d % 16 == 0 || d == jobs.len() {
+                            eprintln!("  built {d}/{} chunks", jobs.len());
+                        }
+                    });
+                }
+            });
+            let errors = errors.into_inner().unwrap();
+            if !errors.is_empty() {
+                return Err(errors.join("\n"));
+            }
+            // POI GLBs (skipped in lazy --chunk mode)
+            if chunk.is_none() {
+                for (i, site) in model.pois.iter().enumerate() {
+                    let asset = imaginu::world::poi::build_asset(site, &model.pal);
+                    let glb = imaginu::gltf::to_glb(&asset);
+                    let path = out.join(imaginu::world::poi::poi_file(site, i));
+                    std::fs::write(&path, &glb).map_err(|e| e.to_string())?;
+                    if preview {
+                        let cam = auto_camera(&asset, 35.0, 24.0, 0.9);
+                        render_png(&asset, &cam, 800, 600, &path.with_extension("png"))
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
+                for (i, b) in model.network.bridges.iter().enumerate() {
+                    let asset = imaginu::world::poi::bridge_asset(b, &model.pal);
+                    let glb = imaginu::gltf::to_glb(&asset);
+                    std::fs::write(out.join(format!("poi_bridge_{i}.glb")), &glb)
+                        .map_err(|e| e.to_string())?;
+                }
+                if !model.pois.is_empty() || !model.network.bridges.is_empty() {
+                    println!(
+                        "wrote {} POI GLB(s) + {} bridge(s)",
+                        model.pois.len(),
+                        model.network.bridges.len()
+                    );
+                }
+            }
+            println!(
+                "wrote {}/manifest.json + {} chunk GLB(s) ({}×{} grid, {}×{} m)",
+                out.display(),
+                jobs.len(),
+                model.nx,
+                model.nz,
+                model.size_x,
+                model.size_z
+            );
+            Ok(())
+        }
+        Cmd::ValidateWorld { dir } => {
+            let summary = imaginu::world::manifest::validate_dir(&dir)?;
+            println!("OK   {}  {}", dir.display(), summary);
+            Ok(())
+        }
         Cmd::Validate { files } => {
             let mut failures = 0;
             for f in &files {
-                match validate_glb(f) {
+                match imaginu::validate::validate_glb(f) {
                     Ok(summary) => println!("OK   {}  {}", f.display(), summary),
                     Err(e) => {
                         println!("FAIL {}  {}", f.display(), e);
@@ -277,137 +450,63 @@ fn run() -> Result<(), String> {
     }
 }
 
-/// Structural GLB checks: chunk layout, accessor/bufferView bounds,
-/// per-primitive attribute counts, animation sampler pairing, embedded PNG
-/// magic, morph-target counts, skin consistency, instancing attributes.
-fn validate_glb(path: &PathBuf) -> Result<String, String> {
-    use serde_json::Value;
-    let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    if data.len() < 20 || &data[0..4] != b"glTF" {
-        return Err("not a GLB (missing magic)".into());
+/// Flyover MP4 along a world-space segment: real chunks near the path,
+/// eased camera, ffmpeg encode. Deterministic like everything else.
+fn fly_over(
+    model: &imaginu::world::model::WorldModel,
+    seg: &str,
+    out: &std::path::Path,
+) -> Result<(), String> {
+    let nums: Vec<f32> = seg
+        .split([':', ','])
+        .map(|s| s.trim().parse::<f32>().map_err(|_| format!("bad flyover coord '{s}'")))
+        .collect::<Result<_, _>>()?;
+    if nums.len() != 4 {
+        return Err("--flyover wants \"x0,z0:x1,z1\"".into());
     }
-    let total = u32::from_le_bytes(data[8..12].try_into().unwrap()) as usize;
-    if total != data.len() {
-        return Err(format!("length field {total} != file size {}", data.len()));
-    }
-    let json_len = u32::from_le_bytes(data[12..16].try_into().unwrap()) as usize;
-    if &data[16..20] != b"JSON" {
-        return Err("first chunk is not JSON".into());
-    }
-    let doc: Value =
-        serde_json::from_slice(&data[20..20 + json_len]).map_err(|e| format!("bad JSON: {e}"))?;
-    let bin_hdr = 20 + json_len;
-    let bin_len = u32::from_le_bytes(data[bin_hdr..bin_hdr + 4].try_into().unwrap()) as usize;
-    if &data[bin_hdr + 4..bin_hdr + 8] != b"BIN\0" {
-        return Err("missing BIN chunk".into());
-    }
-    let bin = &data[bin_hdr + 8..bin_hdr + 8 + bin_len];
-
-    let views = doc["bufferViews"].as_array().cloned().unwrap_or_default();
-    let accessors = doc["accessors"].as_array().cloned().unwrap_or_default();
-    let comp_size = |ct: u64| match ct {
-        5120 | 5121 => 1,
-        5122 | 5123 => 2,
-        5125 | 5126 => 4,
-        _ => 0,
-    };
-    let type_count = |t: &str| match t {
-        "SCALAR" => 1,
-        "VEC2" => 2,
-        "VEC3" => 3,
-        "VEC4" => 4,
-        "MAT4" => 16,
-        _ => 0,
-    };
-    for (i, a) in accessors.iter().enumerate() {
-        let count = a["count"].as_u64().unwrap_or(0);
-        if count == 0 {
-            return Err(format!("accessor {i} has zero count"));
-        }
-        let bv = a["bufferView"].as_u64().unwrap_or(u64::MAX) as usize;
-        let v = views.get(bv).ok_or(format!("accessor {i}: bad bufferView"))?;
-        let off = v["byteOffset"].as_u64().unwrap_or(0) as usize;
-        let len = v["byteLength"].as_u64().unwrap_or(0) as usize;
-        if off + len > bin.len() {
-            return Err(format!("bufferView {bv} out of BIN bounds"));
-        }
-        let need = count
-            * comp_size(a["componentType"].as_u64().unwrap_or(0))
-            * type_count(a["type"].as_str().unwrap_or(""));
-        if need > len as u64 {
-            return Err(format!("accessor {i} needs {need} bytes, view has {len}"));
+    let (a, b) = (glam::Vec2::new(nums[0], nums[1]), glam::Vec2::new(nums[2], nums[3]));
+    eprintln!("building flyover corridor…");
+    let asset = imaginu::world::overview::corridor_asset(model, a, b, 380.0);
+    let (fps, frames, w, h) = (24u32, 96usize, 960usize, 560usize);
+    let dir = out.join("flyover.frames");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    eprint!("rendering {frames} frames ");
+    for f in 0..frames {
+        let t = f as f32 / (frames - 1) as f32;
+        // ease in/out so the flight feels filmed, not scripted
+        let te = t * t * (3.0 - 2.0 * t);
+        let p = a + (b - a) * te;
+        // constant-distance lookahead so the shot never tips straight down
+        let fly_dir = (b - a).normalize_or_zero();
+        let ahead = p + fly_dir * 240.0;
+        let ground = model.height(p.x, p.y).max(model.p.sea_level);
+        let g2 = model.height(ahead.x, ahead.y).max(model.p.sea_level);
+        let eye = glam::Vec3::new(p.x, ground + 70.0, p.y);
+        let target = glam::Vec3::new(ahead.x, g2 + 14.0, ahead.y);
+        let cam = imaginu::render::Camera { eye, target, fov_y: 55f32.to_radians() };
+        render_png(&asset, &cam, w, h, &dir.join(format!("frame_{f:04}.png")))
+            .map_err(|e| e.to_string())?;
+        if f % 8 == 0 {
+            eprint!(".");
         }
     }
-    let acc_count =
-        |idx: &Value| -> u64 { accessors[idx.as_u64().unwrap() as usize]["count"].as_u64().unwrap() };
-    let mut tris = 0u64;
-    for mesh in doc["meshes"].as_array().unwrap_or(&Vec::new()) {
-        for prim in mesh["primitives"].as_array().unwrap_or(&Vec::new()) {
-            let attrs = prim["attributes"].as_object().ok_or("primitive without attributes")?;
-            let pos = attrs.get("POSITION").ok_or("primitive without POSITION")?;
-            let n = acc_count(pos);
-            for (k, v) in attrs {
-                if acc_count(v) != n {
-                    return Err(format!("attribute {k} count != POSITION count"));
-                }
-            }
-            tris += acc_count(&prim["indices"]) / 3;
-            if let Some(targets) = prim["targets"].as_array() {
-                let weights = mesh["weights"].as_array().map(|w| w.len()).unwrap_or(0);
-                if weights != targets.len() {
-                    return Err("mesh.weights count != morph target count".into());
-                }
-                for t in targets {
-                    if acc_count(&t["POSITION"]) != n {
-                        return Err("morph target count != POSITION count".into());
-                    }
-                }
-            }
-        }
+    eprintln!(" done");
+    let mp4 = out.join("flyover.mp4");
+    let status = std::process::Command::new("ffmpeg")
+        .args(["-y", "-loglevel", "error", "-framerate"])
+        .arg(fps.to_string())
+        .arg("-i")
+        .arg(dir.join("frame_%04d.png"))
+        .args(["-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart"])
+        .arg(&mp4)
+        .status()
+        .map_err(|e| format!("ffmpeg not found or failed to start: {e}"))?;
+    if !status.success() {
+        return Err("ffmpeg failed to encode the flyover".into());
     }
-    for anim in doc["animations"].as_array().unwrap_or(&Vec::new()) {
-        let samplers = anim["samplers"].as_array().unwrap();
-        for s in samplers {
-            if acc_count(&s["input"]) != acc_count(&s["output"]) {
-                return Err("animation sampler input/output count mismatch".into());
-            }
-        }
-        for ch in anim["channels"].as_array().unwrap() {
-            let s = ch["sampler"].as_u64().unwrap() as usize;
-            if s >= samplers.len() {
-                return Err("channel points at missing sampler".into());
-            }
-        }
-    }
-    for (i, img) in doc["images"].as_array().unwrap_or(&Vec::new()).iter().enumerate() {
-        let bv = img["bufferView"].as_u64().unwrap() as usize;
-        let off = views[bv]["byteOffset"].as_u64().unwrap() as usize;
-        if &bin[off + 1..off + 4] != b"PNG" {
-            return Err(format!("image {i} is not a PNG"));
-        }
-    }
-    if let Some(skins) = doc["skins"].as_array() {
-        for s in skins {
-            let joints = s["joints"].as_array().unwrap().len() as u64;
-            if acc_count(&s["inverseBindMatrices"]) != joints {
-                return Err("skin IBM count != joint count".into());
-            }
-        }
-    }
-    for node in doc["nodes"].as_array().unwrap_or(&Vec::new()) {
-        if let Some(inst) = node["extensions"]["EXT_mesh_gpu_instancing"]["attributes"].as_object()
-        {
-            let n = acc_count(&inst["TRANSLATION"]);
-            for k in ["ROTATION", "SCALE"] {
-                if acc_count(&inst[k]) != n {
-                    return Err(format!("instancing {k} count mismatch"));
-                }
-            }
-        }
-    }
-    let n_anims = doc["animations"].as_array().map(|a| a.len()).unwrap_or(0);
-    let n_imgs = doc["images"].as_array().map(|a| a.len()).unwrap_or(0);
-    Ok(format!("{tris} tris, {n_anims} clips, {n_imgs} images"))
+    std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    println!("wrote {}", mp4.display());
+    Ok(())
 }
 
 const SCHEMA_HELP: &str = r##"imaginu recipe cheat-sheet (JSON, all fields except "kind" optional):
@@ -423,11 +522,54 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  "texture":{"pattern":"rock","scale":9,"colors":["#8a6a4c","#d8b287"]}}
  // any size (4..4096). For seamless world tiles: skirt=false and offset_x/z
  // = chunk world position; adjacent chunks share identical edge heights.
- // erosion (hydraulic droplets) + rivers (carved, with water ribbons) are
- // chunk-local: don't combine them with seamless tiling. paths = flattened
+ // erosion (hydraulic droplets) + rivers here are chunk-local diorama
+ // features — for seamless multi-chunk maps with world-scale erosion and
+ // rivers use {"kind":"world"} instead. paths = flattened
  // dirt splines. texture drapes a baked material (strata on cliffs).
  // scatter exports as GPU instances (EXT_mesh_gpu_instancing): dense
  // forests at a fraction of the file size.
+
+{"kind":"world","name":"everdale","seed":1,"palette":"verdant",
+ "size":2048,"chunk_size":256,"chunk_resolution":128,
+ "mountainousness":1.0,"sea_level":0.0,"scatter":true,"scatter_density":1.0,
+ "zone_size":900,
+ "zones":[{"kind":"forest","weight":2},{"kind":"plains","weight":2},
+          {"kind":"mountains","weight":1.2},
+          {"kind":"lake","at":[300,-500],"radius":400}],
+ "pois":[{"kind":"city","count":2},{"kind":"village","count":5},
+         {"kind":"castle","at":[500,-800],"name":"Castle Hightower"},
+         {"kind":"watchtower","count":3},{"kind":"dungeon","count":2}],
+ "rivers":4,"roads":true,
+ "erosion":0.5,"adaptive_resolution":true,"lods":0}
+ // whole streaming map: imaginu world <recipe> -o mapdir/ writes
+ // manifest.json + one GLB per chunk (chunk-local origin; place each at its
+ // manifest "position"). Heights/colors are pure functions of world coords +
+ // seed: adjacent chunks share bit-identical edges, and chunks build lazily
+ // (--chunk x,z) or in parallel. sea_level is an absolute elevation (m).
+ // zones: mountains|forest|plains|desert|swamp|lake|coast|badlands, seeded
+ // Voronoi regions (~zone_size m across) with smooth blending — each brings
+ // its own height character, ground colors and scatter mix. "at"+"radius"
+ // pins a zone at a world position. --map renders <out>/map.png (zones +
+ // hillshade + water + POI markers); --map-only skips chunk builds.
+ // pois: city|village|castle|watchtower|dungeon — a deterministic solver
+ // scores slope/zone/altitude/prominence/water, flattens sites into the
+ // world height function (seamless across chunk borders), names them, and
+ // exports each as its own GLB with world transform + spawn points in the
+ // manifest (omit "pois" for area-scaled defaults, [] for none).
+ // rivers: traced downhill on a depression-filled global heightfield from
+ // mountain springs to lakes/sea, carved into every chunk they cross, with
+ // per-chunk water ribbons. roads: A* between settlements (slope-penalized,
+ // river-averse), flattened into the terrain; where a road must cross a
+ // river a stone bridge GLB spawns (manifest poi kind "bridge", rotation
+ // baked). Polylines land in manifest roads/rivers.
+ // erosion: a global coarse heightmap is eroded ONCE and C1-upsampled, so
+ // gullies/fans span chunks without breaking edge identity. Ground color:
+ // zone splat blend + cliff strata bands + dry-grass patches + dune
+ // ripple + shoreline foam + waterfall whitening + scree under cliffs.
+ // adaptive_resolution: flat chunks halve, mountains/POIs double (edges
+ // stitch crack-free); manifest lists per-chunk resolution. lods: N
+ // embeds decimated MSFT_lod levels per chunk.
+ // Check output: imaginu validate-world mapdir/
 
 {"kind":"tree","style":"oak|pine|palm|dead","height":6,"seed":1}
 
