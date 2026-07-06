@@ -2,8 +2,38 @@
 name = "imaginu"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "AI-drivable procedural 3D asset compiler: JSON recipes -> beautiful game-ready GLB for Babylon.js"
+authors = ["Victor Bona <victor.bona.vb@gmail.com>"]
 license = "MIT"
+readme = "README.md"
+repository = "https://github.com/vicotrbb/imaginu"
+homepage = "https://vicotrbb.github.io/imaginu/"
+documentation = "https://docs.rs/imaginu"
+keywords = ["gltf", "procedural", "gamedev", "babylonjs", "ai"]
+categories = ["game-development", "graphics", "command-line-utilities"]
+# Keep the published crate small and buildable: the gallery (MB of GLB/PNG/MP4),
+# the website, the skill package and CI live in-repo but are not part of the crate.
+exclude = [
+    "gallery/",
+    "docs/",
+    "site/",
+    "skill/",
+    ".github/",
+    "install.sh",
+    "scratch_det/",
+    "/*.mp4",
+]
+
+# `cargo binstall imaginu` downloads the matching prebuilt release archive.
+# The naming here MUST match .github/workflows/release.yml exactly.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/imaginu-v{ version }-{ target }.{ archive-format }"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
 
 [lib]
 name = "imaginu"
