@@ -362,6 +362,65 @@ impl Default for MonsterParams {
     }
 }
 
+/// Dungeon theme — palette + wall material + prop set + shape bias
+/// (orthogonal rooms vs. organic caves).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DungeonTheme {
+    #[default]
+    Crypt,
+    Cavern,
+    Sewer,
+    Mine,
+    Temple,
+    Fortress,
+}
+
+/// Target dungeon extent (drives room count / footprint).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DungeonSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DungeonParams {
+    #[serde(default = "d_seed")]
+    pub seed: u64,
+    /// One of the 6 themes (JSON key is `type`).
+    #[serde(default, rename = "type")]
+    pub theme: DungeonTheme,
+    #[serde(default)]
+    pub size: DungeonSize,
+    /// Explicit room cap (overrides the size-derived count when set).
+    #[serde(default)]
+    pub rooms: Option<u32>,
+    /// 0..1 — extra corridor edges beyond the spanning tree (loopiness).
+    #[serde(default = "d_loops")]
+    pub loops: f32,
+    /// 0..1 — how much dressing (props) rooms receive.
+    #[serde(default = "d_density")]
+    pub density: f32,
+    /// Tessellation multiplier 0.5..2.0.
+    #[serde(default = "d_one")]
+    pub detail: f32,
+}
+fn d_loops() -> f32 {
+    0.3
+}
+fn d_density() -> f32 {
+    0.5
+}
+
+impl Default for DungeonParams {
+    fn default() -> Self {
+        serde_json::from_str("{}").expect("dungeon defaults deserialize")
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Recipe {
@@ -413,6 +472,12 @@ pub enum Recipe {
         #[serde(flatten)]
         params: MonsterParams,
     },
+    Dungeon {
+        #[serde(default = "d_palette")]
+        palette: String,
+        #[serde(flatten)]
+        params: DungeonParams,
+    },
     /// Fully generic declarative geometry DSL — build anything.
     Custom {
         #[serde(flatten)]
@@ -432,6 +497,19 @@ fn preferred_palette(class: MonsterClass) -> Option<&'static str> {
     }
 }
 
+/// A dungeon theme's default palette, used only when the recipe left the
+/// default palette (an explicit palette always wins).
+fn theme_palette(theme: DungeonTheme) -> &'static str {
+    match theme {
+        DungeonTheme::Crypt => "necrotic",
+        DungeonTheme::Cavern => "fungal",
+        DungeonTheme::Sewer => "fungal",
+        DungeonTheme::Mine => "volcanic",
+        DungeonTheme::Temple => "mystic",
+        DungeonTheme::Fortress => "volcanic",
+    }
+}
+
 impl Recipe {
     pub fn parse(json: &str) -> Result<Self, String> {
         serde_json::from_str(json).map_err(|e| format!("invalid recipe: {e}"))
@@ -446,7 +524,8 @@ impl Recipe {
             | Recipe::Building { palette, .. }
             | Recipe::Prop { palette, .. }
             | Recipe::Character { palette, .. }
-            | Recipe::Monster { palette, .. } => palette,
+            | Recipe::Monster { palette, .. }
+            | Recipe::Dungeon { palette, .. } => palette,
             Recipe::Custom { .. } => "verdant",
         }
     }
@@ -467,6 +546,9 @@ impl Recipe {
             Recipe::Monster { palette, params } if *palette == d_palette() => {
                 preferred_palette(params.class).unwrap_or(palette.as_str())
             }
+            Recipe::Dungeon { palette, params } if *palette == d_palette() => {
+                theme_palette(params.theme)
+            }
             _ => self.palette_name(),
         };
         let pal = palette::by_name(pal_name);
@@ -481,6 +563,7 @@ impl Recipe {
                 crate::generators::character::generate(params, &pal)
             }
             Recipe::Monster { params, .. } => crate::generators::monster::generate(params, &pal),
+            Recipe::Dungeon { params, .. } => crate::generators::dungeon::generate(params, &pal)?,
             Recipe::Custom { params } => crate::generators::custom::generate(params)?,
         };
         asset.validate()?;
@@ -839,6 +922,24 @@ mod tests {
         let a = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
         let b = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn dungeon_parses_and_builds_single_glb() {
+        let r = Recipe::parse(r#"{"kind":"dungeon","type":"crypt","rooms":1}"#).unwrap();
+        let asset = r.build().expect("1-room dungeon builds a single asset");
+        assert!(!asset.parts.is_empty());
+        assert!(asset.physics.is_some());
+        // theme default palette applies (crypt -> necrotic) without erroring
+        Recipe::parse(r#"{"kind":"dungeon","type":"cavern"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        // explicit palette still honored
+        Recipe::parse(r#"{"kind":"dungeon","type":"mine","palette":"arctic"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
     }
 
     #[test]
