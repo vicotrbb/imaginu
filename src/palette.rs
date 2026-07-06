@@ -168,6 +168,54 @@ pub fn by_name(name: &str) -> Palette {
             water: srgb(70, 190, 200),
             accent: srgb(90, 240, 220),
         },
+        "necrotic" => Palette {
+            name: "necrotic",
+            terrain: [
+                srgb(43, 47, 39),
+                srgb(58, 64, 51),
+                srgb(74, 81, 64),
+                srgb(91, 99, 80),
+                srgb(109, 117, 96),
+                srgb(127, 136, 113),
+            ],
+            foliage: [srgb(90, 107, 61), srgb(72, 90, 48), srgb(107, 122, 74)],
+            trunk: srgb(59, 53, 43),
+            rock: [srgb(75, 79, 71), srgb(106, 111, 99)],
+            water: srgb(61, 74, 58),
+            accent: srgb(157, 255, 107),
+        },
+        "infernal" => Palette {
+            name: "infernal",
+            terrain: [
+                srgb(26, 20, 18),
+                srgb(42, 28, 22),
+                srgb(58, 37, 26),
+                srgb(77, 44, 28),
+                srgb(99, 51, 31),
+                srgb(122, 58, 34),
+            ],
+            foliage: [srgb(90, 38, 32), srgb(67, 32, 28), srgb(110, 44, 34)],
+            trunk: srgb(36, 26, 22),
+            rock: [srgb(51, 42, 38), srgb(85, 72, 66)],
+            water: srgb(90, 31, 22),
+            accent: srgb(255, 90, 30),
+        },
+        "fungal" => Palette {
+            name: "fungal",
+            terrain: [
+                srgb(34, 26, 43),
+                srgb(44, 34, 56),
+                srgb(56, 44, 71),
+                srgb(69, 53, 86),
+                srgb(82, 64, 102),
+                srgb(95, 75, 119),
+            ],
+            foliage: [srgb(58, 107, 107), srgb(46, 88, 88), srgb(74, 122, 122)],
+            trunk: srgb(42, 34, 51),
+            rock: [srgb(58, 53, 71), srgb(82, 75, 99)],
+            water: srgb(42, 74, 82),
+            accent: srgb(75, 224, 192),
+        },
         // "verdant" default
         _ => Palette {
             name: "verdant",
@@ -188,6 +236,23 @@ pub fn by_name(name: &str) -> Palette {
     }
 }
 
-pub const PALETTES: [&str; 6] = [
-    "verdant", "autumn", "arctic", "volcanic", "desert", "mystic",
+pub const PALETTES: [&str; 9] = [
+    "verdant", "autumn", "arctic", "volcanic", "desert", "mystic", "necrotic", "infernal", "fungal",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_palettes_registered_and_distinct() {
+        for name in ["necrotic", "infernal", "fungal"] {
+            assert!(PALETTES.contains(&name), "{name} missing from PALETTES");
+            let p = by_name(name);
+            assert_eq!(p.name, name);
+        }
+        // distinct accents so themes read differently
+        assert_ne!(by_name("necrotic").accent, by_name("infernal").accent);
+        assert_ne!(by_name("infernal").accent, by_name("fungal").accent);
+    }
+}
