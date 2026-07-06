@@ -155,6 +155,23 @@ pub enum ShapeSpec {
         #[serde(default)]
         point: f32,
     },
+    /// Elliptical cross-sections swept along a spine — the garment shape.
+    /// `arc` < 360 leaves it open (front-open robes). Generates structured
+    /// UVs (u = around, v = along) that `paint` layers target directly.
+    Loft {
+        path: Vec<[f32; 3]>,
+        /// per-station x-radius (single value = constant)
+        rx: Vec<f32>,
+        /// per-station z-radius (defaults to rx)
+        #[serde(default)]
+        rz: Vec<f32>,
+        #[serde(default = "d_arc")]
+        arc: f32,
+        #[serde(default)]
+        arc_offset: f32,
+        #[serde(default = "d_loft_segments")]
+        segments: u32,
+    },
     /// Smooth Catmull-Rom curve swept as a tube (pipes, arcs, tentacles).
     Curve {
         points: Vec<[f32; 3]>,
@@ -167,6 +184,8 @@ pub enum ShapeSpec {
     },
 }
 fn d_samples() -> u32 { 24 }
+fn d_arc() -> f32 { 360.0 }
+fn d_loft_segments() -> u32 { 24 }
 
 /// A boolean operation applied to a node: carve or fuse another node.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -468,6 +487,27 @@ fn build_shape(spec: &ShapeSpec, color: Vec3, bevel: f32) -> Result<Mesh, String
             }
             m
         }
+        ShapeSpec::Loft { path, rx, rz, arc, arc_offset, segments } => {
+            if path.len() < 2 {
+                return Err("loft path needs >= 2 stations".into());
+            }
+            if rx.is_empty() {
+                return Err("loft needs at least one rx radius".into());
+            }
+            let at = |v: &[f32], i: usize, fallback: f32| -> f32 {
+                if v.is_empty() { fallback } else { v[i.min(v.len() - 1)] }
+            };
+            let stations: Vec<crate::mesh::LoftStation> = path
+                .iter()
+                .enumerate()
+                .map(|(i, p)| crate::mesh::LoftStation {
+                    center: Vec3::from_array(*p),
+                    rx: at(rx, i, 1.0),
+                    rz: at(rz, i, at(rx, i, 1.0)),
+                })
+                .collect();
+            crate::mesh::loft(&stations, *segments, *arc, *arc_offset, |_| color)
+        }
         ShapeSpec::Curve { points, radius, segments, samples } => {
             if points.len() < 2 {
                 return Err("curve needs >= 2 points".into());
@@ -568,13 +608,27 @@ fn build_node(node: &NodeSpec, seed: u64, uv_scale: Option<f32>) -> Result<Mesh,
     }
 
     // UVs are projected on the final placed geometry so `scale` is in
-    // world units regardless of node transforms.
+    // world units regardless of node transforms. Shapes with intrinsic
+    // structured UVs (loft) keep them unless a projection is forced.
     if let Some(scale) = uv_scale {
-        match node.uv.as_deref().unwrap_or("box") {
+        let mode = node
+            .uv
+            .as_deref()
+            .unwrap_or(if out.has_uvs() { "keep" } else { "box" });
+        match mode {
+            "keep" => {
+                if !out.has_uvs() {
+                    return Err("uv:\"keep\" requires a shape with intrinsic UVs (loft)".into());
+                }
+            }
             "box" => crate::uv::box_project(&mut out, scale),
             "cylinder" => crate::uv::cylindrical_project(&mut out, scale),
             "planar" => crate::uv::planar_project(&mut out, scale),
-            other => return Err(format!("unknown uv projection '{other}' (box|cylinder|planar)")),
+            other => {
+                return Err(format!(
+                    "unknown uv projection '{other}' (keep|box|cylinder|planar)"
+                ));
+            }
         }
     }
     Ok(out)

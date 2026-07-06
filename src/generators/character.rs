@@ -316,6 +316,150 @@ fn face(c: Vec3, r: f32, w: &Wardrobe, expressions: bool) -> Mesh {
     out
 }
 
+/// Tapered double-sided ribbon strip along a guide curve — one hair card.
+fn ribbon(guide: &[Vec3], w0: f32, w1: f32, color: Vec3, center: Vec3) -> Mesh {
+    let mut m = Mesh::new();
+    let n = guide.len();
+    for (i, &p) in guide.iter().enumerate() {
+        let t = i as f32 / (n - 1) as f32;
+        let dir = if i + 1 < n { guide[i + 1] - p } else { p - guide[i - 1] };
+        let dir = dir.normalize_or(Vec3::NEG_Y);
+        // width direction lies on the scalp surface
+        let out = (p - center).normalize_or(Vec3::Z);
+        let side = dir.cross(out).normalize_or(Vec3::X);
+        let w = (w0 + (w1 - w0) * t) / 2.0;
+        m.push_vertex(p - side * w, out, color);
+        m.push_vertex(p + side * w, out, color);
+    }
+    for i in 0..n - 1 {
+        let a = (i * 2) as u32;
+        m.push_tri(a, a + 1, a + 3);
+        m.push_tri(a, a + 3, a + 2);
+        // reversed faces so cards read from both sides
+        m.push_tri(a, a + 3, a + 1);
+        m.push_tri(a, a + 2, a + 3);
+    }
+    m
+}
+
+/// Strand guide: hug the skull early, hang toward `len` below with `drift`.
+fn strand_guide(start: Vec3, center: Vec3, len: f32, drift: Vec3, samples: usize) -> Vec<Vec3> {
+    let out = (start - center).normalize_or(Vec3::Z);
+    (0..samples)
+        .map(|i| {
+            let t = i as f32 / (samples - 1) as f32;
+            let hug = center + out * (start - center).length() * (1.0 + 0.16 * t);
+            let hang = Vec3::new(start.x + drift.x, start.y - len, start.z + drift.z);
+            let k = t * t * (3.0 - 2.0 * t);
+            hug.lerp(hang, k * k)
+        })
+        .collect()
+}
+
+/// Long flowing hair / topknot built from clumped ribbon cards.
+fn hair_cards(style: &str, c: Vec3, r: f32, color: Vec3, seed: u64) -> Mesh {
+    let mut rr = rng(seed ^ 0x4A17);
+    let mut m = Mesh::new();
+    let strands = 26;
+    for i in 0..strands {
+        // golden-angle spread over the upper hemisphere
+        let a = i as f32 * 2.399963;
+        let y = 0.35 + 0.6 * (i as f32 / strands as f32);
+        let ring = (1.0 - y * y).max(0.05).sqrt();
+        let start = c + Vec3::new(a.cos() * ring, y, a.sin() * ring * 0.9) * r * 1.04;
+        // front strands stay short (clear the face), back strands flow long
+        let backness = ((c.z - start.z) / r).clamp(-1.0, 1.0);
+        let base_len = match style {
+            "topknot" => r * 0.5,
+            _ => r * (1.6 + 1.3 * (backness * 0.5 + 0.5)),
+        };
+        let len = base_len * range(&mut rr, 0.85, 1.15);
+        if style != "topknot" && start.z > c.z + r * 0.45 && start.y < c.y + r * 0.55 {
+            continue; // never grow over the face
+        }
+        let drift = Vec3::new(
+            range(&mut rr, -0.12, 0.12) * r,
+            0.0,
+            -r * (0.3 + 0.4 * (backness * 0.5 + 0.5)),
+        );
+        let guide = strand_guide(start, c, len, drift, 7);
+        m.merge(&ribbon(
+            &guide,
+            r * 0.34,
+            r * 0.10,
+            vary(color, 0.12, range(&mut rr, 0.0, 1.0)),
+            c,
+        ));
+    }
+    if style == "topknot" {
+        let mut knot = icosphere(r * 0.26, 2, color);
+        knot.translate(c + Vec3::new(0.0, r * 0.95, -r * 0.15));
+        m.merge(&knot);
+        let start = c + Vec3::new(0.0, r * 0.95, -r * 0.35);
+        let guide = strand_guide(start, c, r * 1.7, Vec3::new(0.0, 0.0, -r * 0.5), 7);
+        m.merge(&ribbon(&guide, r * 0.28, r * 0.08, color * 0.94, c));
+    }
+    m
+}
+
+/// Ribbon-card facial hair: mustache and/or chin beard.
+fn beard_cards(style: &str, c: Vec3, r: f32, color: Vec3, seed: u64) -> Mesh {
+    let mut rr = rng(seed ^ 0xBEA6D);
+    let mut m = Mesh::new();
+    if style == "none" {
+        return m;
+    }
+    // mustache: two arcs from under the nose, out and down
+    for sx in [-1.0f32, 1.0] {
+        let start = c + Vec3::new(sx * r * 0.10, -r * 0.22, r * 0.94);
+        let guide: Vec<Vec3> = (0..5)
+            .map(|i| {
+                let t = i as f32 / 4.0;
+                start
+                    + Vec3::new(
+                        sx * r * 0.30 * t,
+                        -r * 0.16 * t * t - r * 0.05 * t,
+                        -r * 0.12 * t,
+                    )
+            })
+            .collect();
+        m.merge(&ribbon(&guide, r * 0.18, r * 0.06, color, c));
+    }
+    if style == "mustache" {
+        return m;
+    }
+    // chin/jaw beard: strands hanging from the jawline, center longest
+    let len_mul = if style == "long" { 2.6 } else { 1.0 };
+    let strands = 13;
+    for i in 0..strands {
+        let t = i as f32 / (strands - 1) as f32; // 0..1 across the jaw
+        let ang = (t - 0.5) * 1.9;
+        let start = c
+            + Vec3::new(
+                ang.sin() * r * 0.66,
+                -r * 0.58 - (1.0 - ang.cos()) * r * 0.1,
+                ang.cos() * r * 0.68,
+            );
+        let center_ness = 1.0 - (t - 0.5).abs() * 2.0;
+        let len = r * (0.5 + 0.55 * center_ness) * len_mul * range(&mut rr, 0.9, 1.1);
+        let guide = strand_guide(
+            start,
+            c + Vec3::new(0.0, -r * 0.3, 0.0),
+            len,
+            Vec3::new(0.0, 0.0, r * 0.16),
+            6,
+        );
+        m.merge(&ribbon(
+            &guide,
+            r * 0.30,
+            r * 0.08,
+            vary(color, 0.10, range(&mut rr, 0.0, 1.0)),
+            c,
+        ));
+    }
+    m
+}
+
 /// Hair styles built from a clipped shell over the skull.
 fn hair_mesh(style: &str, c: Vec3, r: f32, color: Vec3) -> Mesh {
     let mut cap = icosphere(r * 1.08, 2, color);
@@ -384,8 +528,14 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     let bulk = p.bulk.clamp(0.6, 1.6);
     let sw = h * 0.135 * bulk;
     let rig = build_rig(h, sw);
-    let w = wardrobe(&mut r, pal, p.class, p.skin_tone);
+    let mut w = wardrobe(&mut r, pal, p.class, p.skin_tone);
     let jw = |i: usize| rig.world[i];
+    let dressed = p.outfit.as_deref().is_some_and(|s| s != "plain");
+    if let Some(hc) = &p.hair_color {
+        if let Ok(c) = crate::palette::hex(hc) {
+            w.hair = c;
+        }
+    }
     let hair_styles = ["short", "ponytail", "bun", "bald"];
     let hair_style = p
         .hair
@@ -432,7 +582,8 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     }
     torso.recompute_smooth_normals();
     core.merge(&crate::subdiv::subdivide(&torso, false));
-    // belt: elliptical ring hugging the lathe waist
+    // belt: elliptical ring hugging the lathe waist (hidden under outfits)
+    if !dressed {
     let belt_y = jw(HIPS).y + h * 0.030;
     let belt_r = h * 0.090 * bulk;
     let mut belt = lathe(
@@ -455,23 +606,74 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     ));
     buckle.bind_all_to_joint(HIPS as u16);
     body.merge(&buckle);
+    }
 
-    // head: shaped skull + facial features (with morph targets) + hair
+    // head: shaped skull as its own part with a painted face texture
+    // (skin mottling, blush, socket shading, age wrinkles); geometry
+    // eyes/brows/mouth stay in the body part so morphs keep working
     let head_r = h * 0.075;
     let head_c = jw(HEAD) + Vec3::new(0.0, head_r * 0.9, 0.0);
-    let mut head = head_shape(head_r, w.skin);
+    let mut head = head_shape(head_r, Vec3::ONE); // texture carries the skin
     head.translate(head_c);
+    // spherical unwrap: u = azimuth (face at 0.5), v = crown(0) -> chin(1)
+    head.uvs = head
+        .positions
+        .iter()
+        .map(|p| {
+            let d = (*p - head_c).normalize_or(Vec3::Z);
+            glam::Vec2::new(
+                0.5 + d.x.atan2(d.z) / core::f32::consts::TAU,
+                d.y.clamp(-1.0, 1.0).acos() / core::f32::consts::PI,
+            )
+        })
+        .collect();
+    head.tangents = head
+        .normals
+        .iter()
+        .map(|n| {
+            let t = Vec3::new(-n.z, 0.0, n.x).normalize_or(Vec3::X);
+            glam::Vec4::new(t.x, t.y, t.z, 1.0)
+        })
+        .collect();
     head.bind_all_to_joint(HEAD as u16);
-    body.merge(&head);
+    let head_part = Part {
+        mesh: head,
+        material: Material {
+            roughness: 0.75,
+            texture: Some(std::sync::Arc::new(crate::texture::bake_face(
+                w.skin,
+                p.age.clamp(0.0, 1.0),
+                p.seed,
+                512,
+            ))),
+            ..Default::default()
+        },
+    };
 
     let mut features = face(head_c, head_r, &w, p.expressions);
     features.bind_all_to_joint(HEAD as u16);
     body.merge(&features);
 
-    let mut hair = hair_mesh(&hair_style, head_c + Vec3::new(0.0, head_r * 0.12, -head_r * 0.04), head_r, w.hair);
+    let hair_c = head_c + Vec3::new(0.0, head_r * 0.12, -head_r * 0.04);
+    let mut hair = match hair_style.as_str() {
+        "long" | "topknot" => {
+            // scalp cap + flowing ribbon cards
+            let mut m = hair_mesh("short", hair_c, head_r, w.hair);
+            m.merge(&hair_cards(&hair_style, hair_c, head_r, w.hair, p.seed));
+            m
+        }
+        other => hair_mesh(other, hair_c, head_r, w.hair),
+    };
     if hair.vertex_count() > 0 {
         hair.bind_all_to_joint(HEAD as u16);
         body.merge(&hair);
+    }
+    if let Some(beard) = &p.beard {
+        let mut b = beard_cards(beard, head_c, head_r, w.hair, p.seed);
+        if b.vertex_count() > 0 {
+            b.bind_all_to_joint(HEAD as u16);
+            body.merge(&b);
+        }
     }
 
     // neck (smooth)
@@ -502,7 +704,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         hand.bind_all_to_joint(hj as u16);
         body.merge(&hand);
         // pauldrons: warriors only — the smooth torso needs no sleeve puffs
-        if p.class == CharacterClass::Warrior {
+        if p.class == CharacterClass::Warrior && !dressed {
             let mut pad = icosphere(arm_r0 * 1.55, 2, w.shirt * 0.7);
             for v in pad.positions.iter_mut() {
                 if v.y < 0.0 {
@@ -559,7 +761,8 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             );
             hat.bind_all_to_joint(HEAD as u16);
             body.merge(&hat);
-            // flowing robe skirt from the hips
+            // flowing robe skirt from the hips (superseded by outfits)
+            if !dressed {
             let mut robe = to_flat_shaded(&lathe(
                 &[
                     (h * 0.145 * bulk, -h * 0.30),
@@ -573,8 +776,9 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             robe.translate(jw(HIPS));
             robe.bind_all_to_joint(HIPS as u16);
             body.merge(&robe);
+            }
         }
-        CharacterClass::Warrior => {
+        CharacterClass::Warrior if !dressed => {
             // wrap-around cuirass following the torso's rounded section
             let mut plate = lathe(
                 &[
@@ -615,7 +819,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             hood.bind_all_to_joint(HEAD as u16);
             body.merge(&hood);
         }
-        CharacterClass::Villager => {}
+        _ => {}
     }
 
     // smooth-skin the torso core and fold it into the body
@@ -625,6 +829,16 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         4.0,
     );
     body.merge(&core);
+
+    // accessories (rigid-bound props)
+    for acc in &p.accessories {
+        if let Some(a) = accessory(acc, &rig, h, &w, pal) {
+            body.merge(&a);
+        }
+    }
+
+    // baked ambient occlusion: crevices read in any light
+    crate::mesh::bake_ao(&mut body, 0.55);
 
     let mut animations = Vec::new();
     if p.animate {
@@ -640,12 +854,29 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
 
     body.validate().expect("character mesh invalid");
 
-    Asset {
-        name: "character".into(),
-        parts: vec![Part {
+    let mut parts = vec![
+        Part {
             mesh: body,
             material: Material { roughness: 0.85, ..Default::default() },
-        }],
+        },
+        head_part,
+    ];
+    if dressed {
+        let ctx = GarmentCtx {
+            rig: &rig,
+            h,
+            bulk,
+            w: &w,
+            orn: p.ornamentation.clamp(0.0, 1.0),
+            motif: p.trim_motif.clone().unwrap_or_else(|| "meander".into()),
+            seed: p.seed,
+        };
+        parts.extend(outfit_parts(&ctx, p.outfit.as_deref().unwrap_or("robe")));
+    }
+
+    Asset {
+        name: "character".into(),
+        parts,
         skeleton: Some(rig.skeleton),
         animations,
         physics: Some(Physics {
@@ -657,6 +888,374 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         lods: Vec::new(),
         instanced: Vec::new(),
     }
+}
+
+// ---------- outfit system: lofted, painted garment stacks ----------
+
+struct GarmentCtx<'a> {
+    rig: &'a Rig,
+    h: f32,
+    bulk: f32,
+    w: &'a Wardrobe,
+    orn: f32,
+    motif: String,
+    seed: u64,
+}
+
+fn garment_tex(
+    base: Vec3,
+    seed: u64,
+    folds: f32,
+    layers: Vec<crate::texture::PaintLayer>,
+) -> Option<std::sync::Arc<crate::texture::BakedTexture>> {
+    use crate::texture::{PaintLayer, TextureSpec, bake};
+    let mut paint = vec![PaintLayer::Folds { strength: folds, count: 11 }];
+    paint.extend(layers);
+    let spec = TextureSpec {
+        pattern: "none".into(),
+        base: Some(crate::palette::to_hex(base)),
+        paint,
+        scale: 1.0,
+        seed,
+        normal_strength: 1.0,
+        resolution: 512,
+        colors: Vec::new(),
+    };
+    bake(&spec).ok().map(std::sync::Arc::new)
+}
+
+fn hem_band(motif: &str, trim: Vec3, gold: Vec3, orn: f32) -> Vec<crate::texture::PaintLayer> {
+    use crate::texture::PaintLayer;
+    let mut v = vec![PaintLayer::Band {
+        v: 0.0,
+        height: 0.07 + orn * 0.04,
+        color: crate::palette::to_hex(trim),
+        motif: (orn > 0.25).then(|| motif.to_string()),
+        motif_color: Some(crate::palette::to_hex(gold)),
+        motif_scale: 1.0,
+    }];
+    if orn > 0.4 {
+        v.push(PaintLayer::Band {
+            v: 0.08 + orn * 0.04,
+            height: 0.015,
+            color: crate::palette::to_hex(gold),
+        motif: None,
+            motif_color: None,
+            motif_scale: 1.0,
+        });
+    }
+    v
+}
+
+/// Build a skinned, painted garment part.
+fn garment(
+    ctx: &GarmentCtx,
+    stations: &[crate::mesh::LoftStation],
+    arc: f32,
+    segs: &[(usize, usize)],
+    base: Vec3,
+    folds: f32,
+    layers: Vec<crate::texture::PaintLayer>,
+) -> Part {
+    let mut m = crate::mesh::loft(stations, 28, arc, 180.0, |_| Vec3::ONE);
+    crate::skinning::smooth_bind(&mut m, &segs_of(ctx.rig, segs), 2.2);
+    Part {
+        mesh: m,
+        material: Material {
+            roughness: 0.85,
+            double_sided: true,
+            texture: garment_tex(base, ctx.seed, folds, layers),
+            ..Default::default()
+        },
+    }
+}
+
+fn segs_of(rig: &Rig, pairs: &[(usize, usize)]) -> Vec<crate::skinning::BoneSeg> {
+    segs(rig, pairs)
+}
+
+fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
+    use crate::mesh::LoftStation;
+    use crate::texture::PaintLayer;
+    let (h, bulk) = (ctx.h, ctx.bulk);
+    let w = ctx.w;
+    let jw = |i: usize| ctx.rig.world[i];
+    let gold = srgb(216, 176, 88);
+    let trim = w.accent * 0.75;
+    let ground = lerp(w.shirt, srgb(232, 221, 196), 0.55); // cream-shifted
+    let rich = lerp(w.shirt, w.accent, 0.35) * 0.9;
+    let st = |y: f32, rx: f32, rz: f32| LoftStation {
+        center: Vec3::new(0.0, y, 0.0),
+        rx: rx * bulk,
+        rz: rz * bulk,
+    };
+    let body_segs: &[(usize, usize)] = &[
+        (HIPS, SPINE),
+        (SPINE, CHEST),
+        (CHEST, NECK),
+        (THIGH_L, SHIN_L),
+        (THIGH_R, SHIN_R),
+        (SHIN_L, FOOT_L),
+        (SHIN_R, FOOT_R),
+    ];
+    let mut parts = Vec::new();
+
+    // under-robe: closed, hem -> chest; radii must clear the elliptical
+    // torso lathe (x = r * 1.28) or it pokes through
+    let hem_y = if style == "tunic" { h * 0.26 } else { h * 0.055 };
+    let hem_rx = if style == "tunic" { h * 0.15 } else { h * 0.165 };
+    let under = [
+        st(hem_y, hem_rx, hem_rx * 0.85),
+        st(h * 0.33, h * 0.138, h * 0.115),
+        st(jw(HIPS).y, h * 0.128, h * 0.102),
+        st(jw(SPINE).y + h * 0.02, h * 0.120, h * 0.096),
+        st(jw(CHEST).y + h * 0.05, h * 0.138, h * 0.100),
+    ];
+    parts.push(garment(
+        ctx,
+        &under,
+        360.0,
+        body_segs,
+        ground,
+        0.7,
+        hem_band(&ctx.motif, trim, gold, ctx.orn),
+    ));
+
+    if style == "robe" || style == "coat" {
+        // open outer coat: mid-shin -> neck, front opening
+        let coat = [
+            st(h * 0.16, h * 0.195, h * 0.16),
+            st(h * 0.30, h * 0.158, h * 0.13),
+            st(jw(HIPS).y, h * 0.140, h * 0.112),
+            st(jw(SPINE).y + h * 0.02, h * 0.132, h * 0.106),
+            st(jw(CHEST).y + h * 0.04, h * 0.150, h * 0.110),
+            st(jw(NECK).y + h * 0.005, h * 0.090, h * 0.074),
+        ];
+        let mut layers = hem_band(&ctx.motif, trim, gold, ctx.orn);
+        layers.push(PaintLayer::UBand {
+            u: 0.025,
+            width: 0.05,
+            color: crate::palette::to_hex(trim),
+        });
+        layers.push(PaintLayer::UBand {
+            u: 0.975,
+            width: 0.05,
+            color: crate::palette::to_hex(trim),
+        });
+        if ctx.orn > 0.55 {
+            // small, low-contrast stamps read as brocade, not wallpaper
+            layers.push(PaintLayer::MotifGrid {
+                motif: ctx.motif.clone(),
+                color: crate::palette::to_hex(lerp(rich, trim, 0.45)),
+                scale: 3.2,
+                v_min: 0.34,
+                v_max: 0.68,
+            });
+        }
+        let coat_segs: &[(usize, usize)] = &[
+            (HIPS, SPINE),
+            (SPINE, CHEST),
+            (CHEST, NECK),
+            (THIGH_L, SHIN_L),
+            (THIGH_R, SHIN_R),
+        ];
+        parts.push(garment(ctx, &coat, 295.0, coat_segs, rich, 1.0, layers));
+
+        // wide hanging sleeves over the arms
+        for (aj, fj, hj) in [(ARM_L, FOREARM_L, HAND_L), (ARM_R, FOREARM_R, HAND_R)] {
+            let ax = jw(aj).x;
+            let wrist_y = jw(hj).y + h * 0.01;
+            let stations = [
+                LoftStation {
+                    center: Vec3::new(ax, wrist_y, 0.0),
+                    rx: h * 0.062 * bulk,
+                    rz: h * 0.058 * bulk,
+                },
+                LoftStation {
+                    center: Vec3::new(ax, jw(fj).y, 0.0),
+                    rx: h * 0.048 * bulk,
+                    rz: h * 0.046 * bulk,
+                },
+                LoftStation {
+                    // swallow the shoulder ball completely
+                    center: Vec3::new(ax, jw(aj).y + h * 0.045, 0.0),
+                    rx: h * 0.058 * bulk,
+                    rz: h * 0.056 * bulk,
+                },
+                // converge to close the shoulder opening (kept low so the
+                // tip doesn't poke above the shoulder line from behind)
+                LoftStation {
+                    center: Vec3::new(ax * 0.96, jw(aj).y + h * 0.050, 0.0),
+                    rx: h * 0.012,
+                    rz: h * 0.012,
+                },
+            ];
+            let mut m = crate::mesh::loft(&stations, 16, 360.0, 0.0, |_| Vec3::ONE);
+            crate::skinning::smooth_bind(
+                &mut m,
+                &segs_of(ctx.rig, &[(aj, fj), (fj, hj)]),
+                2.5,
+            );
+            parts.push(Part {
+                mesh: m,
+                material: Material {
+                    roughness: 0.85,
+                    double_sided: true,
+                    texture: garment_tex(
+                        rich,
+                        ctx.seed ^ aj as u64,
+                        0.6,
+                        hem_band(&ctx.motif, trim, gold, ctx.orn * 0.8),
+                    ),
+                    ..Default::default()
+                },
+            });
+        }
+
+        // sash at the waist + hanging front tail
+        let sash_y = jw(HIPS).y + h * 0.055;
+        let sash = [
+            st(sash_y - h * 0.028, h * 0.146, h * 0.118),
+            st(sash_y + h * 0.028, h * 0.140, h * 0.114),
+        ];
+        parts.push(garment(
+            ctx,
+            &sash,
+            360.0,
+            &[(HIPS, SPINE)],
+            w.accent * 0.8,
+            0.3,
+            vec![PaintLayer::Stripes {
+                count: 3,
+                width: 0.18,
+                color: crate::palette::to_hex(gold),
+                axis: Some("v".into()),
+            }],
+        ));
+        let tail = [
+            st(h * 0.24, h * 0.16, h * 0.138),
+            st(sash_y - h * 0.02, h * 0.144, h * 0.117),
+        ];
+        parts.push(garment(
+            ctx,
+            &tail,
+            42.0,
+            &[(HIPS, SPINE), (THIGH_L, SHIN_L), (THIGH_R, SHIN_R)],
+            w.accent * 0.8,
+            0.4,
+            hem_band(&ctx.motif, trim * 0.9, gold, ctx.orn),
+        ));
+
+        // mantle collar draped over the shoulders
+        let mantle = [
+            st(jw(CHEST).y + h * 0.035, h * 0.160, h * 0.122),
+            st(jw(NECK).y + h * 0.025, h * 0.054, h * 0.050),
+        ];
+        parts.push(garment(
+            ctx,
+            &mantle,
+            360.0,
+            &[(CHEST, NECK), (NECK, HEAD)],
+            ground * 0.96,
+            0.35,
+            hem_band(&ctx.motif, trim, gold, ctx.orn),
+        ));
+    } else if style == "tunic" {
+        // belted knee tunic over the under-robe... under-robe IS the tunic:
+        // shorten look with a belt sash only
+        let sash_y = jw(HIPS).y + h * 0.045;
+        let sash = [
+            st(sash_y - h * 0.022, h * 0.132, h * 0.106),
+            st(sash_y + h * 0.022, h * 0.128, h * 0.104),
+        ];
+        parts.push(garment(
+            ctx,
+            &sash,
+            360.0,
+            &[(HIPS, SPINE)],
+            w.boots * 0.8,
+            0.2,
+            Vec::new(),
+        ));
+    }
+
+    parts
+}
+
+/// Accessory props: bead necklace + gem pendant, belt knot with hanging
+/// ribbons, or a staff in the right hand.
+fn accessory(name: &str, rig: &Rig, h: f32, w: &Wardrobe, pal: &Palette) -> Option<Mesh> {
+    let jw = |i: usize| rig.world[i];
+    let gold = srgb(216, 176, 88);
+    let mut m = Mesh::new();
+    match name {
+        "necklace" => {
+            // beads draped across the chest in a shallow V
+            let c = jw(CHEST) + Vec3::new(0.0, h * 0.055, h * 0.125);
+            let beads = 15;
+            for i in 0..beads {
+                let t = i as f32 / (beads - 1) as f32; // 0..1 left→right
+                let x = (t - 0.5) * h * 0.11;
+                let sag = (1.0 - (2.0 * t - 1.0).powi(2)) * h * 0.05;
+                let mut bead = icosphere(h * 0.0075, 1, gold);
+                bead.translate(c + Vec3::new(x, -sag, -x.abs() * 0.25));
+                m.merge(&bead);
+            }
+            // pendant gem at the lowest point
+            let mut gem = icosphere(h * 0.016, 1, pal.accent * 1.3);
+            for v in gem.positions.iter_mut() {
+                v.y *= 1.4;
+            }
+            gem.recompute_smooth_normals();
+            gem.translate(c + Vec3::new(0.0, -h * 0.065, 0.0));
+            m.merge(&gem);
+            m.bind_all_to_joint(CHEST as u16);
+        }
+        "belt_knot" => {
+            let at = jw(HIPS) + Vec3::new(h * 0.02, h * 0.05, h * 0.115);
+            let knot = crate::subdiv::subdivide_n(
+                &cuboid(at, Vec3::new(h * 0.022, h * 0.018, h * 0.014), gold * 0.9),
+                1,
+                true,
+            );
+            m.merge(&knot);
+            // two hanging ribbon tails
+            for sx in [-1.0f32, 1.0] {
+                let guide: Vec<Vec3> = (0..5)
+                    .map(|i| {
+                        let t = i as f32 / 4.0;
+                        at + Vec3::new(
+                            sx * h * 0.012 + sx * t * h * 0.008,
+                            -t * h * 0.16,
+                            -t * t * h * 0.02,
+                        )
+                    })
+                    .collect();
+                m.merge(&ribbon(&guide, h * 0.022, h * 0.014, w.accent * 0.75, at));
+            }
+            m.bind_all_to_joint(HIPS as u16);
+        }
+        "staff" => {
+            let hand = jw(HAND_R);
+            let base = Vec3::new(hand.x - h * 0.01, 0.0, hand.z + h * 0.01);
+            let shaft = tube(
+                &[
+                    (base, h * 0.014),
+                    (base + Vec3::Y * h * 0.62, h * 0.012),
+                    (base + Vec3::Y * h * 1.02, h * 0.010),
+                ],
+                8,
+                |_| pal.trunk * 0.85,
+            );
+            m.merge(&crate::subdiv::subdivide(&shaft, false));
+            let mut orb = icosphere(h * 0.032, 2, pal.accent * 1.4);
+            orb.translate(base + Vec3::Y * h * 1.06);
+            m.merge(&orb);
+            m.bind_all_to_joint(HAND_R as u16);
+        }
+        _ => return None,
+    }
+    Some(m)
 }
 
 fn keys(n: usize, dur: f32) -> Vec<f32> {

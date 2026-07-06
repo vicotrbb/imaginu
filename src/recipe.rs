@@ -187,16 +187,40 @@ pub struct CharacterParams {
     pub bulk: f32,
     #[serde(default = "d_true")]
     pub animate: bool,
-    /// short | ponytail | bun | bald (default: seeded pick)
+    /// short | ponytail | bun | bald | long | topknot (default: seeded pick)
     #[serde(default)]
     pub hair: Option<String>,
+    /// none | mustache | short | long — ribbon-card facial hair.
+    #[serde(default)]
+    pub beard: Option<String>,
+    /// Override hair/beard color (#rrggbb), e.g. "#e8e6e0" for elders.
+    #[serde(default)]
+    pub hair_color: Option<String>,
     /// 0..=3 light→dark (default: seeded pick)
     #[serde(default)]
     pub skin_tone: Option<u32>,
     /// Export facial morph targets (smile, blink, angry, surprised).
     #[serde(default = "d_true")]
     pub expressions: bool,
+    /// Painted garment stack: robe (layered under-robe + open coat + sash +
+    /// mantle) | tunic (belted knee tunic) | plain (bare v2 body).
+    #[serde(default)]
+    pub outfit: Option<String>,
+    /// 0..1 — how much painted trim/motif detail garments get.
+    #[serde(default = "d_ornament")]
+    pub ornamentation: f32,
+    /// Trim motif for garment borders: meander|zigzag|dots|diamonds|scroll|runes.
+    #[serde(default)]
+    pub trim_motif: Option<String>,
+    /// 0..1 — painted age detail on the face (forehead lines, crow's feet,
+    /// nasolabial folds).
+    #[serde(default)]
+    pub age: f32,
+    /// Extra props: necklace | belt_knot | staff.
+    #[serde(default)]
+    pub accessories: Vec<String>,
 }
+fn d_ornament() -> f32 { 0.6 }
 fn d_char_h() -> f32 { 1.7 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -415,6 +439,71 @@ mod tests {
             a.parts[0].mesh.vertex_count() > bald.parts[0].mesh.vertex_count(),
             "ponytail should add geometry over bald"
         );
+    }
+
+    #[test]
+    fn hair_and_beard_cards() {
+        let base = Recipe::parse(r#"{"kind":"character","seed":4,"hair":"bald"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        let long = Recipe::parse(
+            r##"{"kind":"character","seed":4,"hair":"long","beard":"long","hair_color":"#eae7e0"}"##,
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+        assert!(
+            long.parts[0].mesh.vertex_count() > base.parts[0].mesh.vertex_count() + 200,
+            "ribbon cards should add real geometry"
+        );
+        // determinism with cards
+        let again = Recipe::parse(
+            r##"{"kind":"character","seed":4,"hair":"long","beard":"long","hair_color":"#eae7e0"}"##,
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+        assert_eq!(crate::gltf::to_glb(&long), crate::gltf::to_glb(&again));
+    }
+
+    #[test]
+    fn accessories_and_ao() {
+        let j = r#"{"kind":"character","seed":3,"accessories":["necklace","staff","belt_knot"]}"#;
+        let a = Recipe::parse(j).unwrap().build().unwrap();
+        a.validate().unwrap();
+        let bare = Recipe::parse(r#"{"kind":"character","seed":3}"#).unwrap().build().unwrap();
+        assert!(
+            a.parts[0].mesh.vertex_count() > bare.parts[0].mesh.vertex_count() + 100,
+            "accessories should add geometry"
+        );
+        // staff reaches above the head
+        let (_, hi) = a.parts[0].mesh.bounds();
+        let (_, bare_hi) = bare.parts[0].mesh.bounds();
+        assert!(hi.y > bare_hi.y + 0.05, "staff orb should top the silhouette");
+        // AO darkened somewhere without blowing out colors
+        assert!(a.parts[0].mesh.colors.iter().all(|c| c.max_element() <= 4.0));
+        let b = Recipe::parse(j).unwrap().build().unwrap();
+        assert_eq!(crate::gltf::to_glb(&a), crate::gltf::to_glb(&b));
+    }
+
+    #[test]
+    fn character_outfits() {
+        let j = r#"{"kind":"character","seed":9,"outfit":"robe","ornamentation":0.7}"#;
+        let a = Recipe::parse(j).unwrap().build().unwrap();
+        a.validate().unwrap();
+        // body + under-robe + coat + 2 sleeves + sash + tail + mantle
+        assert!(a.parts.len() >= 7, "robe outfit should add garment parts: {}", a.parts.len());
+        // garments carry painted textures and skin weights
+        let dressed_parts = a.parts.iter().filter(|p| p.material.texture.is_some()).count();
+        assert!(dressed_parts >= 5);
+        assert!(a.parts[1].mesh.is_skinned());
+        // deterministic incl. baked garment paint
+        let b = Recipe::parse(j).unwrap().build().unwrap();
+        assert_eq!(crate::gltf::to_glb(&a), crate::gltf::to_glb(&b));
+        // plain = body + painted-face head only
+        let p = Recipe::parse(r#"{"kind":"character","seed":9}"#).unwrap().build().unwrap();
+        assert_eq!(p.parts.len(), 2);
     }
 
     #[test]

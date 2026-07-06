@@ -1,0 +1,17 @@
+{
+  "kind": "character",
+  "class": "villager",
+  "palette": "autumn",
+  "seed": 41,
+  "height": 1.78,
+  "bulk": 1.05,
+  "outfit": "robe",
+  "ornamentation": 0.85,
+  "trim_motif": "meander",
+  "hair": "long",
+  "hair_color": "#eae7e0",
+  "beard": "long",
+  "skin_tone": 0,
+  "age": 0.85,
+  "accessories": ["necklace", "belt_knot"]
+}

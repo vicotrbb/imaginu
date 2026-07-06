@@ -2,5 +2,7 @@
  "kind": "character",
  "class": "villager",
  "seed": 7,
- "hair": "short"
+ "hair": "short",
+ "outfit": "tunic",
+ "ornamentation": 0.5
 }
