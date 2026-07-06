@@ -316,6 +316,150 @@ fn face(c: Vec3, r: f32, w: &Wardrobe, expressions: bool) -> Mesh {
     out
 }
 
+/// Tapered double-sided ribbon strip along a guide curve — one hair card.
+fn ribbon(guide: &[Vec3], w0: f32, w1: f32, color: Vec3, center: Vec3) -> Mesh {
+    let mut m = Mesh::new();
+    let n = guide.len();
+    for (i, &p) in guide.iter().enumerate() {
+        let t = i as f32 / (n - 1) as f32;
+        let dir = if i + 1 < n { guide[i + 1] - p } else { p - guide[i - 1] };
+        let dir = dir.normalize_or(Vec3::NEG_Y);
+        // width direction lies on the scalp surface
+        let out = (p - center).normalize_or(Vec3::Z);
+        let side = dir.cross(out).normalize_or(Vec3::X);
+        let w = (w0 + (w1 - w0) * t) / 2.0;
+        m.push_vertex(p - side * w, out, color);
+        m.push_vertex(p + side * w, out, color);
+    }
+    for i in 0..n - 1 {
+        let a = (i * 2) as u32;
+        m.push_tri(a, a + 1, a + 3);
+        m.push_tri(a, a + 3, a + 2);
+        // reversed faces so cards read from both sides
+        m.push_tri(a, a + 3, a + 1);
+        m.push_tri(a, a + 2, a + 3);
+    }
+    m
+}
+
+/// Strand guide: hug the skull early, hang toward `len` below with `drift`.
+fn strand_guide(start: Vec3, center: Vec3, len: f32, drift: Vec3, samples: usize) -> Vec<Vec3> {
+    let out = (start - center).normalize_or(Vec3::Z);
+    (0..samples)
+        .map(|i| {
+            let t = i as f32 / (samples - 1) as f32;
+            let hug = center + out * (start - center).length() * (1.0 + 0.16 * t);
+            let hang = Vec3::new(start.x + drift.x, start.y - len, start.z + drift.z);
+            let k = t * t * (3.0 - 2.0 * t);
+            hug.lerp(hang, k * k)
+        })
+        .collect()
+}
+
+/// Long flowing hair / topknot built from clumped ribbon cards.
+fn hair_cards(style: &str, c: Vec3, r: f32, color: Vec3, seed: u64) -> Mesh {
+    let mut rr = rng(seed ^ 0x4A17);
+    let mut m = Mesh::new();
+    let strands = 26;
+    for i in 0..strands {
+        // golden-angle spread over the upper hemisphere
+        let a = i as f32 * 2.399963;
+        let y = 0.35 + 0.6 * (i as f32 / strands as f32);
+        let ring = (1.0 - y * y).max(0.05).sqrt();
+        let start = c + Vec3::new(a.cos() * ring, y, a.sin() * ring * 0.9) * r * 1.04;
+        // front strands stay short (clear the face), back strands flow long
+        let backness = ((c.z - start.z) / r).clamp(-1.0, 1.0);
+        let base_len = match style {
+            "topknot" => r * 0.5,
+            _ => r * (1.6 + 1.3 * (backness * 0.5 + 0.5)),
+        };
+        let len = base_len * range(&mut rr, 0.85, 1.15);
+        if style != "topknot" && start.z > c.z + r * 0.45 && start.y < c.y + r * 0.55 {
+            continue; // never grow over the face
+        }
+        let drift = Vec3::new(
+            range(&mut rr, -0.12, 0.12) * r,
+            0.0,
+            -r * (0.3 + 0.4 * (backness * 0.5 + 0.5)),
+        );
+        let guide = strand_guide(start, c, len, drift, 7);
+        m.merge(&ribbon(
+            &guide,
+            r * 0.34,
+            r * 0.10,
+            vary(color, 0.12, range(&mut rr, 0.0, 1.0)),
+            c,
+        ));
+    }
+    if style == "topknot" {
+        let mut knot = icosphere(r * 0.26, 2, color);
+        knot.translate(c + Vec3::new(0.0, r * 0.95, -r * 0.15));
+        m.merge(&knot);
+        let start = c + Vec3::new(0.0, r * 0.95, -r * 0.35);
+        let guide = strand_guide(start, c, r * 1.7, Vec3::new(0.0, 0.0, -r * 0.5), 7);
+        m.merge(&ribbon(&guide, r * 0.28, r * 0.08, color * 0.94, c));
+    }
+    m
+}
+
+/// Ribbon-card facial hair: mustache and/or chin beard.
+fn beard_cards(style: &str, c: Vec3, r: f32, color: Vec3, seed: u64) -> Mesh {
+    let mut rr = rng(seed ^ 0xBEA6D);
+    let mut m = Mesh::new();
+    if style == "none" {
+        return m;
+    }
+    // mustache: two arcs from under the nose, out and down
+    for sx in [-1.0f32, 1.0] {
+        let start = c + Vec3::new(sx * r * 0.10, -r * 0.22, r * 0.94);
+        let guide: Vec<Vec3> = (0..5)
+            .map(|i| {
+                let t = i as f32 / 4.0;
+                start
+                    + Vec3::new(
+                        sx * r * 0.30 * t,
+                        -r * 0.16 * t * t - r * 0.05 * t,
+                        -r * 0.12 * t,
+                    )
+            })
+            .collect();
+        m.merge(&ribbon(&guide, r * 0.18, r * 0.06, color, c));
+    }
+    if style == "mustache" {
+        return m;
+    }
+    // chin/jaw beard: strands hanging from the jawline, center longest
+    let len_mul = if style == "long" { 2.6 } else { 1.0 };
+    let strands = 13;
+    for i in 0..strands {
+        let t = i as f32 / (strands - 1) as f32; // 0..1 across the jaw
+        let ang = (t - 0.5) * 1.9;
+        let start = c
+            + Vec3::new(
+                ang.sin() * r * 0.66,
+                -r * 0.58 - (1.0 - ang.cos()) * r * 0.1,
+                ang.cos() * r * 0.68,
+            );
+        let center_ness = 1.0 - (t - 0.5).abs() * 2.0;
+        let len = r * (0.5 + 0.55 * center_ness) * len_mul * range(&mut rr, 0.9, 1.1);
+        let guide = strand_guide(
+            start,
+            c + Vec3::new(0.0, -r * 0.3, 0.0),
+            len,
+            Vec3::new(0.0, 0.0, r * 0.16),
+            6,
+        );
+        m.merge(&ribbon(
+            &guide,
+            r * 0.30,
+            r * 0.08,
+            vary(color, 0.10, range(&mut rr, 0.0, 1.0)),
+            c,
+        ));
+    }
+    m
+}
+
 /// Hair styles built from a clipped shell over the skull.
 fn hair_mesh(style: &str, c: Vec3, r: f32, color: Vec3) -> Mesh {
     let mut cap = icosphere(r * 1.08, 2, color);
@@ -384,9 +528,14 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     let bulk = p.bulk.clamp(0.6, 1.6);
     let sw = h * 0.135 * bulk;
     let rig = build_rig(h, sw);
-    let w = wardrobe(&mut r, pal, p.class, p.skin_tone);
+    let mut w = wardrobe(&mut r, pal, p.class, p.skin_tone);
     let jw = |i: usize| rig.world[i];
     let dressed = p.outfit.as_deref().is_some_and(|s| s != "plain");
+    if let Some(hc) = &p.hair_color {
+        if let Ok(c) = crate::palette::hex(hc) {
+            w.hair = c;
+        }
+    }
     let hair_styles = ["short", "ponytail", "bun", "bald"];
     let hair_style = p
         .hair
@@ -471,10 +620,26 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     features.bind_all_to_joint(HEAD as u16);
     body.merge(&features);
 
-    let mut hair = hair_mesh(&hair_style, head_c + Vec3::new(0.0, head_r * 0.12, -head_r * 0.04), head_r, w.hair);
+    let hair_c = head_c + Vec3::new(0.0, head_r * 0.12, -head_r * 0.04);
+    let mut hair = match hair_style.as_str() {
+        "long" | "topknot" => {
+            // scalp cap + flowing ribbon cards
+            let mut m = hair_mesh("short", hair_c, head_r, w.hair);
+            m.merge(&hair_cards(&hair_style, hair_c, head_r, w.hair, p.seed));
+            m
+        }
+        other => hair_mesh(other, hair_c, head_r, w.hair),
+    };
     if hair.vertex_count() > 0 {
         hair.bind_all_to_joint(HEAD as u16);
         body.merge(&hair);
+    }
+    if let Some(beard) = &p.beard {
+        let mut b = beard_cards(beard, head_c, head_r, w.hair, p.seed);
+        if b.vertex_count() > 0 {
+            b.bind_all_to_joint(HEAD as u16);
+            body.merge(&b);
+        }
     }
 
     // neck (smooth)

@@ -187,9 +187,15 @@ pub struct CharacterParams {
     pub bulk: f32,
     #[serde(default = "d_true")]
     pub animate: bool,
-    /// short | ponytail | bun | bald (default: seeded pick)
+    /// short | ponytail | bun | bald | long | topknot (default: seeded pick)
     #[serde(default)]
     pub hair: Option<String>,
+    /// none | mustache | short | long — ribbon-card facial hair.
+    #[serde(default)]
+    pub beard: Option<String>,
+    /// Override hair/beard color (#rrggbb), e.g. "#e8e6e0" for elders.
+    #[serde(default)]
+    pub hair_color: Option<String>,
     /// 0..=3 light→dark (default: seeded pick)
     #[serde(default)]
     pub skin_tone: Option<u32>,
@@ -426,6 +432,32 @@ mod tests {
             a.parts[0].mesh.vertex_count() > bald.parts[0].mesh.vertex_count(),
             "ponytail should add geometry over bald"
         );
+    }
+
+    #[test]
+    fn hair_and_beard_cards() {
+        let base = Recipe::parse(r#"{"kind":"character","seed":4,"hair":"bald"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        let long = Recipe::parse(
+            r##"{"kind":"character","seed":4,"hair":"long","beard":"long","hair_color":"#eae7e0"}"##,
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+        assert!(
+            long.parts[0].mesh.vertex_count() > base.parts[0].mesh.vertex_count() + 200,
+            "ribbon cards should add real geometry"
+        );
+        // determinism with cards
+        let again = Recipe::parse(
+            r##"{"kind":"character","seed":4,"hair":"long","beard":"long","hair_color":"#eae7e0"}"##,
+        )
+        .unwrap()
+        .build()
+        .unwrap();
+        assert_eq!(crate::gltf::to_glb(&long), crate::gltf::to_glb(&again));
     }
 
     #[test]

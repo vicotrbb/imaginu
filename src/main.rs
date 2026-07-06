@@ -441,7 +441,8 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
 
 {"kind":"character","class":"villager|warrior|mage|rogue","height":1.7,
  "bulk":1.0,"animate":true,"seed":1,
- "hair":"short|ponytail|bun|bald","skin_tone":0,"expressions":true,
+ "hair":"short|ponytail|bun|bald|long|topknot","beard":"none|mustache|short|long",
+ "hair_color":"#eae7e0","skin_tone":0,"expressions":true,
  "outfit":"robe|tunic|plain","ornamentation":0.6,
  "trim_motif":"meander|zigzag|dots|diamonds|scroll|runes"}
  // outfits: lofted painted garment stacks (under-robe, open coat, hanging
