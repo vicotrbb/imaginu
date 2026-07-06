@@ -1,0 +1,12 @@
+{
+ "kind": "monster",
+ "body": "wyrm",
+ "class": "elemental",
+ "palette": "infernal",
+ "size": 1.6,
+ "horns": 0.7,
+ "spikes": 0.5,
+ "eyes": 2,
+ "emissive": 0.8,
+ "seed": 3
+}
