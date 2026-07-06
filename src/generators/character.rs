@@ -140,23 +140,42 @@ fn wardrobe(r: &mut Rand, pal: &Palette, class: CharacterClass, tone: Option<u32
     }
 }
 
-/// Limb segment: smooth tapered tube with a mid bulge and a joint ball at
-/// the start (rounds shoulders/knees and hides the open tube ring).
-fn limb(from: Vec3, to: Vec3, r0: f32, r1: f32, color: Vec3) -> Mesh {
-    let mid = from + (to - from) * 0.5;
-    let m = tube(
+/// Boot: sculpted from a shared-vertex icosphere (cuboids are flat-shaded
+/// islands, so subdivision can never round them — learned the hard way):
+/// flattened sole, rounded heel, tapered toe box, plus an ankle cuff that
+/// overlaps the shin so the leg never floats.
+fn boot(ankle: Vec3, shin_r: f32, h: f32, color: Vec3) -> Mesh {
+    let len = h * 0.062; // half-length heel→toe
+    let wdt = shin_r * 1.55;
+    let top = ankle.y + shin_r * 1.05; // cuff height above the sole
+    let mut m = icosphere(1.0, 3, color);
+    for v in m.positions.iter_mut() {
+        // flatten the sole: clamp the lower cap, keep verts shared
+        let yu = if v.y < -0.45 { -0.45 - (v.y + 0.45) * 0.06 } else { v.y };
+        let tz = v.z.max(0.0); // 0 at heel/mid, →1 at toe
+        // wedge: the toe box sits lower than the ankle
+        let height = top * (1.0 - 0.52 * tz.powf(1.6));
+        v.y = (yu + 0.47) / 1.47 * height;
+        // toe narrows slightly, heel tucks in
+        v.x *= wdt * (1.0 - 0.18 * tz) * (1.0 - 0.10 * (-v.z).max(0.0));
+        v.z = v.z * len + len * 0.52; // shift so the heel sits behind the ankle
+    }
+    m.recompute_smooth_normals();
+    m.translate(Vec3::new(ankle.x, 0.0, ankle.z - len * 0.18));
+    // ankle cuff: rolled boot top swallowing the shin bottom
+    let mut cuff = lathe(
         &[
-            (from, r0),
-            (mid, (r0 + r1) * 0.55),
-            (from + (to - from) * 0.98, r1),
+            (shin_r * 1.18, ankle.y + shin_r * 0.20),
+            (shin_r * 1.30, ankle.y + shin_r * 0.85),
+            (shin_r * 1.22, ankle.y + shin_r * 1.35),
+            (shin_r * 0.95, ankle.y + shin_r * 1.45),
         ],
-        9,
-        |_| color,
+        10,
+        |_, _| color * 0.88,
     );
-    let mut m = crate::subdiv::subdivide(&m, false);
-    let mut ball = icosphere(r0 * 1.05, 2, color);
-    ball.translate(from);
-    m.merge(&ball);
+    cuff = crate::subdiv::subdivide(&cuff, false);
+    cuff.translate(Vec3::new(ankle.x, 0.0, ankle.z));
+    m.merge(&cuff);
     m
 }
 
@@ -546,17 +565,21 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     // smooth-skinned torso core (limbs are bound per-region below)
     let mut core = Mesh::new();
 
-    // pelvis: rounded, rigid to HIPS — smooth weights here let opposing
-    // thighs tear the crotch open on wide strides
-    let mut pelvis = crate::subdiv::subdivide_n(
-        &cuboid(
-            jw(HIPS) + Vec3::new(0.0, -h * 0.015, 0.0),
-            Vec3::new(h * 0.098 * bulk, h * 0.055, h * 0.066 * bulk),
-            w.pants,
-        ),
-        2,
-        true,
-    );
+    // pelvis: rounded "shorts" ellipsoid, rigid to HIPS — smooth weights
+    // here let opposing thighs tear the crotch open on wide strides.
+    // (An icosphere, NOT a subdivided cuboid: cuboids have flat-shaded
+    // per-face vertices, so subdivision leaves them boxes.)
+    let mut pelvis = icosphere(1.0, 3, w.pants);
+    for v in pelvis.positions.iter_mut() {
+        let t_down = (-v.y).max(0.0);
+        // hint of a leg split: the underside center rises slightly
+        let split = t_down * (1.0 - (v.x.abs() * 2.2).min(1.0)) * 0.22;
+        v.x *= h * 0.112 * bulk;
+        v.z *= h * 0.082 * bulk;
+        v.y = v.y * h * 0.068 * (1.0 - split) - h * 0.026;
+    }
+    pelvis.recompute_smooth_normals();
+    pelvis.translate(jw(HIPS));
     pelvis.bind_all_to_joint(HIPS as u16);
     body.merge(&pelvis);
 
@@ -568,7 +591,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         (h * 0.083 * bulk, jw(SPINE).y + h * 0.030), // waist pinch
         (h * 0.094 * bulk, jw(CHEST).y + h * 0.015),
         (h * 0.100 * bulk, jw(CHEST).y + h * 0.062), // chest
-        (h * 0.078 * bulk, jw(CHEST).y + h * 0.092), // shoulder slope
+        (h * 0.092 * bulk, jw(CHEST).y + h * 0.092), // shoulder slope
         (h * 0.030 * bulk, jw(NECK).y + h * 0.005),
     ];
     let waist_y = jw(SPINE).y - h * 0.01;
@@ -690,13 +713,42 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         _ => w.skin,
     };
     for (aj, fj, hj) in [(ARM_L, FOREARM_L, HAND_L), (ARM_R, FOREARM_R, HAND_R)] {
-        let mut arm = Mesh::new();
-        arm.merge(&limb(jw(aj), jw(fj), arm_r0, arm_r0 * 0.8, w.shirt));
-        arm.merge(&limb(jw(fj), jw(hj), arm_r0 * 0.78, arm_r0 * 0.62, forearm_col));
+        // one continuous tapered tube shoulder→elbow→wrist: no seams or
+        // lips at the elbow, sleeve color switches mid-surface
+        let (a, f, hd) = (jw(aj), jw(fj), jw(hj));
+        let rings: Vec<(Vec3, f32)> = vec![
+            (a + Vec3::Y * arm_r0 * 0.1, arm_r0 * 1.00),
+            (a + (f - a) * 0.45, arm_r0 * 0.94),
+            (f + (a - f) * 0.12, arm_r0 * 0.80),
+            (f + (hd - f) * 0.22, arm_r0 * 0.82), // forearm bulge
+            (f + (hd - f) * 0.65, arm_r0 * 0.68),
+            (hd + Vec3::Y * arm_r0 * 0.15, arm_r0 * 0.54),
+        ];
+        let sleeve_end = 2usize; // rings 0..=2 wear the shirt
+        let mut arm = tube(&rings, 10, |i| {
+            if i <= sleeve_end { w.shirt } else { forearm_col }
+        });
+        arm = crate::subdiv::subdivide(&arm, false);
+        // shoulder ball closes the tube top and rounds into the torso
+        let mut ball = icosphere(arm_r0 * 1.04, 2, w.shirt);
+        ball.translate(a - Vec3::Y * arm_r0 * 0.10);
+        arm.merge(&ball);
+        // elbow cap so the sleeve edge reads as hemmed cloth
+        let mut hem = lathe(
+            &[
+                (arm_r0 * 0.80, -arm_r0 * 0.12),
+                (arm_r0 * 0.88, 0.0),
+                (arm_r0 * 0.80, arm_r0 * 0.16),
+            ],
+            10,
+            |_, _| w.shirt * 0.92,
+        );
+        hem.translate(f + (a - f) * 0.10);
+        arm.merge(&hem);
         crate::skinning::smooth_bind(&mut arm, &segs(&rig, &[(aj, fj), (fj, hj)]), 4.0);
         body.merge(&arm);
         let mut hand = mitten(
-            jw(hj) - Vec3::Y * arm_r0 * 0.35,
+            jw(hj) - Vec3::Y * arm_r0 * 0.25,
             arm_r0 * 0.95,
             jw(aj).x.signum(),
             w.skin,
@@ -705,37 +757,42 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         body.merge(&hand);
         // pauldrons: warriors only — the smooth torso needs no sleeve puffs
         if p.class == CharacterClass::Warrior && !dressed {
-            let mut pad = icosphere(arm_r0 * 1.55, 2, w.shirt * 0.7);
+            // pauldron: dome capping the shoulder ball, wrapping down over
+            // the upper arm instead of hovering above it
+            let mut pad = icosphere(arm_r0 * 1.24, 2, w.shirt * 0.7);
             for v in pad.positions.iter_mut() {
                 if v.y < 0.0 {
-                    v.y *= 0.25;
+                    v.y *= 0.6;
                 }
+                v.y *= 0.78; // flat armor cap, not a balloon
             }
             pad.recompute_smooth_normals();
             let side = jw(aj).x.signum();
-            pad.translate(jw(aj) + Vec3::new(side * arm_r0 * 0.35, arm_r0 * 0.6, 0.0));
+            pad.translate(jw(aj) + Vec3::new(side * arm_r0 * 0.05, -arm_r0 * 0.02, 0.0));
             pad.bind_all_to_joint(aj as u16);
             body.merge(&pad);
         }
     }
 
-    // legs
-    let leg_r = h * 0.05 * bulk;
+    // legs: one continuous tapered tube per side — thigh, knee, calf bulge
+    // and ankle in a single surface (no cap seams at the knee); boot-shaft
+    // color takes over below the knee
+    let leg_r = h * 0.052 * bulk;
     for (tj, sj, fj) in [(THIGH_L, SHIN_L, FOOT_L), (THIGH_R, SHIN_R, FOOT_R)] {
-        let mut leg = Mesh::new();
-        leg.merge(&limb(jw(tj), jw(sj), leg_r, leg_r * 0.82, w.pants));
-        leg.merge(&limb(jw(sj), jw(fj), leg_r * 0.8, leg_r * 0.6, w.boots));
+        let (t, s, f) = (jw(tj), jw(sj), jw(fj));
+        let rings: Vec<(Vec3, f32)> = vec![
+            (t + Vec3::Y * h * 0.03, leg_r * 1.06), // hidden inside the pelvis
+            (t + (s - t) * 0.40, leg_r * 0.98),
+            (s + (t - s) * 0.10, leg_r * 0.80), // knee
+            (s + (f - s) * 0.25, leg_r * 0.84), // calf bulge
+            (s + (f - s) * 0.62, leg_r * 0.66),
+            (f + Vec3::Y * h * 0.012, leg_r * 0.48), // ankle, swallowed by cuff
+        ];
+        let mut leg = tube(&rings, 10, |i| if i <= 2 { w.pants } else { w.boots });
+        leg = crate::subdiv::subdivide(&leg, false);
         crate::skinning::smooth_bind(&mut leg, &segs(&rig, &[(tj, sj), (sj, fj)]), 4.0);
         body.merge(&leg);
-        let mut foot = crate::subdiv::subdivide_n(
-            &cuboid(
-                jw(fj) + Vec3::new(0.0, -h * 0.006, h * 0.034),
-                Vec3::new(leg_r * 0.95, h * 0.024, h * 0.075),
-                w.boots,
-            ),
-            2,
-            true,
-        );
+        let mut foot = boot(jw(fj), leg_r * 0.52, h, w.boots);
         foot.bind_all_to_joint(fj as u16);
         body.merge(&foot);
     }
@@ -797,11 +854,21 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             plate.recompute_smooth_normals();
             plate.bind_all_to_joint(CHEST as u16);
             body.merge(&plate);
-            let mut trim = to_flat_shaded(&cuboid(
-                jw(CHEST) + Vec3::new(0.0, h * 0.085, 0.0),
-                Vec3::new(sw * 0.98, h * 0.012, h * 0.074 * bulk),
-                w.accent * 0.85,
-            ));
+            // accent collar: an elliptical ring hugging the cuirass top
+            let mut trim = lathe(
+                &[
+                    (h * 0.082 * bulk, jw(CHEST).y + h * 0.086),
+                    (h * 0.088 * bulk, jw(CHEST).y + h * 0.098),
+                    (h * 0.070 * bulk, jw(CHEST).y + h * 0.110),
+                ],
+                14,
+                |_, _| w.accent * 0.85,
+            );
+            for v in trim.positions.iter_mut() {
+                v.x *= 1.28;
+                v.z *= 0.88;
+            }
+            trim.recompute_smooth_normals();
             trim.bind_all_to_joint(CHEST as u16);
             body.merge(&trim);
         }

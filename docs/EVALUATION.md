@@ -151,6 +151,27 @@ rebuilds and processes. Budgets: 6×6 km Everdale = 576 chunks + 23 POIs +
 5 bridges in ~3 s wall clock, 791 MB on disk (≈1 GB / 50 km²), largest
 chunk 131 k tris (≪ 2 M budget), single lazy chunk ≪ 30 s.
 
+## Body v4 — bodies & feet (same rubric)
+
+User report: bodies read as wooden mannequins — slab feet, boxy hip block,
+seamy joints. Root cause found by reading, not looking: `cuboid()` emits
+flat-shaded faces with duplicated vertices, so `subdivide(smooth)` treats
+each face as an island and the pelvis/feet "rounding" had NEVER worked —
+they were always boxes. Fixes: sculpted boots (shared-vertex icosphere:
+flattened sole, tapered toe box, ankle cuff swallowing the shin), rounded
+shorts-style pelvis with a crotch split hint, single continuous tapered
+tubes per limb (thigh→knee→calf→ankle and shoulder→elbow→wrist, color
+switching mid-surface — no cap seams or lips), hemmed sleeve edges,
+shoulder balls tucked into a widened torso shoulder slope, warrior
+pauldrons as flat armor caps + a collar ring instead of a floating slab.
+
+| view | before | after |
+|---|---|---|
+| villager/rogue standing | 3.0 | 4.3 |
+| feet/boots close-up | 2.0 | 4.3 |
+| warrior armor | 3.2 | 4.1 |
+| walk/run/dance deformation | 3.8 | 4.3 (crotch + shoulders hold) |
+
 Bug found only by byte-comparison: an in-process determinism heisenbug —
 the auto-vectorized Sobel normal pass returned *different bytes for
 identical inputs* depending on what had run earlier in the process
