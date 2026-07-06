@@ -46,6 +46,8 @@ if [ -z "$version" ]; then
 fi
 
 archive="${BIN}-${version}-${target}.tar.gz"
+# taiki-e names the checksum after the archive base, without the .tar.gz ext.
+sumfile="${BIN}-${version}-${target}.sha256"
 base="https://github.com/${REPO}/releases/download/${version}"
 say "Installing ${BIN} ${version} for ${target}"
 
@@ -55,9 +57,9 @@ trap 'rm -rf "$tmp"' EXIT
 curl -fSL --progress-bar "${base}/${archive}" -o "${tmp}/${archive}" \
   || err "download failed: ${base}/${archive}"
 
-if curl -fsSL "${base}/${archive}.sha256" -o "${tmp}/${archive}.sha256" 2>/dev/null; then
+if curl -fsSL "${base}/${sumfile}" -o "${tmp}/${sumfile}" 2>/dev/null; then
   say "Verifying checksum..."
-  expected="$(awk '{print $1}' "${tmp}/${archive}.sha256")"
+  expected="$(awk '{print $1}' "${tmp}/${sumfile}")"
   if command -v sha256sum >/dev/null 2>&1; then
     actual="$(sha256sum "${tmp}/${archive}" | awk '{print $1}')"
   elif command -v shasum >/dev/null 2>&1; then
