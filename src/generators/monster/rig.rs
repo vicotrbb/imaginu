@@ -30,6 +30,11 @@ pub struct PrimitiveDesc {
     pub r2: f32,
     pub fold_rank: u8,
     pub k: f32,
+    /// Explicit per-axis half-radii for an anisotropic ellipsoid (centered at
+    /// the midpoint of the two joints). `None` = derive the radius from the
+    /// joint span (spheres / joint-elongated ellipsoids / round cones). Used
+    /// to build genuinely FLAT sheets (thin on one axis) like flyer wings.
+    pub radii: Option<Vec3>,
 }
 
 /// Locomotion style — drives which procedural clip driver builds the
@@ -142,6 +147,7 @@ impl RigBuilder {
             r2,
             fold_rank,
             k,
+            radii: None,
         });
     }
 
@@ -154,6 +160,22 @@ impl RigBuilder {
             r2,
             fold_rank,
             k,
+            radii: None,
+        });
+    }
+
+    /// A flat/anisotropic ellipsoid centered between `a` and `b` with explicit
+    /// per-axis half-radii (thin on one axis = a sheet, e.g. a wing membrane).
+    fn flat(&mut self, a: usize, b: usize, radii: Vec3, fold_rank: u8, k: f32) {
+        self.prims.push(PrimitiveDesc {
+            kind: PrimKind::Ellipsoid,
+            joint_a: a,
+            joint_b: b,
+            r1: 0.0,
+            r2: 0.0,
+            fold_rank,
+            k,
+            radii: Some(radii),
         });
     }
 
@@ -278,88 +300,42 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
 
     // fold ranks: 0 = core torso, 1 = neck/head, 2 = legs, 3 = tail. k is
     // large near the core (smooth flesh) and small at tips (crisp junctions).
-    let prims = vec![
-        // --- rank 0: torso core (ellipsoid barrel + filling tube) ---
-        PrimitiveDesc {
-            kind: PrimKind::Ellipsoid,
-            joint_a: HIPS,
-            joint_b: SPINE2,
-            r1: torso_r,
-            r2: 0.05 * s,
-            fold_rank: 0,
-            k: 0.11 * s,
-        },
-        PrimitiveDesc {
-            kind: PrimKind::RoundCone,
-            joint_a: HIPS,
-            joint_b: SPINE2,
-            r1: torso_r * 0.86,
-            r2: torso_r * 0.92,
-            fold_rank: 0,
-            k: 0.11 * s,
-        },
-        // --- rank 1: thick neck bridge + head + elongated muzzle ---
-        // a fat cone off the shoulders fuses into a real neck (moderate k)
-        PrimitiveDesc {
-            kind: PrimKind::RoundCone,
-            joint_a: SPINE2,
-            joint_b: NECK,
-            r1: torso_r * 0.6,
-            r2: neck_r * 1.05,
-            fold_rank: 1,
-            k: 0.06 * s,
-        },
-        PrimitiveDesc {
-            kind: PrimKind::RoundCone,
-            joint_a: NECK,
-            joint_b: HEAD,
-            r1: neck_r,
-            r2: head_r * 0.85,
-            fold_rank: 1,
-            k: 0.05 * s,
-        },
-        // head as an ellipsoid ELONGATED along head->snout = a muzzle
-        PrimitiveDesc {
-            kind: PrimKind::Ellipsoid,
-            joint_a: HEAD,
-            joint_b: SNOUT,
-            r1: head_r,
-            r2: 0.015 * s,
-            fold_rank: 1,
-            k: 0.045 * s,
-        },
-        // --- rank 3: 3-segment tapering tail (declared before legs) ---
-        PrimitiveDesc {
-            kind: PrimKind::RoundCone,
-            joint_a: HIPS,
-            joint_b: TAIL1,
-            r1: torso_r * 0.5,
-            r2: 0.12 * s,
-            fold_rank: 3,
-            k: 0.03 * s,
-        },
-        PrimitiveDesc {
-            kind: PrimKind::RoundCone,
-            joint_a: TAIL1,
-            joint_b: TAIL2,
-            r1: 0.12 * s,
-            r2: 0.06 * s,
-            fold_rank: 3,
-            k: 0.028 * s,
-        },
-        PrimitiveDesc {
-            kind: PrimKind::RoundCone,
-            joint_a: TAIL2,
-            joint_b: TAIL3,
-            r1: 0.06 * s,
-            r2: 0.018 * s,
-            fold_rank: 3,
-            k: 0.022 * s,
-        },
+    let rc = |a: usize, b: usize, r1: f32, r2: f32, fold_rank: u8, k: f32| PrimitiveDesc {
+        kind: PrimKind::RoundCone,
+        joint_a: a,
+        joint_b: b,
+        r1,
+        r2,
+        fold_rank,
+        k,
+        radii: None,
+    };
+    let el = |a: usize, b: usize, r1: f32, r2: f32, fold_rank: u8, k: f32| PrimitiveDesc {
+        kind: PrimKind::Ellipsoid,
+        joint_a: a,
+        joint_b: b,
+        r1,
+        r2,
+        fold_rank,
+        k,
+        radii: None,
+    };
+    let mut prims = vec![
+        // rank 0: torso core (ellipsoid barrel + filling tube)
+        el(HIPS, SPINE2, torso_r, 0.05 * s, 0, 0.11 * s),
+        rc(HIPS, SPINE2, torso_r * 0.86, torso_r * 0.92, 0, 0.11 * s),
+        // rank 1: thick neck bridge + head + elongated muzzle
+        rc(SPINE2, NECK, torso_r * 0.6, neck_r * 1.05, 1, 0.06 * s),
+        rc(NECK, HEAD, neck_r, head_r * 0.85, 1, 0.05 * s),
+        el(HEAD, SNOUT, head_r, 0.015 * s, 1, 0.045 * s),
+        // rank 3: 3-segment tapering tail
+        rc(HIPS, TAIL1, torso_r * 0.5, 0.12 * s, 3, 0.03 * s),
+        rc(TAIL1, TAIL2, 0.12 * s, 0.06 * s, 3, 0.028 * s),
+        rc(TAIL2, TAIL3, 0.06 * s, 0.018 * s, 3, 0.022 * s),
     ];
-    let mut prims = prims;
 
-    // --- rank 2: four legs (upper + lower round cones each) ---
+    // rank 2: four legs (upper + lower round cones each). Small upper-leg k ->
+    // a tight haunch/shoulder join (a defined crease, not a melted blob).
     let legs_joints = [
         (FL_UP, FL_LO, FL_FT),
         (FR_UP, FR_LO, FR_FT),
@@ -367,26 +343,8 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
         (RR_UP, RR_LO, RR_FT),
     ];
     for (up, lo, ft) in legs_joints {
-        // small upper-leg k -> a TIGHT haunch/shoulder join (defined crease
-        // instead of a melted blob) via the tighter rank-2 cross-band merge
-        prims.push(PrimitiveDesc {
-            kind: PrimKind::RoundCone,
-            joint_a: up,
-            joint_b: lo,
-            r1: leg_up_r,
-            r2: leg_lo_r * 1.15,
-            fold_rank: 2,
-            k: 0.018 * s,
-        });
-        prims.push(PrimitiveDesc {
-            kind: PrimKind::RoundCone,
-            joint_a: lo,
-            joint_b: ft,
-            r1: leg_lo_r,
-            r2: foot_r,
-            fold_rank: 2,
-            k: 0.026 * s,
-        });
+        prims.push(rc(up, lo, leg_up_r, leg_lo_r * 1.15, 2, 0.018 * s));
+        prims.push(rc(lo, ft, leg_lo_r, foot_r, 2, 0.026 * s));
     }
 
     let gait = GaitDesc {
@@ -417,7 +375,10 @@ fn compute_bounds(rig: &MonsterRig) -> (Vec3, Vec3) {
     let mut lo = Vec3::splat(f32::INFINITY);
     let mut hi = Vec3::splat(f32::NEG_INFINITY);
     for d in &rig.prims {
-        let r = d.r1.max(d.r2) + d.k;
+        let r = match d.radii {
+            Some(rv) => rv.max_element(),
+            None => d.r1.max(d.r2),
+        } + d.k;
         for j in [d.joint_a, d.joint_b] {
             let w = world[j];
             lo = lo.min(w - Vec3::splat(r));
@@ -474,35 +435,43 @@ fn plan_ooze(p: &MonsterParams) -> MonsterRig {
     })
 }
 
-/// M6b — Serpent/wyrm: a long tapered round-cone spine (11 joints) in a gentle
-/// S, thin at the tips and thick at the middle, with a small snouted head.
+/// M6b — Serpent/wyrm (the fire-wyrm hero base): a thick tapered spine (12
+/// joints) in a clear horizontal S with the front third REARED up, ending in a
+/// broad blunt-snouted head with an underslung jaw.
 fn plan_serpent(p: &MonsterParams) -> MonsterRig {
     let s = p.size.clamp(0.2, 4.0);
     let v = Vec3::new;
     let mut r = RigBuilder::new();
-    let n = 11usize;
+    let n = 12usize;
     let mut chain = Vec::new();
     let mut prev = None;
     for i in 0..n {
         let t = i as f32 / (n - 1) as f32; // 0 = tail .. 1 = head
-        let z = (t - 0.5) * 2.8 * s;
-        let x = 0.22 * s * (t * PI * 1.6).sin(); // gentle S
-        let y = 0.16 * s + 0.24 * s * t * t; // head lifts off the ground
+        // body runs along +Z; the front third rears up off the ground
+        let z = (t - 0.5) * 2.4 * s;
+        let x = 0.42 * s * (t * PI * 2.2).sin(); // clear horizontal S
+        let rear = (((t - 0.55) / 0.45).clamp(0.0, 1.0)).powi(2); // eased lift
+        let y = 0.20 * s + 0.95 * s * rear;
         let idx = r.joint(prev, &format!("spine{i}"), v(x, y, z));
         chain.push(idx);
         prev = Some(idx);
     }
-    // fat middle, thin ends
-    let rad = |t: f32| (0.16 * s * (1.0 - (2.0 * t - 1.0).powi(2) * 0.72)).max(0.03 * s);
+    // thick coil: fat mid-body (~0.28s) tapering to a pointed tail
+    let rad = |t: f32| (0.28 * s * (1.0 - (2.0 * t - 1.0).powi(2) * 0.78)).max(0.04 * s);
     for i in 0..n - 1 {
         let ta = i as f32 / (n - 1) as f32;
         let tb = (i + 1) as f32 / (n - 1) as f32;
         r.cone(chain[i], chain[i + 1], rad(ta), rad(tb), 0, 0.05 * s);
     }
+    // defined head: a broad blunt ellipsoid (distinctly wider than the neck)
+    // pointing forward-down, plus an underslung lower jaw = a maw.
     let head = chain[n - 1];
     let hp = r.wpos(head);
-    let snout = r.joint(Some(head), "snout", hp + v(-0.03 * s, -0.03 * s, 0.20 * s));
-    r.ellip(head, snout, rad(1.0) * 1.15, 0.02 * s, 0, 0.05 * s);
+    let snout = r.joint(Some(head), "snout", hp + v(0.0, -0.14 * s, 0.30 * s));
+    let jaw = r.joint(Some(head), "jaw", hp + v(0.0, -0.20 * s, 0.20 * s));
+    // wide/tall/long head block via explicit radii; centered a bit forward
+    r.flat(head, snout, v(0.26 * s, 0.24 * s, 0.34 * s), 0, 0.05 * s);
+    r.cone(head, jaw, 0.16 * s, 0.09 * s, 0, 0.04 * s); // lower jaw
     r.finish(GaitDesc {
         legs: Vec::new(),
         spine: chain,
@@ -520,33 +489,41 @@ fn plan_biped_brute(p: &MonsterParams) -> MonsterRig {
     let bulk = 1.0 + 0.4 * p.menace.clamp(0.0, 1.0);
     let v = Vec3::new;
     let mut r = RigBuilder::new();
-    let hips = r.joint(None, "hips", v(0.0, 0.90 * s, 0.0));
-    let spine = r.joint(Some(hips), "spine", v(0.0, 1.05 * s, 0.0));
-    let chest = r.joint(Some(spine), "chest", v(0.0, 1.24 * s, -0.03 * s));
-    let neck = r.joint(Some(chest), "neck", v(0.0, 1.36 * s, 0.02 * s));
-    let head = r.joint(Some(neck), "head", v(0.0, 1.48 * s, 0.05 * s));
-    r.ellip(hips, chest, 0.20 * s * bulk, 0.04 * s, 0, 0.10 * s);
-    r.cone(hips, chest, 0.17 * s * bulk, 0.19 * s * bulk, 0, 0.10 * s);
-    r.cone(chest, neck, 0.13 * s * bulk, 0.10 * s, 1, 0.06 * s);
-    r.cone(neck, head, 0.09 * s, 0.11 * s, 1, 0.05 * s);
-    r.ellip(head, head, 0.13 * s, 0.0, 1, 0.05 * s);
-    // arms (own families) — big brutish limbs off the chest
+    // hunched, heavy build in the base bind (menace/size stack on later)
+    let hips = r.joint(None, "hips", v(0.0, 0.88 * s, 0.0));
+    let spine = r.joint(Some(hips), "spine", v(0.0, 1.02 * s, 0.0));
+    let chest = r.joint(Some(spine), "chest", v(0.0, 1.20 * s, -0.05 * s));
+    let neck = r.joint(Some(chest), "neck", v(0.0, 1.30 * s, 0.06 * s));
+    let head = r.joint(Some(neck), "head", v(0.0, 1.40 * s, 0.12 * s));
+    r.ellip(hips, chest, 0.24 * s * bulk, 0.05 * s, 0, 0.10 * s); // thick barrel torso
+    r.cone(hips, chest, 0.20 * s * bulk, 0.24 * s * bulk, 0, 0.10 * s);
+    r.flat(
+        chest,
+        chest,
+        v(0.36 * s * bulk, 0.22 * s, 0.24 * s),
+        0,
+        0.09 * s,
+    ); // broad shoulders
+    r.cone(chest, neck, 0.16 * s * bulk, 0.12 * s, 1, 0.06 * s); // thick neck
+    r.cone(neck, head, 0.10 * s, 0.13 * s, 1, 0.05 * s);
+    r.ellip(head, head, 0.15 * s, 0.0, 1, 0.05 * s);
+    // arms (own families) — heavy limbs off the broad shoulders
     for side in [-1.0f32, 1.0] {
-        let sh = r.joint(Some(chest), "upperarm", v(side * 0.30 * s, 1.26 * s, 0.0));
-        let el = r.joint(Some(sh), "forearm", v(side * 0.40 * s, 1.00 * s, 0.05 * s));
-        let hn = r.joint(Some(el), "hand", v(side * 0.44 * s, 0.76 * s, 0.08 * s));
-        r.cone(sh, el, 0.12 * s * bulk, 0.09 * s * bulk, 2, 0.02 * s);
-        r.cone(el, hn, 0.09 * s, 0.07 * s, 2, 0.026 * s);
-        r.ellip(hn, hn, 0.08 * s, 0.0, 2, 0.02 * s);
+        let sh = r.joint(Some(chest), "upperarm", v(side * 0.34 * s, 1.18 * s, 0.0));
+        let el = r.joint(Some(sh), "forearm", v(side * 0.46 * s, 0.90 * s, 0.06 * s));
+        let hn = r.joint(Some(el), "hand", v(side * 0.50 * s, 0.64 * s, 0.10 * s));
+        r.cone(sh, el, 0.16 * s * bulk, 0.12 * s * bulk, 2, 0.02 * s);
+        r.cone(el, hn, 0.12 * s, 0.09 * s, 2, 0.026 * s);
+        r.ellip(hn, hn, 0.11 * s, 0.0, 2, 0.02 * s); // big fists
     }
-    // legs (swing joints at the torso underside)
+    // legs (thick thighs; swing joints at the torso underside)
     let mut legs = Vec::new();
     for side in [-1.0f32, 1.0] {
-        let th = r.joint(Some(hips), "thigh", v(side * 0.14 * s, 0.72 * s, 0.0));
-        let sn = r.joint(Some(th), "shin", v(side * 0.15 * s, 0.40 * s, 0.02 * s));
-        let ft = r.joint(Some(sn), "foot", v(side * 0.16 * s, 0.05 * s, 0.12 * s));
-        r.cone(th, sn, 0.14 * s * bulk, 0.10 * s, 2, 0.018 * s);
-        r.cone(sn, ft, 0.10 * s, 0.06 * s, 2, 0.026 * s);
+        let th = r.joint(Some(hips), "thigh", v(side * 0.16 * s, 0.70 * s, 0.0));
+        let sn = r.joint(Some(th), "shin", v(side * 0.17 * s, 0.38 * s, 0.02 * s));
+        let ft = r.joint(Some(sn), "foot", v(side * 0.18 * s, 0.05 * s, 0.14 * s));
+        r.cone(th, sn, 0.18 * s * bulk, 0.12 * s, 2, 0.018 * s);
+        r.cone(sn, ft, 0.12 * s, 0.07 * s, 2, 0.026 * s);
         legs.push(vec![th, sn, ft]);
     }
     r.finish(GaitDesc {
@@ -586,24 +563,23 @@ fn plan_winged_flyer(p: &MonsterParams) -> MonsterRig {
         r.cone(sn, ft, 0.05 * s, 0.035 * s, 2, 0.02 * s);
         legs.push(vec![th, sn, ft]);
     }
-    // wings: two broad membrane lobes fanned forward + back (blended with a
-    // large k into one wing surface) plus a leading-edge spar, ranked last.
+    // wings: each a large ellipsoid FLATTENED on the vertical axis (a genuine
+    // thin sheet — wide span, ~0.045s thin, deep chord), spread wide from the
+    // shoulders and swept slightly forward. Fold-ranked last and fused with a
+    // LOW k (near hard-union) so smooth-min does NOT inflate them back to lobes.
     let mut wings = Vec::new();
     for side in [-1.0f32, 1.0] {
-        let root = r.joint(Some(chest), "wing", v(side * 0.15 * s, 1.05 * s, 0.02 * s));
+        let root = r.joint(Some(chest), "wing", v(side * 0.16 * s, 1.06 * s, 0.02 * s));
+        // wingtip out to the side + slightly forward (swept leading edge)
         let tip = r.joint(
             Some(root),
             "wingtip",
-            v(side * 1.05 * s, 1.18 * s, 0.05 * s),
+            v(side * 1.15 * s, 1.14 * s, 0.12 * s),
         );
-        let rear = r.joint(
-            Some(root),
-            "wingback",
-            v(side * 0.70 * s, 1.00 * s, -0.40 * s),
-        );
-        r.ellip(root, tip, 0.13 * s, 0.02 * s, 4, 0.10 * s);
-        r.ellip(root, rear, 0.11 * s, 0.02 * s, 4, 0.10 * s);
-        r.cone(root, tip, 0.05 * s, 0.02 * s, 4, 0.03 * s);
+        // membrane center ~mid-span; radii = (half-span, thin, half-chord)
+        r.flat(root, tip, v(0.62 * s, 0.045 * s, 0.42 * s), 4, 0.012 * s);
+        // a thin leading-edge spar for a defined bone
+        r.cone(root, tip, 0.05 * s, 0.02 * s, 4, 0.02 * s);
         wings.push(root);
     }
     r.finish(GaitDesc {

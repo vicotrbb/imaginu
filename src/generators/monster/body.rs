@@ -22,11 +22,14 @@ pub(super) fn eval_prim(d: &PrimitiveDesc, world: &[Vec3], p: Vec3) -> f32 {
     match d.kind {
         PrimKind::RoundCone => sd_round_cone(p, a, b, d.r1, d.r2),
         PrimKind::Ellipsoid => {
-            // axis-aligned ellipsoid centered between the joints, elongated
-            // along the joint axis so it encloses both ends plus r1 girth.
+            // axis-aligned ellipsoid centered between the joints. Explicit
+            // `radii` give a flat sheet (thin on one axis); otherwise derive
+            // radii from the joint span (sphere / joint-elongated ellipsoid).
             let c = (a + b) * 0.5;
-            let half = (b - a).abs() * 0.5;
-            let r = Vec3::splat(d.r1) + half + Vec3::splat(d.r2);
+            let r = match d.radii {
+                Some(rv) => rv,
+                None => Vec3::splat(d.r1) + (b - a).abs() * 0.5 + Vec3::splat(d.r2),
+            };
             sd_ellipsoid(p, c, r)
         }
     }
