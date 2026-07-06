@@ -1,8 +1,8 @@
 //! Monster rig: a data-driven creature skeleton + a fold-order-ranked set of
 //! SDF primitives + a gait descriptor. This generalizes the fixed humanoid
-//! `character::Rig` to arbitrary body plans. For now the `QuadrupedBeast`
-//! plan is fully realized; the other plans fall through to it so the recipe
-//! surface always compiles and builds.
+//! `character::Rig` to arbitrary body plans. All eight `BodyPlan`s are modeled
+//! (`plan_*`); each returns a [`MonsterRig`] fed to the same shared
+//! body/skin/anim pipeline.
 
 use glam::{Quat, Vec3};
 
