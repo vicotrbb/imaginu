@@ -119,7 +119,13 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
     let bulk = 1.0 + 0.35 * menace;
 
     let hy = 0.62 * s; // hip/shoulder height
-    let leg_seg = 0.28 * s; // per leg-segment drop
+    let leg_seg = 0.21 * s; // per leg-segment drop (upper, lower)
+    // The leg *swing* joints sit at the torso underside, NOT at the buried
+    // shoulder/hip, so the exposed leg top rides its own pivot and motion
+    // grows toward the foot — otherwise the whole visible leg swings a large
+    // arc against the static belly and shatters the mesh (stretch probe).
+    let fl_drop = -0.24 * s; // spine2 world y (~0.66s) -> ~0.42s
+    let rl_drop = -0.20 * s; // hips world y (0.62s) -> ~0.42s
 
     // (parent, name, local translation). Parents always precede children.
     let joints: Vec<(Option<usize>, &str, Vec3)> = vec![
@@ -130,20 +136,20 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
         (Some(NECK), "head", Vec3::new(0.0, 0.06 * s, 0.16 * s)),
         (Some(HIPS), "tail1", Vec3::new(0.0, 0.05 * s, -0.20 * s)),
         (Some(TAIL1), "tail2", Vec3::new(0.0, 0.01 * s, -0.24 * s)),
-        // front-left leg (attaches at the shoulders / spine2)
-        (Some(SPINE2), "fl_upper", Vec3::new(0.18 * s, -0.06 * s, 0.0)),
+        // front-left leg (swing joint at the torso underside)
+        (Some(SPINE2), "fl_upper", Vec3::new(0.18 * s, fl_drop, 0.0)),
         (Some(FL_UP), "fl_lower", Vec3::new(0.0, -leg_seg, 0.0)),
         (Some(FL_LO), "fl_foot", Vec3::new(0.0, -leg_seg, 0.04 * s)),
         // front-right leg
-        (Some(SPINE2), "fr_upper", Vec3::new(-0.18 * s, -0.06 * s, 0.0)),
+        (Some(SPINE2), "fr_upper", Vec3::new(-0.18 * s, fl_drop, 0.0)),
         (Some(FR_UP), "fr_lower", Vec3::new(0.0, -leg_seg, 0.0)),
         (Some(FR_LO), "fr_foot", Vec3::new(0.0, -leg_seg, 0.04 * s)),
-        // rear-left leg (attaches at the hips)
-        (Some(HIPS), "rl_upper", Vec3::new(0.18 * s, -0.02 * s, 0.0)),
+        // rear-left leg
+        (Some(HIPS), "rl_upper", Vec3::new(0.18 * s, rl_drop, 0.0)),
         (Some(RL_UP), "rl_lower", Vec3::new(0.0, -leg_seg, 0.0)),
         (Some(RL_LO), "rl_foot", Vec3::new(0.0, -leg_seg, -0.02 * s)),
         // rear-right leg
-        (Some(HIPS), "rr_upper", Vec3::new(-0.18 * s, -0.02 * s, 0.0)),
+        (Some(HIPS), "rr_upper", Vec3::new(-0.18 * s, rl_drop, 0.0)),
         (Some(RR_UP), "rr_lower", Vec3::new(0.0, -leg_seg, 0.0)),
         (Some(RR_LO), "rr_foot", Vec3::new(0.0, -leg_seg, -0.02 * s)),
     ];

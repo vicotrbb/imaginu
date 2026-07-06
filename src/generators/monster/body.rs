@@ -16,7 +16,7 @@ use crate::sdf::{mesh_field, sd_ellipsoid, sd_round_cone, smin};
 use super::rig::{MonsterRig, PrimKind, PrimitiveDesc};
 
 /// Evaluate one primitive at world point `p` given the joint world positions.
-fn eval_prim(d: &PrimitiveDesc, world: &[Vec3], p: Vec3) -> f32 {
+pub(super) fn eval_prim(d: &PrimitiveDesc, world: &[Vec3], p: Vec3) -> f32 {
     let a = world[d.joint_a];
     let b = world[d.joint_b];
     match d.kind {
@@ -43,15 +43,19 @@ pub fn organic_field(rig: &MonsterRig) -> impl Fn(Vec3) -> f32 {
     let max_rank = prims.iter().map(|d| d.fold_rank).max().unwrap_or(0);
     // cross-band blend radius per band: the softest (smallest) k in the band,
     // scaled down so junctions stay crisp. Band 0 (core) has no cross merge.
-    let mut cross_k = vec![0.0f32; max_rank as usize + 1];
-    for r in 1..=max_rank as usize {
-        let min_k = prims
-            .iter()
-            .filter(|d| d.fold_rank as usize == r)
-            .map(|d| d.k)
-            .fold(f32::INFINITY, f32::min);
-        cross_k[r] = if min_k.is_finite() { min_k * 0.55 } else { 0.0 };
-    }
+    let cross_k: Vec<f32> = (0..=max_rank as usize)
+        .map(|r| {
+            if r == 0 {
+                return 0.0;
+            }
+            let min_k = prims
+                .iter()
+                .filter(|d| d.fold_rank as usize == r)
+                .map(|d| d.k)
+                .fold(f32::INFINITY, f32::min);
+            if min_k.is_finite() { min_k * 0.55 } else { 0.0 }
+        })
+        .collect();
     move |p: Vec3| -> f32 {
         let mut band = vec![f32::INFINITY; max_rank as usize + 1];
         for d in &prims {
@@ -165,7 +169,7 @@ mod tests {
         let rig = build_rig(&p);
         let mesh = build_body(&rig, &p, &pal);
         assert!(mesh.positions.len() > 500, "non-trivial mesh");
-        assert!(mesh.indices.len() % 3 == 0, "triangulated");
+        assert!(mesh.indices.len().is_multiple_of(3), "triangulated");
         // bounds sanity: mesh sits within padded rig bounds
         let (lo, hi) = rig.bounds;
         for v in &mesh.positions {
