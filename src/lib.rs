@@ -13,6 +13,7 @@ pub mod noise;
 pub mod palette;
 pub mod recipe;
 pub mod render;
+pub mod sdf;
 pub mod skinning;
 pub mod subdiv;
 pub mod texture;

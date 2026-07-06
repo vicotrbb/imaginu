@@ -210,3 +210,46 @@ identical inputs* depending on what had run earlier in the process
 (macOS ARM float-state sensitivity; two stable outcomes; disappeared under
 instrumentation). Fixed with f64 gradients + `std::hint::black_box`
 pinning the codegen; CLI output was always deterministic across processes.
+
+## Body v7 — fused SDF body ("it's still shit, move on to make it good")
+
+Verdict on v6: no amount of primitive placement makes a body of merged
+part-meshes look organic — every part boundary is a shading seam. v7
+replaces the whole assembly with ONE signed-distance field (ellipsoid
+pelvis/belly/chest, round-cone limbs/trapezius/neck, sphere deltoids
+and glutes) blended with polynomial smooth-min and meshed by naive
+surface nets (`src/sdf.rs`): shared vertices, normals from the field
+gradient, so the torso→shoulder→arm transition is a single continuous
+surface with real armpit and groin creases. `detail` scales the lattice
+cell. Overlay garments (belt, collar, sleeve hems, garter straps,
+bracers) are deliberately placed over every color boundary so
+vertex-level jaggies never show.
+
+What the renders and probes taught us this round:
+
+- **Surface-nets winding must match the renderer's culling** — the first
+  render was an inside-out ghost.
+- **Fold order is skinning correctness, not style.** Legs must fold into
+  the trunk before arms; arms fold last with a shoulder-ramped fillet
+  that hits hard-min below the chest. With the old order, the hand
+  hanging beside the thigh fused to it through the leg blend and every
+  arm swing dragged a membrane.
+- **Guessing at web fixes wasted three attempts; instrumenting found it
+  in one.** A stretched-triangle probe (posed vs bind edge lengths +
+  dumping the joints/weights of the worst offenders) showed
+  forearm-weighted verts sharing triangles with thigh-weighted ones —
+  which pointed at real geometric overlap (thigh root 1.06×→0.97×,
+  hands pushed outboard) rather than blend parameters. Worst stretch
+  62× → 6×, and the remainder is the legitimate armpit transition.
+- **Skin weights need family-restricted binding + junction gating**:
+  trunk verts bind only to the spine chain (pelvis band rigid to HIPS),
+  limb verts only to their own segments, and blending happens only in a
+  narrow band where both families' fields nearly meet.
+- **Cloth must track the rig, not an idealized axis.** The A-pose angles
+  arms outward, so the elder-sage hanging sleeves (lofted at x=shoulder,
+  z=0) let the new deltoid and elbow poke through — stations now follow
+  the actual joint positions and the shoulder cap swallows the deltoid.
+
+Scores (frontal + profile + walk/run/dance frames): villager 4.6 → 4.8,
+warrior 4.7, mage 4.6, elder sage 4.6; no visible part seams at rest,
+no membranes in any animation frame.

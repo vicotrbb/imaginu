@@ -51,11 +51,11 @@ fn build_rig(h: f32, shoulder_w: f32) -> Rig {
     // relaxed stance: the upper arm drifts slightly outward, the forearm
     // returns inward with a soft elbow bend, the hand settles by the thigh
     joints.push((ARM_L, Some(CHEST), "upperarm_l", Vec3::new(sw * 0.94, h * 0.075, 0.0)));
-    joints.push((FOREARM_L, Some(ARM_L), "forearm_l", Vec3::new(h * 0.012, -h * 0.148, h * 0.010)));
-    joints.push((HAND_L, Some(FOREARM_L), "hand_l", Vec3::new(-h * 0.016, -h * 0.126, h * 0.016)));
+    joints.push((FOREARM_L, Some(ARM_L), "forearm_l", Vec3::new(h * 0.015, -h * 0.148, h * 0.010)));
+    joints.push((HAND_L, Some(FOREARM_L), "hand_l", Vec3::new(h * 0.014, -h * 0.126, h * 0.016)));
     joints.push((ARM_R, Some(CHEST), "upperarm_r", Vec3::new(-sw * 0.94, h * 0.075, 0.0)));
-    joints.push((FOREARM_R, Some(ARM_R), "forearm_r", Vec3::new(-h * 0.012, -h * 0.148, h * 0.010)));
-    joints.push((HAND_R, Some(FOREARM_R), "hand_r", Vec3::new(h * 0.016, -h * 0.126, h * 0.016)));
+    joints.push((FOREARM_R, Some(ARM_R), "forearm_r", Vec3::new(-h * 0.015, -h * 0.148, h * 0.010)));
+    joints.push((HAND_R, Some(FOREARM_R), "hand_r", Vec3::new(-h * 0.014, -h * 0.126, h * 0.016)));
     joints.push((THIGH_L, Some(HIPS), "thigh_l", Vec3::new(h * 0.068, -h * 0.02, 0.0)));
     joints.push((SHIN_L, Some(THIGH_L), "shin_l", Vec3::new(0.0, -h * 0.22, 0.0)));
     joints.push((FOOT_L, Some(SHIN_L), "foot_l", Vec3::new(0.0, -h * 0.20, 0.0)));
@@ -140,6 +140,353 @@ fn wardrobe(r: &mut Rand, pal: &Palette, class: CharacterClass, tone: Option<u32
             accent: pal.accent,
         },
     }
+}
+
+
+/// Body v7: ONE smoothly-blended SDF (pelvis, glutes, belly, chest, traps,
+/// deltoids, tapered limbs under smooth-min) meshed with surface nets — a
+/// single continuous organic surface, no part seams. Colors resolve by the
+/// dominant sub-field; skin weights are family-restricted (torso verts can
+/// never grab arm bones — the phase-2 flying-shoulder lesson) with the
+/// pelvis/glutes rigid to HIPS so strides can't tear the crotch.
+#[allow(clippy::too_many_arguments)]
+fn organic_body(
+    rig: &Rig,
+    h: f32,
+    bulk: f32,
+    sw: f32,
+    w: &Wardrobe,
+    forearm_col: Vec3,
+    det: f32,
+) -> Mesh {
+    use crate::sdf::{sd_ellipsoid, sd_round_cone, sd_sphere, smin};
+    let jw = |i: usize| rig.world[i];
+    let (hips, spine, chest, neck) = (jw(HIPS), jw(SPINE), jw(CHEST), jw(NECK));
+    let arm_r = h * 0.036 * bulk;
+    let leg_r = h * 0.052 * bulk;
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum Fam {
+        Pelvis,
+        Torso,
+        ArmL,
+        ArmR,
+        LegL,
+        LegR,
+    }
+    enum Shape {
+        Sphere(Vec3, f32),
+        Cone(Vec3, Vec3, f32, f32),
+        ConeScaled(Vec3, Vec3, f32, f32, Vec3, Vec3),
+        Ellipsoid(Vec3, Vec3),
+    }
+    impl Shape {
+        fn eval(&self, p: Vec3) -> f32 {
+            match *self {
+                Shape::Sphere(c, r) => sd_sphere(p, c, r),
+                Shape::Cone(a, b, r1, r2) => sd_round_cone(p, a, b, r1, r2),
+                Shape::ConeScaled(a, b, r1, r2, o, s) => {
+                    crate::sdf::sd_round_cone_scaled(p, a, b, r1, r2, o, s)
+                }
+                Shape::Ellipsoid(c, r) => sd_ellipsoid(p, c, r),
+            }
+        }
+    }
+    let mut parts: Vec<(Fam, Vec3, Shape)> = Vec::new();
+    // hips & seat
+    parts.push((
+        Fam::Pelvis,
+        w.pants,
+        Shape::Ellipsoid(
+            hips + Vec3::new(0.0, -h * 0.020, 0.0),
+            Vec3::new(h * 0.106 * bulk, h * 0.068, h * 0.078 * bulk),
+        ),
+    ));
+    for s in [-1.0f32, 1.0] {
+        parts.push((
+            Fam::Pelvis,
+            w.pants,
+            Shape::Sphere(
+                hips + Vec3::new(s * h * 0.046 * bulk, -h * 0.048, -h * 0.036 * bulk),
+                h * 0.049 * bulk,
+            ),
+        ));
+    }
+    // belly + chest (elliptical cross-sections), subtle forward lean
+    parts.push((
+        Fam::Torso,
+        w.shirt,
+        Shape::Ellipsoid(
+            Vec3::new(0.0, spine.y + 0.005 * h, 0.006 * h),
+            Vec3::new(h * 0.096 * bulk, h * 0.075, h * 0.070 * bulk),
+        ),
+    ));
+    {
+        let a = Vec3::new(0.0, spine.y + h * 0.060, h * 0.008);
+        let b = Vec3::new(0.0, chest.y + h * 0.055, h * 0.012);
+        let o = (a + b) * 0.5;
+        parts.push((
+            Fam::Torso,
+            w.shirt,
+            Shape::ConeScaled(a, b, h * 0.060 * bulk, h * 0.068 * bulk, o, Vec3::new(1.32, 1.0, 0.86)),
+        ));
+    }
+    // trapezius wedges into the neck
+    for s in [-1.0f32, 1.0] {
+        parts.push((
+            Fam::Torso,
+            w.shirt,
+            Shape::Cone(
+                Vec3::new(0.0, neck.y + h * 0.004, -h * 0.008),
+                Vec3::new(s * sw * 0.78, chest.y + h * 0.075, 0.0),
+                h * 0.024,
+                h * 0.030 * bulk,
+            ),
+        ));
+    }
+    // shoulder bar ties the deltoids through the chest
+    parts.push((
+        Fam::Torso,
+        w.shirt,
+        Shape::Cone(
+            Vec3::new(-sw * 0.55, chest.y + h * 0.068, 0.0),
+            Vec3::new(sw * 0.55, chest.y + h * 0.068, 0.0),
+            h * 0.040 * bulk,
+            h * 0.040 * bulk,
+        ),
+    ));
+    // neck column
+    parts.push((
+        Fam::Torso,
+        w.skin,
+        Shape::Cone(
+            Vec3::new(0.0, neck.y - h * 0.020, 0.0),
+            Vec3::new(0.0, neck.y + h * 0.050, h * 0.004),
+            h * 0.036,
+            h * 0.029,
+        ),
+    ));
+    // arms: deltoid + tapered upper/forearm
+    for (fam, aj, fj, hj) in
+        [(Fam::ArmL, ARM_L, FOREARM_L, HAND_L), (Fam::ArmR, ARM_R, FOREARM_R, HAND_R)]
+    {
+        let (a, f, hd) = (jw(aj), jw(fj), jw(hj));
+        parts.push((fam, w.shirt, Shape::Sphere(a + Vec3::new(0.0, h * 0.008, 0.0), h * 0.046 * bulk)));
+        parts.push((fam, w.shirt, Shape::Cone(a + Vec3::new(0.0, -h * 0.010, 0.0), f, arm_r * 0.94, arm_r * 0.78)));
+        parts.push((fam, forearm_col, Shape::Cone(f, hd + Vec3::new(0.0, h * 0.010, 0.0), arm_r * 0.80, arm_r * 0.58)));
+    }
+    // legs: thigh, calf, boot shaft
+    for (fam, tj, sj, fj) in
+        [(Fam::LegL, THIGH_L, SHIN_L, FOOT_L), (Fam::LegR, THIGH_R, SHIN_R, FOOT_R)]
+    {
+        let (t, s, f) = (jw(tj), jw(sj), jw(fj));
+        parts.push((fam, w.pants, Shape::Cone(t + Vec3::new(0.0, h * 0.055, 0.0), s, leg_r * 0.97, leg_r * 0.80)));
+        parts.push((fam, w.pants, Shape::Cone(s, s + (f - s) * 0.55, leg_r * 0.86, leg_r * 0.72)));
+        parts.push((fam, w.boots, Shape::Cone(s + (f - s) * 0.45, f + Vec3::new(0.0, h * 0.012, 0.0), leg_r * 0.72, leg_r * 0.50)));
+    }
+
+    // hierarchical blending: soft flesh fillets WITHIN the trunk and within
+    // each limb, but a tight junction BETWEEN trunk and limbs — a deep
+    // armpit/groin crease instead of a webbed bridge that stretches when
+    // the limb swings
+    let k_soft = h * 0.022;
+    let k_tight = h * 0.008;
+    let field = |p: Vec3| -> f32 {
+        let mut groups = [f32::INFINITY; 6];
+        for (f, _, s) in &parts {
+            let i = match f {
+                Fam::Pelvis => 0usize,
+                Fam::Torso => 0, // pelvis+torso are one flesh mass
+                Fam::ArmL => 2,
+                Fam::ArmR => 3,
+                Fam::LegL => 4,
+                Fam::LegR => 5,
+            };
+            groups[i] = smin(groups[i], s.eval(p), k_soft);
+        }
+        let mut d = groups[0];
+        // ORDER MATTERS: legs fold into the trunk FIRST (soft flesh at the
+        // groin), and arms fold LAST with a shoulder-ramped fillet that
+        // hits hard-min below the chest — otherwise the hand hanging beside
+        // the thigh fuses to it through the leg blend and every big arm
+        // swing drags a membrane along (found via stretched-triangle probe:
+        // forearm-weighted verts sharing triangles with thigh-weighted ones)
+        for g in [groups[4], groups[5]] {
+            d = smin(d, g, h * 0.016);
+        }
+        let shoulder_t = ((p.y - spine.y) / (chest.y - spine.y)).clamp(0.0, 1.0);
+        let k_arm = k_tight * shoulder_t * shoulder_t;
+        for g in [groups[2], groups[3]] {
+            d = smin(d, g, k_arm);
+        }
+        d
+    };
+    // family classifier: min distance per family, with limbs biased so
+    // smooth-min blend zones (hand-near-hip, neck-chest) resolve to the
+    // trunk instead of flipping noisily — this drives BOTH color regions
+    // and weight families, so a hip vertex can never grab an arm bone
+    let fi = |f: Fam| match f {
+        Fam::Pelvis => 0,
+        Fam::Torso => 1,
+        Fam::ArmL => 2,
+        Fam::ArmR => 3,
+        Fam::LegL => 4,
+        Fam::LegR => 5,
+    };
+    let fam_dists = |p: Vec3| -> [f32; 6] {
+        let mut d = [f32::INFINITY; 6];
+        for (f, _, s) in &parts {
+            let i = fi(*f);
+            d[i] = d[i].min(s.eval(p));
+        }
+        d
+    };
+    let fam_of = |p: Vec3| -> Fam {
+        let d = fam_dists(p);
+        let bias = h * 0.008;
+        let ranked = [
+            (d[0], Fam::Pelvis),
+            (d[1], Fam::Torso),
+            (d[2] + bias, Fam::ArmL),
+            (d[3] + bias, Fam::ArmR),
+            (d[4] + bias * 0.5, Fam::LegL),
+            (d[5] + bias * 0.5, Fam::LegR),
+        ];
+        let mut best = ranked[0];
+        for r in &ranked[1..] {
+            if r.0 < best.0 {
+                best = *r;
+            }
+        }
+        best.1
+    };
+    // tailored color boundaries: garments end on clean lines (belt, elbow,
+    // mid-shin), not on noisy field-dominance blobs
+    let along = |p: Vec3, a: Vec3, b: Vec3| -> f32 {
+        let ab = b - a;
+        (p - a).dot(ab) / ab.length_squared().max(1e-12)
+    };
+    let color = |p: Vec3| -> Vec3 {
+        match fam_of(p) {
+            Fam::Pelvis | Fam::Torso => {
+                // skin only on the neck column itself, not the chest slope
+                let neck_r = (p.x * p.x + p.z * p.z).sqrt();
+                if p.y > neck.y - h * 0.002 && neck_r < h * 0.048 {
+                    w.skin
+                } else if p.y > hips.y + h * 0.030 {
+                    w.shirt
+                } else {
+                    w.pants
+                }
+            }
+            Fam::ArmL | Fam::ArmR => {
+                let (aj, fj) = if p.x > 0.0 { (ARM_L, FOREARM_L) } else { (ARM_R, FOREARM_R) };
+                if along(p, jw(aj), jw(fj)) < 1.04 { w.shirt } else { forearm_col }
+            }
+            Fam::LegL | Fam::LegR => {
+                let (sj, fj) = if p.x > 0.0 { (SHIN_L, FOOT_L) } else { (SHIN_R, FOOT_R) };
+                if along(p, jw(sj), jw(fj)) > 0.42 { w.boots } else { w.pants }
+            }
+        }
+    };
+
+    let cell = (h * 0.011 / det).min(h * 0.015);
+    let lo = Vec3::new(-sw - h * 0.07, -cell, -h * 0.13 * bulk - h * 0.02);
+    let hi = Vec3::new(sw + h * 0.07, neck.y + h * 0.09, h * 0.13 * bulk + h * 0.03);
+    let mut m = crate::sdf::mesh_field(lo, hi, cell, &field, &color);
+
+    // family-restricted smooth weights: inverse-distance over the family's
+    // bone segments only; pelvis/glutes rigid to HIPS
+    let seg_w = |p: Vec3, pairs: &[(usize, usize)]| -> ([u16; 4], [f32; 4]) {
+        let mut joints = [0u16; 4];
+        let mut weights = [0f32; 4];
+        let mut sum = 0.0;
+        for (i, &(ja, jb)) in pairs.iter().enumerate().take(4) {
+            let (a, b) = (jw(ja), jw(jb));
+            let ab = b - a;
+            let t = if ab.length_squared() < 1e-12 {
+                0.0
+            } else {
+                ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
+            };
+            let d = p.distance(a + ab * t);
+            let wgt = 1.0 / (d + 1e-4).powi(4);
+            joints[i] = ja as u16;
+            weights[i] = wgt;
+            sum += wgt;
+        }
+        for w in &mut weights {
+            *w /= sum;
+        }
+        (joints, weights)
+    };
+    m.joints = Vec::with_capacity(m.positions.len());
+    m.weights = Vec::with_capacity(m.positions.len());
+    // strongest two influences of a 4-slot weight set
+    let top2 = |j: [u16; 4], w: [f32; 4]| -> [(u16, f32); 2] {
+        let mut v: Vec<(u16, f32)> = j.iter().copied().zip(w.iter().copied()).collect();
+        v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
+        [v[0], v[1]]
+    };
+    for &p in &m.positions.clone() {
+        let d = fam_dists(p);
+        // trunk weights (pelvis rigid, torso on the spine chain)
+        let trunk_d = d[0].min(d[1]);
+        let trunk: ([u16; 4], [f32; 4]) = if d[0] < d[1] {
+            ([HIPS as u16, 0, 0, 0], [1.0, 0.0, 0.0, 0.0])
+        } else {
+            seg_w(p, &[(HIPS, SPINE), (SPINE, CHEST), (CHEST, NECK)])
+        };
+        // nearest limb family
+        let limbs = [
+            (d[2], [(ARM_L, FOREARM_L), (FOREARM_L, HAND_L)]),
+            (d[3], [(ARM_R, FOREARM_R), (FOREARM_R, HAND_R)]),
+            (d[4], [(THIGH_L, SHIN_L), (SHIN_L, FOOT_L)]),
+            (d[5], [(THIGH_R, SHIN_R), (SHIN_R, FOOT_R)]),
+        ];
+        let (limb_d, limb_pairs) = limbs
+            .iter()
+            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap())
+            .map(|(dd, pr)| (*dd, *pr))
+            .unwrap();
+        // smooth transition across the junction: hard switches leave a
+        // stretched membrane in the armpit the moment an arm is raised
+        // blend ONLY at true junctions (both families within reach) —
+        // otherwise even 10% cross-weight smears a surface into a web the
+        // moment the limb rotates far from its bind pose
+        let near = h * 0.012;
+        let tw = h * 0.020;
+        let s = ((trunk_d - limb_d) / tw * 0.5 + 0.5).clamp(0.0, 1.0);
+        let s = s * s * (3.0 - 2.0 * s);
+        let (j, wt) = if trunk_d <= limb_d && limb_d > near {
+            trunk
+        } else if limb_d < trunk_d && trunk_d > near {
+            seg_w(p, &limb_pairs)
+        } else if s <= 0.001 {
+            trunk
+        } else if s >= 0.999 {
+            seg_w(p, &limb_pairs)
+        } else {
+            let t2 = top2(trunk.0, trunk.1);
+            let l = seg_w(p, &limb_pairs);
+            let l2 = top2(l.0, l.1);
+            let joints = [t2[0].0, t2[1].0, l2[0].0, l2[1].0];
+            let mut weights = [
+                t2[0].1 * (1.0 - s),
+                t2[1].1 * (1.0 - s),
+                l2[0].1 * s,
+                l2[1].1 * s,
+            ];
+            let sum: f32 = weights.iter().sum();
+            for w in &mut weights {
+                *w /= sum;
+            }
+            (joints, weights)
+        };
+        m.joints.push(j);
+        m.weights.push(wt);
+    }
+    m
 }
 
 /// Boot: sculpted from a shared-vertex icosphere (cuboids are flat-shaded
@@ -596,25 +943,16 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     // smooth-skinned torso core (limbs are bound per-region below)
     let mut core = Mesh::new();
 
-    // pelvis: rounded "shorts" ellipsoid, rigid to HIPS — smooth weights
-    // here let opposing thighs tear the crotch open on wide strides.
-    // (An icosphere, NOT a subdivided cuboid: cuboids have flat-shaded
-    // per-face vertices, so subdivision leaves them boxes.)
-    let mut pelvis = icosphere(1.0, 3, w.pants);
-    for v in pelvis.positions.iter_mut() {
-        let t_down = (-v.y).max(0.0);
-        // hint of a leg split: the underside center rises slightly
-        let split = t_down * (1.0 - (v.x.abs() * 2.2).min(1.0)) * 0.32;
-        v.x *= h * 0.112 * bulk;
-        v.z *= h * 0.082 * bulk;
-        v.y = v.y * h * 0.060 * (1.0 - split) - h * 0.018;
-    }
-    pelvis.recompute_smooth_normals();
-    pelvis.translate(jw(HIPS));
-    pelvis.bind_all_to_joint(HIPS as u16);
-    body.merge(&pelvis);
+    // body v7: the whole torso+arms+legs as ONE smoothly-blended SDF
+    // surface — shoulders, neck, hips and crotch are continuous flesh,
+    // not assembled primitives
+    let forearm_col = match p.class {
+        CharacterClass::Warrior | CharacterClass::Rogue => w.boots * 1.15,
+        _ => w.skin,
+    };
+    body.merge(&organic_body(&rig, h, bulk, sw, &w, forearm_col, det));
 
-    // torso: one smooth waisted lathe from pelvis to shoulders
+    // reference profile (kept for placing surface overlays like buttons)
     let hips_y = jw(HIPS).y;
     let profile: Vec<(f32, f32)> = vec![
         (h * 0.070 * bulk, hips_y - h * 0.005),
@@ -626,31 +964,12 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         (h * 0.052 * bulk, jw(CHEST).y + h * 0.104), // trapezius
         (h * 0.036 * bulk, jw(NECK).y + h * 0.008),
     ];
-    let waist_y = jw(SPINE).y - h * 0.01;
-    let mut torso = lathe(&profile, seg(16.0), |ri, _| {
-        if profile[ri].1 < waist_y { w.pants } else { w.shirt }
-    });
-    // elliptical cross-section: broader than deep
-    for v in torso.positions.iter_mut() {
-        v.x *= 1.28;
-        v.z *= 0.88;
-        // subtle chest-forward / flat-back asymmetry so the profile stops
-        // reading as a lathe vase
-        let t_up = ((v.y - waist_y) / (h * 0.25)).clamp(0.0, 1.0);
-        if v.z > 0.0 {
-            v.z *= 1.0 + 0.07 * t_up;
-        } else {
-            v.z *= 1.0 - 0.035 * t_up;
-        }
-    }
-    torso.recompute_smooth_normals();
-    core.merge(&crate::subdiv::subdivide(&torso, false));
     // belt: elliptical ring hugging the lathe waist (hidden under outfits)
     if !dressed {
     let belt_y = jw(HIPS).y + h * 0.030;
     let belt_r = h * 0.090 * bulk;
     let mut belt = lathe(
-        &[(belt_r, belt_y - h * 0.014), (belt_r * 1.02, belt_y), (belt_r, belt_y + h * 0.014)],
+        &[(belt_r, belt_y - h * 0.022), (belt_r * 1.02, belt_y), (belt_r, belt_y + h * 0.022)],
         14,
         |_, _| w.boots * 0.7,
     );
@@ -801,53 +1120,14 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         }
     }
 
-    // neck (smooth)
-    core.merge(&tube(
-        &[(jw(NECK) - Vec3::Y * h * 0.012, h * 0.036), (jw(NECK) + Vec3::Y * h * 0.045, h * 0.027)],
-        seg(10.0),
-        |_| w.skin,
-    ));
-
-    // arms
+    // arms: the surface comes from the fused body; only cloth overlays,
+    // hands and gear remain as separate pieces
     let arm_r0 = h * 0.036 * bulk;
-    let forearm_col = match p.class {
-        CharacterClass::Warrior | CharacterClass::Rogue => w.boots * 1.15,
-        _ => w.skin,
-    };
     for (aj, fj, hj) in [(ARM_L, FOREARM_L, HAND_L), (ARM_R, FOREARM_R, HAND_R)] {
-        // one continuous tapered tube shoulder→elbow→wrist: no seams or
-        // lips at the elbow, sleeve color switches mid-surface
         let (a, f, hd) = (jw(aj), jw(fj), jw(hj));
-        let side = a.x.signum();
-        // the root ring is buried inside the torso so the arm EMERGES from
-        // it — one continuous surface, no bolted-on shoulder ball seam —
-        // then swells into a deltoid and tapers along the bent chain
-        let rings: Vec<(Vec3, f32)> = vec![
-            (a + Vec3::new(0.0, arm_r0 * 0.10, 0.0), arm_r0 * 1.00),
-            (a + (f - a) * 0.30, arm_r0 * 0.94),
-            (a + (f - a) * 0.55, arm_r0 * 0.90),
-            (f + (a - f) * 0.10, arm_r0 * 0.78),
-            (f + (hd - f) * 0.22, arm_r0 * 0.80), // forearm bulge
-            (f + (hd - f) * 0.65, arm_r0 * 0.66),
-            (hd + (f - hd) * 0.06, arm_r0 * 0.52),
-        ];
-        let sleeve_end = 3usize; // rings 0..=3 wear the shirt
-        let mut arm = tube(&rings, seg(12.0), |i| {
-            if i <= sleeve_end { w.shirt } else { forearm_col }
-        });
-        arm = crate::subdiv::subdivide(&arm, false);
-        // deltoid: a big squashed sphere that overlaps BOTH the torso slope
-        // and the arm top — one rounded shoulder mass, no ball-on-a-stick
-        // (the old ball failed because it matched the arm radius)
-        let mut delt = icosphere(arm_r0 * 1.24, 2, w.shirt);
-        for v in delt.positions.iter_mut() {
-            v.y *= 0.88;
-            v.x *= 1.06;
-        }
-        delt.recompute_smooth_normals();
-        delt.translate(a + Vec3::new(-side * arm_r0 * 0.22, arm_r0 * 0.06, 0.0));
-        arm.merge(&delt);
-        // elbow cap so the sleeve edge reads as hemmed cloth
+        let mut arm = Mesh::new();
+        let _ = hd;
+        // sleeve hem so the shirt/forearm boundary reads as cloth
         let mut hem = lathe(
             &[
                 (arm_r0 * 0.79, -arm_r0 * 0.10),
@@ -905,27 +1185,25 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         }
     }
 
-    // legs: one continuous tapered tube per side — thigh, knee, calf bulge
-    // and ankle in a single surface (no cap seams at the knee); boot-shaft
-    // color takes over below the knee
+    // feet + a garter strap covering the pants/boot-shaft boundary
     let leg_r = h * 0.052 * bulk;
-    for (tj, sj, fj) in [(THIGH_L, SHIN_L, FOOT_L), (THIGH_R, SHIN_R, FOOT_R)] {
-        let (t, s, f) = (jw(tj), jw(sj), jw(fj));
-        let rings: Vec<(Vec3, f32)> = vec![
-            (t + Vec3::Y * h * 0.05, leg_r * 1.12), // hidden inside the pelvis
-            (t + (s - t) * 0.38, leg_r * 1.00),
-            (s + (t - s) * 0.10, leg_r * 0.80), // knee
-            (s + (f - s) * 0.25, leg_r * 0.84), // calf bulge
-            (s + (f - s) * 0.62, leg_r * 0.66),
-            (f + Vec3::Y * h * 0.012, leg_r * 0.48), // ankle, swallowed by cuff
-        ];
-        let mut leg = tube(&rings, seg(12.0), |i| if i <= 2 { w.pants } else { w.boots });
-        leg = crate::subdiv::subdivide(&leg, false);
-        crate::skinning::smooth_bind(&mut leg, &segs(&rig, &[(tj, sj), (sj, fj)]), 4.0);
-        body.merge(&leg);
+    for (sj, fj) in [(SHIN_L, FOOT_L), (SHIN_R, FOOT_R)] {
         let mut foot = boot(jw(fj), leg_r * 0.52, h, w.boots);
         foot.bind_all_to_joint(fj as u16);
         body.merge(&foot);
+        let mut strap = lathe(
+            &[
+                (leg_r * 0.72, -h * 0.010),
+                (leg_r * 0.78, 0.0),
+                (leg_r * 0.72, h * 0.010),
+            ],
+            12,
+            |_, _| w.boots * 0.72,
+        );
+        strap.recompute_smooth_normals();
+        strap.translate(jw(sj) + (jw(fj) - jw(sj)) * 0.42);
+        crate::skinning::smooth_bind(&mut strap, &segs(&rig, &[(sj, fj)]), 4.0);
+        body.merge(&strap);
     }
 
     // class gear
@@ -1344,27 +1622,30 @@ fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
         for (aj, fj, hj) in [(ARM_L, FOREARM_L, HAND_L), (ARM_R, FOREARM_R, HAND_R)] {
             let ax = jw(aj).x;
             let wrist_y = jw(hj).y + h * 0.01;
+            // stations track the actual joint positions — the A-pose rig
+            // angles the arm outward, so a straight x=ax axis leaves the
+            // elbow/deltoid poking through the cloth
             let stations = [
                 LoftStation {
-                    center: Vec3::new(ax, wrist_y, 0.0),
+                    center: Vec3::new(jw(hj).x, wrist_y, jw(hj).z),
                     rx: h * 0.062 * bulk,
                     rz: h * 0.058 * bulk,
                 },
                 LoftStation {
-                    center: Vec3::new(ax, jw(fj).y, 0.0),
-                    rx: h * 0.048 * bulk,
-                    rz: h * 0.046 * bulk,
+                    center: Vec3::new(jw(fj).x, jw(fj).y, jw(fj).z),
+                    rx: h * 0.052 * bulk,
+                    rz: h * 0.050 * bulk,
                 },
                 LoftStation {
                     // swallow the shoulder ball completely
-                    center: Vec3::new(ax, jw(aj).y + h * 0.045, 0.0),
-                    rx: h * 0.058 * bulk,
-                    rz: h * 0.056 * bulk,
+                    center: Vec3::new(ax, jw(aj).y + h * 0.048, 0.0),
+                    rx: h * 0.062 * bulk,
+                    rz: h * 0.060 * bulk,
                 },
                 // converge to close the shoulder opening (kept low so the
                 // tip doesn't poke above the shoulder line from behind)
                 LoftStation {
-                    center: Vec3::new(ax * 0.96, jw(aj).y + h * 0.050, 0.0),
+                    center: Vec3::new(ax * 0.94, jw(aj).y + h * 0.058, 0.0),
                     rx: h * 0.012,
                     rz: h * 0.012,
                 },
@@ -1847,3 +2128,4 @@ fn walk_clip(rig: &Rig, h: f32) -> AnimationClip {
     });
     AnimationClip { name: "walk".into(), channels }
 }
+
