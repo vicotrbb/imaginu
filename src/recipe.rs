@@ -420,6 +420,18 @@ pub enum Recipe {
     },
 }
 
+/// A monster class's preferred palette, used only when the recipe left the
+/// default palette. Keeps the class read cohesive (glowing infernal elementals,
+/// necrotic undead, fungal aberrations) without a palette field on the params.
+fn preferred_palette(class: MonsterClass) -> Option<&'static str> {
+    match class {
+        MonsterClass::Elemental => Some("infernal"),
+        MonsterClass::Undead => Some("necrotic"),
+        MonsterClass::Aberration => Some("fungal"),
+        _ => None,
+    }
+}
+
 impl Recipe {
     pub fn parse(json: &str) -> Result<Self, String> {
         serde_json::from_str(json).map_err(|e| format!("invalid recipe: {e}"))
@@ -448,7 +460,16 @@ impl Recipe {
                 palette::PALETTES.join(", ")
             ));
         }
-        let pal = palette::by_name(self.palette_name());
+        // A monster class carries a preferred palette (Elemental->infernal,
+        // Undead->necrotic, Aberration->fungal). Substitute it ONLY when the
+        // user left the default palette; an explicit palette always wins.
+        let pal_name: &str = match self {
+            Recipe::Monster { palette, params } if *palette == d_palette() => {
+                preferred_palette(params.class).unwrap_or(palette.as_str())
+            }
+            _ => self.palette_name(),
+        };
+        let pal = palette::by_name(pal_name);
         let asset = match self {
             Recipe::Terrain { params, .. } => crate::generators::terrain::generate(params, &pal),
             Recipe::Tree { params, .. } => crate::generators::tree::generate(params, &pal),

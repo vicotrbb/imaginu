@@ -6,6 +6,7 @@
 
 mod anim;
 mod body;
+mod preset;
 mod rig;
 
 use glam::Vec3;
@@ -18,6 +19,12 @@ use crate::recipe::MonsterParams;
 use rig::MonsterRig;
 
 pub fn generate(p: &MonsterParams, pal: &Palette) -> Asset {
+    // Apply the class preset onto a private copy so the recipe's params are
+    // never mutated in place; explicit user knobs still win inside the preset.
+    let mut owned = p.clone();
+    preset::apply_preset(&mut owned);
+    let p = &owned;
+
     let r = rig::build_rig(p);
     let mut mesh = body::build_body(&r, p, pal);
     skin_body(&mut mesh, &r);
@@ -28,8 +35,15 @@ pub fn generate(p: &MonsterParams, pal: &Palette) -> Asset {
         Vec::new()
     };
     mesh.validate().expect("monster mesh invalid");
-    // clamp already yields 0.0 for negative/sentinel emissive
-    let emissive = pal.accent * p.emissive.clamp(0.0, 1.0) * 0.6;
+    // clamp already yields 0.0 for negative/sentinel emissive. Eyes must glow
+    // regardless of the body emissive knob, so floor the material emission
+    // whenever the rig actually carries eye primitives.
+    let eye_glow = r.prims.iter().any(|d| d.tint == rig::PrimTint::Eye);
+    let emissive_amt = p
+        .emissive
+        .clamp(0.0, 1.0)
+        .max(if eye_glow { 0.3 } else { 0.0 });
+    let emissive = pal.accent * emissive_amt * 0.6;
     Asset {
         name: "monster".into(),
         parts: vec![Part {
