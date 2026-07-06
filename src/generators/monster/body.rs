@@ -106,11 +106,8 @@ pub fn build_body(rig: &MonsterRig, p: &MonsterParams, pal: &Palette) -> Mesh {
     let accent = pal.accent;
     let mid_y = (lo.y + hi.y) * 0.5;
     let seed = p.seed;
-    let emissive_frac = if p.emissive < 0.0 {
-        0.0
-    } else {
-        p.emissive.clamp(0.0, 1.0)
-    };
+    // clamp already yields 0.0 for the negative sentinel/class-default
+    let emissive_frac = p.emissive.clamp(0.0, 1.0);
 
     // deterministic 0..1 hash of a quantized world point (+ seed).
     let hash01 = |q: Vec3| -> f32 {

@@ -28,11 +28,8 @@ pub fn generate(p: &MonsterParams, pal: &Palette) -> Asset {
         Vec::new()
     };
     mesh.validate().expect("monster mesh invalid");
-    let emissive = if p.emissive > 0.0 {
-        pal.accent * p.emissive.clamp(0.0, 1.0) * 0.6
-    } else {
-        Vec3::ZERO
-    };
+    // clamp already yields 0.0 for negative/sentinel emissive
+    let emissive = pal.accent * p.emissive.clamp(0.0, 1.0) * 0.6;
     Asset {
         name: "monster".into(),
         parts: vec![Part {
@@ -151,10 +148,13 @@ fn skin_body(mesh: &mut Mesh, rig: &MonsterRig) {
     mesh.joints = Vec::with_capacity(mesh.positions.len());
     mesh.weights = Vec::with_capacity(mesh.positions.len());
 
+    // ONE half-width drives both the firmly-trunk/firmly-limb cutoffs AND the
+    // junction smoothstep, so `s` reaches exactly 0 and 1 at the classification
+    // boundary (±near) — no ~12% weight jump between adjacent surface-net verts.
     let near = 0.02 * scale;
-    let tw = 0.035 * scale;
 
-    for &p in &mesh.positions.clone() {
+    for i in 0..mesh.positions.len() {
+        let p = mesh.positions[i];
         // per-family nearest primitive SDF
         let mut fam_d = vec![f32::INFINITY; n_fam];
         for (pi, d) in rig.prims.iter().enumerate() {
@@ -188,8 +188,10 @@ fn skin_body(mesh: &mut Mesh, rig: &MonsterRig) {
             // firmly limb
             seg_w(p, &world, limb_pairs)
         } else {
-            // junction: smoothstep blend of the two families
-            let s = ((trunk_d - limb_d) / tw * 0.5 + 0.5).clamp(0.0, 1.0);
+            // junction: smoothstep blend of the two families. Half-width =
+            // `near` so s = 0 at delta = -near and s = 1 at delta = +near,
+            // meeting the firmly-trunk/firmly-limb branches continuously.
+            let s = ((trunk_d - limb_d) / near * 0.5 + 0.5).clamp(0.0, 1.0);
             let s = s * s * (3.0 - 2.0 * s);
             if s <= 0.001 {
                 trunk
