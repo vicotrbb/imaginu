@@ -4,6 +4,8 @@
 //! organic pass (smooth-min compose -> surface-net mesh -> family-restricted
 //! skin -> procedural clips).
 
+mod rig;
+
 use glam::Vec3;
 
 use crate::gltf::{Asset, Collider, Material, Part, Physics};

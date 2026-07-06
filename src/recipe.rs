@@ -355,6 +355,13 @@ pub struct MonsterParams {
     pub animate: bool,
 }
 
+impl Default for MonsterParams {
+    /// Serde defaults for every field (body = QuadrupedBeast, etc.).
+    fn default() -> Self {
+        serde_json::from_str("{}").expect("monster defaults deserialize")
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Recipe {
