@@ -48,12 +48,14 @@ fn build_rig(h: f32, shoulder_w: f32) -> Rig {
     joints.push((NECK, Some(CHEST), "neck", Vec3::new(0.0, h * 0.10, 0.0)));
     joints.push((HEAD, Some(NECK), "head", Vec3::new(0.0, h * 0.045, 0.0)));
     let sw = shoulder_w;
-    joints.push((ARM_L, Some(CHEST), "upperarm_l", Vec3::new(sw, h * 0.075, 0.0)));
-    joints.push((FOREARM_L, Some(ARM_L), "forearm_l", Vec3::new(0.0, -h * 0.15, 0.0)));
-    joints.push((HAND_L, Some(FOREARM_L), "hand_l", Vec3::new(0.0, -h * 0.13, 0.0)));
-    joints.push((ARM_R, Some(CHEST), "upperarm_r", Vec3::new(-sw, h * 0.075, 0.0)));
-    joints.push((FOREARM_R, Some(ARM_R), "forearm_r", Vec3::new(0.0, -h * 0.15, 0.0)));
-    joints.push((HAND_R, Some(FOREARM_R), "hand_r", Vec3::new(0.0, -h * 0.13, 0.0)));
+    // relaxed stance: the upper arm drifts slightly outward, the forearm
+    // returns inward with a soft elbow bend, the hand settles by the thigh
+    joints.push((ARM_L, Some(CHEST), "upperarm_l", Vec3::new(sw * 0.94, h * 0.075, 0.0)));
+    joints.push((FOREARM_L, Some(ARM_L), "forearm_l", Vec3::new(h * 0.012, -h * 0.148, h * 0.010)));
+    joints.push((HAND_L, Some(FOREARM_L), "hand_l", Vec3::new(-h * 0.016, -h * 0.126, h * 0.016)));
+    joints.push((ARM_R, Some(CHEST), "upperarm_r", Vec3::new(-sw * 0.94, h * 0.075, 0.0)));
+    joints.push((FOREARM_R, Some(ARM_R), "forearm_r", Vec3::new(-h * 0.012, -h * 0.148, h * 0.010)));
+    joints.push((HAND_R, Some(FOREARM_R), "hand_r", Vec3::new(h * 0.016, -h * 0.126, h * 0.016)));
     joints.push((THIGH_L, Some(HIPS), "thigh_l", Vec3::new(h * 0.068, -h * 0.02, 0.0)));
     joints.push((SHIN_L, Some(THIGH_L), "shin_l", Vec3::new(0.0, -h * 0.22, 0.0)));
     joints.push((FOOT_L, Some(SHIN_L), "foot_l", Vec3::new(0.0, -h * 0.20, 0.0)));
@@ -215,6 +217,8 @@ fn mitten(at: Vec3, r: f32, side: f32, skin: Vec3, subdiv: u32) -> Mesh {
     thumb.recompute_smooth_normals();
     thumb.translate(Vec3::new(side * r * 0.60, -r * 0.30, r * 0.45));
     palm.merge(&thumb);
+    // relaxed curl: fingertips drift in toward the leg, palm faces the thigh
+    palm.transform(Mat4::from_rotation_x(0.16) * Mat4::from_rotation_z(-side * 0.10));
     palm.translate(at);
     palm
 }
@@ -308,7 +312,7 @@ fn face(c: Vec3, r: f32, w: &Wardrobe, expressions: bool) -> Mesh {
     }
 
     // nose: small smooth wedge
-    let mut nose = icosphere(r * 0.09, 1, w.skin * 1.04);
+    let mut nose = icosphere(r * 0.085, 2, w.skin * 1.04);
     for v in nose.positions.iter_mut() {
         v.x *= 0.7;
         v.z *= 1.25;
@@ -600,10 +604,10 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     for v in pelvis.positions.iter_mut() {
         let t_down = (-v.y).max(0.0);
         // hint of a leg split: the underside center rises slightly
-        let split = t_down * (1.0 - (v.x.abs() * 2.2).min(1.0)) * 0.22;
+        let split = t_down * (1.0 - (v.x.abs() * 2.2).min(1.0)) * 0.32;
         v.x *= h * 0.112 * bulk;
         v.z *= h * 0.082 * bulk;
-        v.y = v.y * h * 0.068 * (1.0 - split) - h * 0.026;
+        v.y = v.y * h * 0.060 * (1.0 - split) - h * 0.018;
     }
     pelvis.recompute_smooth_normals();
     pelvis.translate(jw(HIPS));
@@ -618,8 +622,9 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         (h * 0.083 * bulk, jw(SPINE).y + h * 0.030), // waist pinch
         (h * 0.094 * bulk, jw(CHEST).y + h * 0.015),
         (h * 0.100 * bulk, jw(CHEST).y + h * 0.062), // chest
-        (h * 0.092 * bulk, jw(CHEST).y + h * 0.092), // shoulder slope
-        (h * 0.030 * bulk, jw(NECK).y + h * 0.005),
+        (h * 0.088 * bulk, jw(CHEST).y + h * 0.090), // shoulder slope
+        (h * 0.052 * bulk, jw(CHEST).y + h * 0.104), // trapezius
+        (h * 0.036 * bulk, jw(NECK).y + h * 0.008),
     ];
     let waist_y = jw(SPINE).y - h * 0.01;
     let mut torso = lathe(&profile, seg(16.0), |ri, _| {
@@ -629,6 +634,14 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     for v in torso.positions.iter_mut() {
         v.x *= 1.28;
         v.z *= 0.88;
+        // subtle chest-forward / flat-back asymmetry so the profile stops
+        // reading as a lathe vase
+        let t_up = ((v.y - waist_y) / (h * 0.25)).clamp(0.0, 1.0);
+        if v.z > 0.0 {
+            v.z *= 1.0 + 0.07 * t_up;
+        } else {
+            v.z *= 1.0 - 0.035 * t_up;
+        }
     }
     torso.recompute_smooth_normals();
     core.merge(&crate::subdiv::subdivide(&torso, false));
@@ -790,7 +803,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
 
     // neck (smooth)
     core.merge(&tube(
-        &[(jw(NECK) - Vec3::Y * h * 0.01, h * 0.030), (jw(NECK) + Vec3::Y * h * 0.045, h * 0.027)],
+        &[(jw(NECK) - Vec3::Y * h * 0.012, h * 0.036), (jw(NECK) + Vec3::Y * h * 0.045, h * 0.027)],
         seg(10.0),
         |_| w.skin,
     ));
@@ -805,29 +818,41 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         // one continuous tapered tube shoulder→elbow→wrist: no seams or
         // lips at the elbow, sleeve color switches mid-surface
         let (a, f, hd) = (jw(aj), jw(fj), jw(hj));
+        let side = a.x.signum();
+        // the root ring is buried inside the torso so the arm EMERGES from
+        // it — one continuous surface, no bolted-on shoulder ball seam —
+        // then swells into a deltoid and tapers along the bent chain
         let rings: Vec<(Vec3, f32)> = vec![
-            (a + Vec3::Y * arm_r0 * 0.1, arm_r0 * 1.00),
-            (a + (f - a) * 0.45, arm_r0 * 0.94),
-            (f + (a - f) * 0.12, arm_r0 * 0.80),
-            (f + (hd - f) * 0.22, arm_r0 * 0.82), // forearm bulge
-            (f + (hd - f) * 0.65, arm_r0 * 0.68),
-            (hd + Vec3::Y * arm_r0 * 0.15, arm_r0 * 0.54),
+            (a + Vec3::new(0.0, arm_r0 * 0.10, 0.0), arm_r0 * 1.00),
+            (a + (f - a) * 0.30, arm_r0 * 0.94),
+            (a + (f - a) * 0.55, arm_r0 * 0.90),
+            (f + (a - f) * 0.10, arm_r0 * 0.78),
+            (f + (hd - f) * 0.22, arm_r0 * 0.80), // forearm bulge
+            (f + (hd - f) * 0.65, arm_r0 * 0.66),
+            (hd + (f - hd) * 0.06, arm_r0 * 0.52),
         ];
-        let sleeve_end = 2usize; // rings 0..=2 wear the shirt
+        let sleeve_end = 3usize; // rings 0..=3 wear the shirt
         let mut arm = tube(&rings, seg(12.0), |i| {
             if i <= sleeve_end { w.shirt } else { forearm_col }
         });
         arm = crate::subdiv::subdivide(&arm, false);
-        // shoulder ball closes the tube top and rounds into the torso
-        let mut ball = icosphere(arm_r0 * 1.04, 2, w.shirt);
-        ball.translate(a - Vec3::Y * arm_r0 * 0.10);
-        arm.merge(&ball);
+        // deltoid: a big squashed sphere that overlaps BOTH the torso slope
+        // and the arm top — one rounded shoulder mass, no ball-on-a-stick
+        // (the old ball failed because it matched the arm radius)
+        let mut delt = icosphere(arm_r0 * 1.24, 2, w.shirt);
+        for v in delt.positions.iter_mut() {
+            v.y *= 0.88;
+            v.x *= 1.06;
+        }
+        delt.recompute_smooth_normals();
+        delt.translate(a + Vec3::new(-side * arm_r0 * 0.22, arm_r0 * 0.06, 0.0));
+        arm.merge(&delt);
         // elbow cap so the sleeve edge reads as hemmed cloth
         let mut hem = lathe(
             &[
-                (arm_r0 * 0.80, -arm_r0 * 0.12),
-                (arm_r0 * 0.88, 0.0),
-                (arm_r0 * 0.80, arm_r0 * 0.16),
+                (arm_r0 * 0.79, -arm_r0 * 0.10),
+                (arm_r0 * 0.85, 0.0),
+                (arm_r0 * 0.79, arm_r0 * 0.14),
             ],
             10,
             |_, _| w.shirt * 0.92,
@@ -839,9 +864,9 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             for t in [0.42f32, 0.78] {
                 let mut strap = lathe(
                     &[
-                        (arm_r0 * 0.78, -h * 0.004),
-                        (arm_r0 * 0.85, 0.0),
-                        (arm_r0 * 0.78, h * 0.004),
+                        (arm_r0 * 0.78, -h * 0.0032),
+                        (arm_r0 * 0.83, 0.0),
+                        (arm_r0 * 0.78, h * 0.0032),
                     ],
                     10,
                     |_, _| forearm_col * 0.65,
@@ -887,8 +912,8 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     for (tj, sj, fj) in [(THIGH_L, SHIN_L, FOOT_L), (THIGH_R, SHIN_R, FOOT_R)] {
         let (t, s, f) = (jw(tj), jw(sj), jw(fj));
         let rings: Vec<(Vec3, f32)> = vec![
-            (t + Vec3::Y * h * 0.03, leg_r * 1.06), // hidden inside the pelvis
-            (t + (s - t) * 0.40, leg_r * 0.98),
+            (t + Vec3::Y * h * 0.05, leg_r * 1.12), // hidden inside the pelvis
+            (t + (s - t) * 0.38, leg_r * 1.00),
             (s + (t - s) * 0.10, leg_r * 0.80), // knee
             (s + (f - s) * 0.25, leg_r * 0.84), // calf bulge
             (s + (f - s) * 0.62, leg_r * 0.66),

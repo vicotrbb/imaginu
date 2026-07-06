@@ -188,6 +188,22 @@ were its subdiv-2 silhouette — both needed real geometry, not a
 post-pass. Scores: villager/rogue 4.3 → 4.5, warrior 4.1 → 4.5,
 mage 4.2 → 4.4.
 
+## Body v6 — organic pass ("less geometric, more natural")
+
+User feedback: bodies still read as assembled primitives. Fixes are all
+about silhouette flow, not polycount: relaxed A-pose bind (upper arms
+drift outward, elbows softly bent, hands settle beside the thighs with a
+finger curl — animation clips verified against the new bind), deltoid
+masses that overlap both torso and arm (a shoulder ball only reads as
+"bolted on" when it matches the arm radius; at 1.24× it reads as a
+shoulder), a trapezius ring so the torso slopes into the neck instead of
+shelving, subtle chest-forward/flat-back asymmetry so the torso stops
+being a lathe vase, a shallower pelvis with a deeper crotch split, and a
+softer higher-poly nose. Two failed intermediate attempts (buried tube
+root rings) produced shoulder fins / squared epaulettes — caught by
+rendering front views, not profiles. Scores: villager 4.5 → 4.6,
+wanderer profile reads genuinely human at rest.
+
 Bug found only by byte-comparison: an in-process determinism heisenbug —
 the auto-vectorized Sobel normal pass returned *different bytes for
 identical inputs* depending on what had run earlier in the process
