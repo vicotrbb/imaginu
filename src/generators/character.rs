@@ -830,6 +830,16 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     );
     body.merge(&core);
 
+    // accessories (rigid-bound props)
+    for acc in &p.accessories {
+        if let Some(a) = accessory(acc, &rig, h, &w, pal) {
+            body.merge(&a);
+        }
+    }
+
+    // baked ambient occlusion: crevices read in any light
+    crate::mesh::bake_ao(&mut body, 0.55);
+
     let mut animations = Vec::new();
     if p.animate {
         animations.push(idle_clip(&rig, h));
@@ -1072,9 +1082,10 @@ fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
                     rx: h * 0.058 * bulk,
                     rz: h * 0.056 * bulk,
                 },
-                // converge to close the shoulder opening
+                // converge to close the shoulder opening (kept low so the
+                // tip doesn't poke above the shoulder line from behind)
                 LoftStation {
-                    center: Vec3::new(ax, jw(aj).y + h * 0.062, 0.0),
+                    center: Vec3::new(ax * 0.96, jw(aj).y + h * 0.050, 0.0),
                     rx: h * 0.012,
                     rz: h * 0.012,
                 },
@@ -1169,6 +1180,82 @@ fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
     }
 
     parts
+}
+
+/// Accessory props: bead necklace + gem pendant, belt knot with hanging
+/// ribbons, or a staff in the right hand.
+fn accessory(name: &str, rig: &Rig, h: f32, w: &Wardrobe, pal: &Palette) -> Option<Mesh> {
+    let jw = |i: usize| rig.world[i];
+    let gold = srgb(216, 176, 88);
+    let mut m = Mesh::new();
+    match name {
+        "necklace" => {
+            // beads draped across the chest in a shallow V
+            let c = jw(CHEST) + Vec3::new(0.0, h * 0.055, h * 0.125);
+            let beads = 15;
+            for i in 0..beads {
+                let t = i as f32 / (beads - 1) as f32; // 0..1 left→right
+                let x = (t - 0.5) * h * 0.11;
+                let sag = (1.0 - (2.0 * t - 1.0).powi(2)) * h * 0.05;
+                let mut bead = icosphere(h * 0.0075, 1, gold);
+                bead.translate(c + Vec3::new(x, -sag, -x.abs() * 0.25));
+                m.merge(&bead);
+            }
+            // pendant gem at the lowest point
+            let mut gem = icosphere(h * 0.016, 1, pal.accent * 1.3);
+            for v in gem.positions.iter_mut() {
+                v.y *= 1.4;
+            }
+            gem.recompute_smooth_normals();
+            gem.translate(c + Vec3::new(0.0, -h * 0.065, 0.0));
+            m.merge(&gem);
+            m.bind_all_to_joint(CHEST as u16);
+        }
+        "belt_knot" => {
+            let at = jw(HIPS) + Vec3::new(h * 0.02, h * 0.05, h * 0.115);
+            let knot = crate::subdiv::subdivide_n(
+                &cuboid(at, Vec3::new(h * 0.022, h * 0.018, h * 0.014), gold * 0.9),
+                1,
+                true,
+            );
+            m.merge(&knot);
+            // two hanging ribbon tails
+            for sx in [-1.0f32, 1.0] {
+                let guide: Vec<Vec3> = (0..5)
+                    .map(|i| {
+                        let t = i as f32 / 4.0;
+                        at + Vec3::new(
+                            sx * h * 0.012 + sx * t * h * 0.008,
+                            -t * h * 0.16,
+                            -t * t * h * 0.02,
+                        )
+                    })
+                    .collect();
+                m.merge(&ribbon(&guide, h * 0.022, h * 0.014, w.accent * 0.75, at));
+            }
+            m.bind_all_to_joint(HIPS as u16);
+        }
+        "staff" => {
+            let hand = jw(HAND_R);
+            let base = Vec3::new(hand.x - h * 0.01, 0.0, hand.z + h * 0.01);
+            let shaft = tube(
+                &[
+                    (base, h * 0.014),
+                    (base + Vec3::Y * h * 0.62, h * 0.012),
+                    (base + Vec3::Y * h * 1.02, h * 0.010),
+                ],
+                8,
+                |_| pal.trunk * 0.85,
+            );
+            m.merge(&crate::subdiv::subdivide(&shaft, false));
+            let mut orb = icosphere(h * 0.032, 2, pal.accent * 1.4);
+            orb.translate(base + Vec3::Y * h * 1.06);
+            m.merge(&orb);
+            m.bind_all_to_joint(HAND_R as u16);
+        }
+        _ => return None,
+    }
+    Some(m)
 }
 
 fn keys(n: usize, dur: f32) -> Vec<f32> {

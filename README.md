@@ -142,6 +142,25 @@ recipe JSON ──▶ generators (terrain/tree/rock/crystal/building/prop/charac
   ribbons, dirt path splines, cliff strata textures, and dense scatter as
   `EXT_mesh_gpu_instancing`.
 
+## Painted garments (phase 3)
+
+The hand-painted-MMO look — layered robes with ornamental trim — comes from
+two primitives that compose everywhere:
+
+- **`loft`** — elliptical cross-sections swept along a spine, open arcs for
+  front-open coats, with *structured UVs* (u = around, v = hem→collar).
+- **`paint` layers** — UV-space ops composited into the baked texture:
+  `band` borders with `meander`/`zigzag`/`dots`/`diamonds`/`scroll`/`runes`
+  motifs, brocade `motif_grid`, `stripes`, `gradient`, painted cloth
+  `folds`, `weathering`, front-edge `u_band`.
+
+Characters use them via one-line params: `"outfit": "robe"`,
+`"ornamentation": 0.85`, `"trim_motif": "meander"`, plus `hair: "long"`,
+`beard: "long"`, `hair_color`, `age` (painted wrinkles) and
+`accessories: ["necklace", "belt_knot", "staff"]`. See
+[examples/elder_sage.json](examples/elder_sage.json) — a white-bearded
+sage in layered painted robes, built from 15 lines of JSON.
+
 ## Quality process
 
 Every generator was iterated against rendered output using a 6-point rubric

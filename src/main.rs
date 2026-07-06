@@ -443,7 +443,8 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  "bulk":1.0,"animate":true,"seed":1,
  "hair":"short|ponytail|bun|bald|long|topknot","beard":"none|mustache|short|long",
  "hair_color":"#eae7e0","skin_tone":0,"expressions":true,
- "outfit":"robe|tunic|plain","ornamentation":0.6,
+ "outfit":"robe|tunic|plain","ornamentation":0.6,"age":0.8,
+ "accessories":["necklace","belt_knot","staff"],
  "trim_motif":"meander|zigzag|dots|diamonds|scroll|runes"}
  // outfits: lofted painted garment stacks (under-robe, open coat, hanging
  // sleeves, sash + tail, mantle) with hem/cuff trim bands, brocade motifs,

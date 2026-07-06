@@ -401,6 +401,70 @@ pub fn to_flat_shaded(src: &Mesh) -> Mesh {
     m
 }
 
+/// Bake approximate ambient occlusion into vertex colors: each vertex is
+/// darkened by nearby geometry in front of its normal (crevices, armpits,
+/// under-collar shadows). Deterministic spatial-grid sampling, O(n·k).
+pub fn bake_ao(m: &mut Mesh, strength: f32) {
+    use std::collections::HashMap;
+    let n = m.positions.len();
+    if n == 0 {
+        return;
+    }
+    let (lo, hi) = m.bounds();
+    let diag = (hi - lo).length().max(1e-6);
+    let radius = diag * 0.08;
+    let cell = radius;
+    let key = |p: Vec3| -> (i32, i32, i32) {
+        (
+            ((p.x - lo.x) / cell) as i32,
+            ((p.y - lo.y) / cell) as i32,
+            ((p.z - lo.z) / cell) as i32,
+        )
+    };
+    let mut grid: HashMap<(i32, i32, i32), Vec<u32>> = HashMap::new();
+    // subsample occluders on dense meshes to bound the cost
+    let step = (n / 20_000).max(1);
+    for i in (0..n).step_by(step) {
+        grid.entry(key(m.positions[i])).or_default().push(i as u32);
+    }
+    let mut occ = vec![0.0f32; n];
+    for i in 0..n {
+        let p = m.positions[i];
+        let nm = m.normals[i];
+        let (cx, cy, cz) = key(p);
+        let mut sum = 0.0f32;
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    let Some(bucket) = grid.get(&(cx + dx, cy + dy, cz + dz)) else {
+                        continue;
+                    };
+                    for &j in bucket {
+                        let j = j as usize;
+                        if j == i {
+                            continue;
+                        }
+                        let d = m.positions[j] - p;
+                        let dist = d.length();
+                        if dist < 1e-6 || dist > radius {
+                            continue;
+                        }
+                        let toward = nm.dot(d / dist).max(0.0);
+                        // only geometry in FRONT of the surface occludes
+                        sum += toward * (1.0 - dist / radius).powi(2);
+                    }
+                }
+            }
+        }
+        occ[i] = sum;
+    }
+    let max = occ.iter().cloned().fold(0.0f32, f32::max).max(1e-6);
+    for i in 0..n {
+        let a = 1.0 - strength.clamp(0.0, 1.0) * 0.55 * (occ[i] / max).powf(0.7);
+        m.colors[i] *= a;
+    }
+}
+
 /// Axis-aligned box, flat-shaded.
 pub fn cuboid(center: Vec3, half: Vec3, color: Vec3) -> Mesh {
     let mut m = Mesh::new();

@@ -7,7 +7,7 @@ for f in gallery/recipes/*.json; do
   name=$(basename "$f" .json)
   "$BIN" generate "$f" -o "gallery/$name.glb" --preview
 done
-for f in examples/tavern.json examples/archway_bridge.json examples/windmill.json examples/arcane_spire.json; do
+for f in examples/tavern.json examples/archway_bridge.json examples/windmill.json examples/arcane_spire.json examples/elder_sage.json; do
   name=$(basename "$f" .json)
   "$BIN" generate "$f" -o "gallery/$name.glb" --preview
 done

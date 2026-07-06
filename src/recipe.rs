@@ -216,6 +216,9 @@ pub struct CharacterParams {
     /// nasolabial folds).
     #[serde(default)]
     pub age: f32,
+    /// Extra props: necklace | belt_knot | staff.
+    #[serde(default)]
+    pub accessories: Vec<String>,
 }
 fn d_ornament() -> f32 { 0.6 }
 fn d_char_h() -> f32 { 1.7 }
@@ -462,6 +465,26 @@ mod tests {
         .build()
         .unwrap();
         assert_eq!(crate::gltf::to_glb(&long), crate::gltf::to_glb(&again));
+    }
+
+    #[test]
+    fn accessories_and_ao() {
+        let j = r#"{"kind":"character","seed":3,"accessories":["necklace","staff","belt_knot"]}"#;
+        let a = Recipe::parse(j).unwrap().build().unwrap();
+        a.validate().unwrap();
+        let bare = Recipe::parse(r#"{"kind":"character","seed":3}"#).unwrap().build().unwrap();
+        assert!(
+            a.parts[0].mesh.vertex_count() > bare.parts[0].mesh.vertex_count() + 100,
+            "accessories should add geometry"
+        );
+        // staff reaches above the head
+        let (_, hi) = a.parts[0].mesh.bounds();
+        let (_, bare_hi) = bare.parts[0].mesh.bounds();
+        assert!(hi.y > bare_hi.y + 0.05, "staff orb should top the silhouette");
+        // AO darkened somewhere without blowing out colors
+        assert!(a.parts[0].mesh.colors.iter().all(|c| c.max_element() <= 4.0));
+        let b = Recipe::parse(j).unwrap().build().unwrap();
+        assert_eq!(crate::gltf::to_glb(&a), crate::gltf::to_glb(&b));
     }
 
     #[test]

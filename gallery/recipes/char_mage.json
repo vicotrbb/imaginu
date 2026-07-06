@@ -3,5 +3,8 @@
  "class": "mage",
  "seed": 15,
  "palette": "mystic",
- "hair": "bald"
+ "hair": "bald",
+ "outfit": "robe",
+ "ornamentation": 0.7,
+ "trim_motif": "runes"
 }

@@ -82,3 +82,29 @@ accessor bounds & counts, attribute/morph/skin/sampler consistency, embedded
 PNG magic, instancing attributes) and passes on all 27 gallery GLBs.
 Determinism (same recipe+seed → identical bytes) remains enforced by tests,
 including textures, erosion, rivers and instanced scatter.
+
+## Phase 3 — painted garments & hero characters (same rubric)
+
+Target: hand-painted-MMO fidelity (reference: layered-robe elder sage).
+The insight driving the phase: that look is ~70% *placement-aware painted
+texture* (hem borders, brocade, fold shading) on modest lofted geometry.
+
+| asset | score | notes |
+|---|---|---|
+| painted loft (band + motifs + folds demo) | 4.3 | greek-key hem trim reads exactly like the reference genre |
+| character v3: robe outfit (mage/warrior) | 4.3 | under-robe + open coat + sleeves + sash + mantle, all painted & skinned |
+| character v3: tunic (villager) | 4.1 | knee tunic, hem motif band, belt |
+| long hair + beard ribbon cards | 4.2 | white-haired elder heads; face kept clear |
+| painted faces + age | 4.2 | forehead lines / crow's feet / nasolabial at age 0.85 |
+| **elder sage hero** | **4.4** | necklace + pendant over mantle, belt knot, meander trims, walks with flowing robes |
+
+Bugs found only by rendering: garment radii vs. the elliptical torso
+(poke-through), sleeve tops as open tubes then as shoulder "chimneys",
+necklace buried under the coat, brocade motifs at wallpaper scale.
+
+Bug found only by byte-comparison: an in-process determinism heisenbug —
+the auto-vectorized Sobel normal pass returned *different bytes for
+identical inputs* depending on what had run earlier in the process
+(macOS ARM float-state sensitivity; two stable outcomes; disappeared under
+instrumentation). Fixed with f64 gradients + `std::hint::black_box`
+pinning the codegen; CLI output was always deterministic across processes.
