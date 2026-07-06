@@ -440,7 +440,7 @@ fn erode(grid: &mut [f32], res: usize, amount: f32, seed: u64) {
             let dh = h_new - h_old;
             let capacity = (-dh).max(min_slope) * vel * water * capacity_f;
             // 3×3 brush: point splats leave needle spikes on the mesh
-            let mut splat = |grid: &mut [f32], amt: f32| {
+            let splat = |grid: &mut [f32], amt: f32| {
                 for (dxi, dzi, w) in [
                     (0i64, 0i64, 0.40f32),
                     (1, 0, 0.10),
