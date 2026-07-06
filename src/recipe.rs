@@ -219,6 +219,10 @@ pub struct CharacterParams {
     /// Extra props: necklace | belt_knot | staff.
     #[serde(default)]
     pub accessories: Vec<String>,
+    /// Tessellation multiplier 0.5..2.0 — 2.0 doubles segment counts and
+    /// subdivision for hero-quality close-ups.
+    #[serde(default = "d_one")]
+    pub detail: f32,
 }
 fn d_ornament() -> f32 { 0.6 }
 fn d_char_h() -> f32 { 1.7 }

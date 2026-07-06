@@ -160,6 +160,15 @@ fn boot(ankle: Vec3, shin_r: f32, h: f32, color: Vec3) -> Mesh {
         v.x *= wdt * (1.0 - 0.18 * tz) * (1.0 - 0.10 * (-v.z).max(0.0));
         v.z = v.z * len + len * 0.52; // shift so the heel sits behind the ankle
     }
+    // leather detailing: dark sole line, burnished toe cap
+    for i in 0..m.positions.len() {
+        let v = m.positions[i];
+        if v.y < top * 0.10 {
+            m.colors[i] = color * 0.55;
+        } else if v.z > len * 1.10 {
+            m.colors[i] = color * 1.18;
+        }
+    }
     m.recompute_smooth_normals();
     m.translate(Vec3::new(ankle.x, 0.0, ankle.z - len * 0.18));
     // ankle cuff: rolled boot top swallowing the shin bottom
@@ -180,24 +189,39 @@ fn boot(ankle: Vec3, shin_r: f32, h: f32, color: Vec3) -> Mesh {
 }
 
 /// Mitten hand: squashed palm sphere + thumb blob.
-fn mitten(at: Vec3, r: f32, side: f32, skin: Vec3) -> Mesh {
-    let mut palm = icosphere(r, 2, skin);
+fn mitten(at: Vec3, r: f32, side: f32, skin: Vec3, subdiv: u32) -> Mesh {
+    let mut palm = icosphere(r, subdiv, skin);
     for v in palm.positions.iter_mut() {
-        v.x *= 0.72;
-        v.y *= 1.25;
-        v.z *= 0.9;
+        v.x *= 0.70;
+        v.y *= 1.18;
+        v.z *= 0.88;
     }
     palm.recompute_smooth_normals();
-    let mut thumb = icosphere(r * 0.45, 1, skin);
-    thumb.translate(Vec3::new(side * r * 0.55, r * 0.25, r * 0.55));
+    // three chunky fingers hanging from the palm + a thumb: reads as a real
+    // hand at game distance without per-finger rigging
+    for (fx, s) in [(-0.40f32, 0.29f32), (0.0, 0.33), (0.40, 0.27)] {
+        let mut f = icosphere(r * s, 1, skin);
+        for v in f.positions.iter_mut() {
+            v.y *= 1.85;
+        }
+        f.recompute_smooth_normals();
+        f.translate(Vec3::new(fx * r * 0.68, -r * 1.02, r * 0.12));
+        palm.merge(&f);
+    }
+    let mut thumb = icosphere(r * 0.30, 1, skin);
+    for v in thumb.positions.iter_mut() {
+        v.y *= 1.5;
+    }
+    thumb.recompute_smooth_normals();
+    thumb.translate(Vec3::new(side * r * 0.60, -r * 0.30, r * 0.45));
     palm.merge(&thumb);
     palm.translate(at);
     palm
 }
 
 /// Shaped head: tapered-jaw ellipsoid, smooth-shaded.
-fn head_shape(r: f32, skin: Vec3) -> Mesh {
-    let mut head = icosphere(r, 3, skin);
+fn head_shape(r: f32, skin: Vec3, subdiv: u32) -> Mesh {
+    let mut head = icosphere(r, subdiv, skin);
     for v in head.positions.iter_mut() {
         // ellipsoid base
         v.x *= 0.88;
@@ -481,7 +505,7 @@ fn beard_cards(style: &str, c: Vec3, r: f32, color: Vec3, seed: u64) -> Mesh {
 
 /// Hair styles built from a clipped shell over the skull.
 fn hair_mesh(style: &str, c: Vec3, r: f32, color: Vec3) -> Mesh {
-    let mut cap = icosphere(r * 1.08, 2, color);
+    let mut cap = icosphere(r * 1.08, 3, color);
     for v in cap.positions.iter_mut() {
         v.x *= 0.92;
         v.y *= 1.04;
@@ -545,6 +569,9 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     let mut r = rng(p.seed);
     let h = p.height.clamp(0.8, 3.0);
     let bulk = p.bulk.clamp(0.6, 1.6);
+    // tessellation multiplier: 1.0 = default quality, 2.0 = hero close-ups
+    let det = p.detail.clamp(0.5, 2.0);
+    let seg = |n: f32| ((n * det).round() as u32).max(6);
     let sw = h * 0.135 * bulk;
     let rig = build_rig(h, sw);
     let mut w = wardrobe(&mut r, pal, p.class, p.skin_tone);
@@ -595,7 +622,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         (h * 0.030 * bulk, jw(NECK).y + h * 0.005),
     ];
     let waist_y = jw(SPINE).y - h * 0.01;
-    let mut torso = lathe(&profile, 14, |ri, _| {
+    let mut torso = lathe(&profile, seg(16.0), |ri, _| {
         if profile[ri].1 < waist_y { w.pants } else { w.shirt }
     });
     // elliptical cross-section: broader than deep
@@ -621,14 +648,76 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     belt.recompute_smooth_normals();
     belt.bind_all_to_joint(HIPS as u16);
     body.merge(&belt);
-    // buckle
-    let mut buckle = to_flat_shaded(&cuboid(
-        Vec3::new(0.0, belt_y, belt_r * 0.90 + h * 0.004),
-        Vec3::new(h * 0.016, h * 0.016, h * 0.006),
-        srgb(212, 175, 55),
+    // buckle: gold frame ring + tongue instead of a floating cube
+    let gold = srgb(212, 175, 55);
+    let bz = belt_r * 0.92 + h * 0.005;
+    let mut buckle = lathe(
+        &[(h * 0.010, -h * 0.005), (h * 0.0135, 0.0), (h * 0.010, h * 0.005)],
+        10,
+        |_, _| gold,
+    );
+    buckle.transform(Mat4::from_rotation_translation(
+        Quat::from_rotation_x(core::f32::consts::FRAC_PI_2),
+        Vec3::new(0.0, belt_y, bz),
+    ));
+    buckle.merge(&cuboid(
+        Vec3::new(0.0, belt_y, bz),
+        Vec3::new(h * 0.0022, h * 0.010, h * 0.0032),
+        gold * 0.9,
     ));
     buckle.bind_all_to_joint(HIPS as u16);
     body.merge(&buckle);
+    // leather pouch on the right hip
+    let mut pouch = icosphere(h * 0.021, 2, w.boots * 1.3);
+    for v in pouch.positions.iter_mut() {
+        v.z *= 0.55;
+        v.y *= 1.15;
+        if v.y > 0.0 {
+            v.x *= 0.82;
+        }
+    }
+    pouch.recompute_smooth_normals();
+    pouch.transform(Mat4::from_rotation_translation(
+        Quat::from_rotation_y(-0.55),
+        Vec3::new(-belt_r * 1.12, belt_y - h * 0.024, belt_r * 0.42),
+    ));
+    pouch.bind_all_to_joint(HIPS as u16);
+    body.merge(&pouch);
+    // shirt collar ring at the neckline
+    let mut collar = lathe(
+        &[
+            (h * 0.031, jw(NECK).y - h * 0.004),
+            (h * 0.037, jw(NECK).y + h * 0.005),
+            (h * 0.030, jw(NECK).y + h * 0.013),
+        ],
+        seg(12.0),
+        |_, _| w.shirt * 0.80,
+    );
+    collar.recompute_smooth_normals();
+    collar.bind_all_to_joint(NECK as u16);
+    body.merge(&collar);
+    // buttons down the chest for cloth shirts
+    if matches!(p.class, CharacterClass::Villager | CharacterClass::Mage) {
+        let torso_r_at = |y: f32| -> f32 {
+            let mut r0 = profile[0].0;
+            for pair in profile.windows(2) {
+                let (ra, ya) = pair[0];
+                let (rb, yb) = pair[1];
+                if y >= ya && y <= yb {
+                    r0 = ra + (rb - ra) * ((y - ya) / (yb - ya + 1e-6));
+                }
+            }
+            r0
+        };
+        for k in 0..3 {
+            let y = jw(SPINE).y + h * (0.040 + 0.034 * k as f32);
+            let z = torso_r_at(y) * 0.88 + h * 0.0045;
+            let mut btn = icosphere(h * 0.0055, 1, w.shirt * 0.5);
+            btn.translate(Vec3::new(0.0, y, z));
+            btn.bind_all_to_joint(CHEST as u16);
+            body.merge(&btn);
+        }
+    }
     }
 
     // head: shaped skull as its own part with a painted face texture
@@ -636,7 +725,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     // eyes/brows/mouth stay in the body part so morphs keep working
     let head_r = h * 0.075;
     let head_c = jw(HEAD) + Vec3::new(0.0, head_r * 0.9, 0.0);
-    let mut head = head_shape(head_r, Vec3::ONE); // texture carries the skin
+    let mut head = head_shape(head_r, Vec3::ONE, if det >= 1.5 { 4 } else { 3 }); // texture carries the skin
     head.translate(head_c);
     // spherical unwrap: u = azimuth (face at 0.5), v = crown(0) -> chin(1)
     head.uvs = head
@@ -702,7 +791,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     // neck (smooth)
     core.merge(&tube(
         &[(jw(NECK) - Vec3::Y * h * 0.01, h * 0.030), (jw(NECK) + Vec3::Y * h * 0.045, h * 0.027)],
-        8,
+        seg(10.0),
         |_| w.skin,
     ));
 
@@ -725,7 +814,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             (hd + Vec3::Y * arm_r0 * 0.15, arm_r0 * 0.54),
         ];
         let sleeve_end = 2usize; // rings 0..=2 wear the shirt
-        let mut arm = tube(&rings, 10, |i| {
+        let mut arm = tube(&rings, seg(12.0), |i| {
             if i <= sleeve_end { w.shirt } else { forearm_col }
         });
         arm = crate::subdiv::subdivide(&arm, false);
@@ -745,6 +834,22 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         );
         hem.translate(f + (a - f) * 0.10);
         arm.merge(&hem);
+        // leather bracer straps on martial classes
+        if matches!(p.class, CharacterClass::Warrior | CharacterClass::Rogue) {
+            for t in [0.42f32, 0.78] {
+                let mut strap = lathe(
+                    &[
+                        (arm_r0 * 0.78, -h * 0.004),
+                        (arm_r0 * 0.85, 0.0),
+                        (arm_r0 * 0.78, h * 0.004),
+                    ],
+                    10,
+                    |_, _| forearm_col * 0.65,
+                );
+                strap.translate(f + (hd - f) * t);
+                arm.merge(&strap);
+            }
+        }
         crate::skinning::smooth_bind(&mut arm, &segs(&rig, &[(aj, fj), (fj, hj)]), 4.0);
         body.merge(&arm);
         let mut hand = mitten(
@@ -752,6 +857,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             arm_r0 * 0.95,
             jw(aj).x.signum(),
             w.skin,
+            if det >= 1.4 { 3 } else { 2 },
         );
         hand.bind_all_to_joint(hj as u16);
         body.merge(&hand);
@@ -788,7 +894,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             (s + (f - s) * 0.62, leg_r * 0.66),
             (f + Vec3::Y * h * 0.012, leg_r * 0.48), // ankle, swallowed by cuff
         ];
-        let mut leg = tube(&rings, 10, |i| if i <= 2 { w.pants } else { w.boots });
+        let mut leg = tube(&rings, seg(12.0), |i| if i <= 2 { w.pants } else { w.boots });
         leg = crate::subdiv::subdivide(&leg, false);
         crate::skinning::smooth_bind(&mut leg, &segs(&rig, &[(tj, sj), (sj, fj)]), 4.0);
         body.merge(&leg);
@@ -818,18 +924,36 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             );
             hat.bind_all_to_joint(HEAD as u16);
             body.merge(&hat);
+            // gold band where the cone meets the brim
+            let mut band = lathe(
+                &[
+                    (head_r * 0.72, head_r * 0.16),
+                    (head_r * 0.70, head_r * 0.28),
+                ],
+                12,
+                |_, _| srgb(212, 175, 55),
+            );
+            band.recompute_smooth_normals();
+            band.transform(
+                Mat4::from_translation(jw(HEAD) + Vec3::new(0.0, head_r * 1.7, -head_r * 0.1))
+                    * Mat4::from_rotation_x(-0.12),
+            );
+            band.bind_all_to_joint(HEAD as u16);
+            body.merge(&band);
             // flowing robe skirt from the hips (superseded by outfits)
             if !dressed {
-            let mut robe = to_flat_shaded(&lathe(
+            let mut robe = lathe(
                 &[
                     (h * 0.145 * bulk, -h * 0.30),
                     (h * 0.125 * bulk, -h * 0.18),
                     (h * 0.10 * bulk, -h * 0.05),
                     (h * 0.095 * bulk, h * 0.03),
                 ],
-                10,
+                seg(14.0),
                 |ri, _| if ri == 0 { w.accent * 0.7 } else { w.shirt * 0.9 },
-            ));
+            );
+            robe.recompute_smooth_normals();
+            robe = crate::subdiv::subdivide(&robe, false);
             robe.translate(jw(HIPS));
             robe.bind_all_to_joint(HIPS as u16);
             body.merge(&robe);
@@ -871,20 +995,83 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             trim.recompute_smooth_normals();
             trim.bind_all_to_joint(CHEST as u16);
             body.merge(&trim);
+            // plate rim band + front rivets
+            let mut rim = lathe(
+                &[
+                    (h * 0.0965 * bulk, jw(SPINE).y + h * 0.016),
+                    (h * 0.1015 * bulk, jw(SPINE).y + h * 0.026),
+                    (h * 0.0965 * bulk, jw(SPINE).y + h * 0.036),
+                ],
+                14,
+                |_, _| w.shirt * 0.45,
+            );
+            for v in rim.positions.iter_mut() {
+                v.x *= 1.28;
+                v.z *= 0.88;
+            }
+            rim.recompute_smooth_normals();
+            rim.bind_all_to_joint(CHEST as u16);
+            body.merge(&rim);
+            let steel = srgb(222, 224, 232);
+            for k in 0..5 {
+                let ang = (k as f32 - 2.0) * 0.42;
+                let rr = h * 0.104 * bulk;
+                let mut rivet = icosphere(h * 0.0048, 1, steel);
+                rivet.translate(Vec3::new(
+                    ang.sin() * rr * 1.28,
+                    jw(CHEST).y + h * 0.052,
+                    ang.cos() * rr * 0.88 + h * 0.002,
+                ));
+                rivet.bind_all_to_joint(CHEST as u16);
+                body.merge(&rivet);
+            }
         }
         CharacterClass::Rogue => {
-            // hood
-            let mut hood = icosphere(head_r * 1.18, 1, w.shirt * 0.8);
+            // hood: smooth draped cloth with a slight peak and open face
+            let mut hood = icosphere(head_r * 1.18, 3, w.shirt * 0.8);
             for v in hood.positions.iter_mut() {
                 if v.z > head_r * 0.4 {
                     v.z = head_r * 0.4;
                 }
+                // drape: pull the back down and peak the crown slightly
+                if v.z < 0.0 && v.y < 0.0 {
+                    v.y *= 1.22;
+                }
+                if v.y > head_r * 0.6 {
+                    v.z *= 0.92;
+                }
             }
             hood.recompute_smooth_normals();
-            let mut hood = to_flat_shaded(&hood);
             hood.translate(jw(HEAD) + Vec3::new(0.0, head_r * 1.05, -head_r * 0.15));
             hood.bind_all_to_joint(HEAD as u16);
             body.merge(&hood);
+            // sheathed dagger on the left hip
+            let belt_y = jw(HIPS).y + h * 0.030;
+            let hip_x = h * 0.126 * bulk;
+            let mut dagger = cuboid(
+                Vec3::new(0.0, -h * 0.026, 0.0),
+                Vec3::new(h * 0.0065, h * 0.026, h * 0.009),
+                w.boots * 0.7,
+            );
+            dagger.merge(&cuboid(
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(h * 0.014, h * 0.0035, h * 0.011),
+                srgb(150, 150, 160),
+            ));
+            dagger.merge(&cuboid(
+                Vec3::new(0.0, h * 0.012, 0.0),
+                Vec3::new(h * 0.004, h * 0.009, h * 0.006),
+                w.boots * 1.2,
+            ));
+            let mut pommel = icosphere(h * 0.006, 1, srgb(212, 175, 55));
+            pommel.translate(Vec3::new(0.0, h * 0.024, 0.0));
+            dagger.merge(&pommel);
+            dagger.transform(Mat4::from_rotation_translation(
+                Quat::from_rotation_z(-0.45),
+                Vec3::new(hip_x, belt_y - h * 0.022, h * 0.030),
+            ));
+            dagger.bind_all_to_joint(HIPS as u16);
+            body.merge(&dagger);
         }
         _ => {}
     }

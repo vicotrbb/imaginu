@@ -172,6 +172,22 @@ pauldrons as flat armor caps + a collar ring instead of a floating slab.
 | warrior armor | 3.2 | 4.1 |
 | walk/run/dance deformation | 3.8 | 4.3 (crotch + shoulders hold) |
 
+## Body v5 — detail pass + `detail` tessellation knob (same rubric)
+
+`"detail": 0.5..2.0` scales segment counts/subdivision (1.0 ≈ 15k tris,
+2.0 ≈ 23k for hero close-ups; head, hands and cloth gain the most).
+Detailing added to every class: framed gold buckle + tongue (the old
+floating cube is gone), leather hip pouch, shirt collar ring, chest
+buttons (villager/mage), fingered mittens (three fingers + thumb, no
+per-finger rig), boot soles + burnished toe caps; warrior gets cuirass
+rivets, a rim band and bracer straps; rogue a smooth draped hood and a
+sheathed hip dagger; mage a hat band and a smooth (formerly faceted)
+robe skirt. Two more "flat-shaded islands can't smooth" finds: the
+rogue hood was an 80-tri flat-shaded sphere, and the hair cap's facets
+were its subdiv-2 silhouette — both needed real geometry, not a
+post-pass. Scores: villager/rogue 4.3 → 4.5, warrior 4.1 → 4.5,
+mage 4.2 → 4.4.
+
 Bug found only by byte-comparison: an in-process determinism heisenbug —
 the auto-vectorized Sobel normal pass returned *different bytes for
 identical inputs* depending on what had run earlier in the process

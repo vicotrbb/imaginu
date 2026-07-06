@@ -582,7 +582,7 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
 {"kind":"prop","prop":"barrel|crate|lantern|campfire","size":1.0,"seed":1}
 
 {"kind":"character","class":"villager|warrior|mage|rogue","height":1.7,
- "bulk":1.0,"animate":true,"seed":1,
+ "bulk":1.0,"animate":true,"seed":1,"detail":1.0,
  "hair":"short|ponytail|bun|bald|long|topknot","beard":"none|mustache|short|long",
  "hair_color":"#eae7e0","skin_tone":0,"expressions":true,
  "outfit":"robe|tunic|plain","ornamentation":0.6,"age":0.8,
@@ -591,6 +591,11 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  // outfits: lofted painted garment stacks (under-robe, open coat, hanging
  // sleeves, sash + tail, mantle) with hem/cuff trim bands, brocade motifs,
  // painted cloth folds - skinned to the skeleton, deform with every clip
+ // detail: 0.5..2.0 tessellation multiplier (2.0 = hero close-ups, ~24k tris)
+ // body v5: sculpted boots w/ soles+toe caps, framed buckle, hip pouch,
+ // collar, shirt buttons, fingered mittens; class gear: cuirass rivets +
+ // rim + bracers (warrior), draped hood + hip dagger (rogue), hat band +
+ // smooth robe skirt (mage)
  // smooth subdivision bodies, mitten hands, faces (eyes/brows/nose/mouth),
  // facial morph targets: smile, blink, angry, surprised (glTF blend shapes)
 
