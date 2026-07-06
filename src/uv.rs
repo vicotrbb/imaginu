@@ -22,11 +22,17 @@ pub fn box_project(m: &mut Mesh, scale: f32) {
     for (p, n) in m.positions.iter().zip(&m.normals) {
         let an = n.abs();
         let (uv, tan) = if an.x >= an.y && an.x >= an.z {
-            (Vec2::new(p.z * n.x.signum(), -p.y), Vec3::new(0.0, 0.0, n.x.signum()))
+            (
+                Vec2::new(p.z * n.x.signum(), -p.y),
+                Vec3::new(0.0, 0.0, n.x.signum()),
+            )
         } else if an.y >= an.z {
             (Vec2::new(p.x, p.z * n.y.signum()), Vec3::X)
         } else {
-            (Vec2::new(-p.x * n.z.signum(), -p.y), Vec3::new(-n.z.signum(), 0.0, 0.0))
+            (
+                Vec2::new(-p.x * n.z.signum(), -p.y),
+                Vec3::new(-n.z.signum(), 0.0, 0.0),
+            )
         };
         m.uvs.push(uv * s);
         m.tangents.push(tangent_for(*n, tan));
@@ -61,7 +67,11 @@ pub fn cylindrical_project(m: &mut Mesh, scale: f32) {
 /// Planar top-down projection (terrains, floors).
 pub fn planar_project(m: &mut Mesh, scale: f32) {
     let s = 1.0 / scale.max(1e-4);
-    m.uvs = m.positions.iter().map(|p| Vec2::new(p.x, p.z) * s).collect();
+    m.uvs = m
+        .positions
+        .iter()
+        .map(|p| Vec2::new(p.x, p.z) * s)
+        .collect();
     m.tangents = m.normals.iter().map(|n| tangent_for(*n, Vec3::X)).collect();
 }
 

@@ -5,7 +5,11 @@ use imaginu::recipe::Recipe;
 use imaginu::render::{auto_camera, render_png};
 
 #[derive(Parser)]
-#[command(name = "imaginu", version, about = "AI-drivable 3D asset compiler: JSON recipe -> GLB (+ PNG preview)")]
+#[command(
+    name = "imaginu",
+    version,
+    about = "AI-drivable 3D asset compiler: JSON recipe -> GLB (+ PNG preview)"
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -113,9 +117,7 @@ enum Cmd {
         flyover: Option<String>,
     },
     /// Validate a world output directory (manifest + all chunk GLBs).
-    ValidateWorld {
-        dir: PathBuf,
-    },
+    ValidateWorld { dir: PathBuf },
 }
 
 fn load_recipe(s: &str) -> Result<Recipe, String> {
@@ -136,7 +138,12 @@ fn main() {
 
 fn run() -> Result<(), String> {
     match Cli::parse().cmd {
-        Cmd::Generate { recipe, out, preview, lods } => {
+        Cmd::Generate {
+            recipe,
+            out,
+            preview,
+            lods,
+        } => {
             let r = load_recipe(&recipe)?;
             let mut asset = r.build()?;
             if lods > 0 {
@@ -154,14 +161,26 @@ fn run() -> Result<(), String> {
             );
             if preview {
                 let png = out.with_extension("png");
-                let (pitch, zoom) = if asset.name == "terrain" { (33.0, 0.82) } else { (20.0, 0.95) };
+                let (pitch, zoom) = if asset.name == "terrain" {
+                    (33.0, 0.82)
+                } else {
+                    (20.0, 0.95)
+                };
                 let cam = auto_camera(&asset, 35.0, pitch, zoom);
                 render_png(&asset, &cam, 900, 640, &png).map_err(|e| e.to_string())?;
                 println!("wrote {}", png.display());
             }
             Ok(())
         }
-        Cmd::Render { recipe, out_dir, width, height, animation, at, expression } => {
+        Cmd::Render {
+            recipe,
+            out_dir,
+            width,
+            height,
+            animation,
+            at,
+            expression,
+        } => {
             let r = load_recipe(&recipe)?;
             let mut asset = r.build()?;
             if let Some(expr) = &expression {
@@ -205,8 +224,7 @@ fn run() -> Result<(), String> {
                     let cam = auto_camera(&asset, 35.0, 12.0, 1.0);
                     for (i, t) in times.iter().enumerate() {
                         let posed = imaginu::anim::pose_asset(&asset, clip_name, *t)?;
-                        let path =
-                            out_dir.join(format!("{}_{}_{}.png", asset.name, clip_name, i));
+                        let path = out_dir.join(format!("{}_{}_{}.png", asset.name, clip_name, i));
                         render_png(&posed, &cam, width, height, &path)
                             .map_err(|e| e.to_string())?;
                         println!("wrote {} (t={t:.2}s)", path.display());
@@ -215,7 +233,16 @@ fn run() -> Result<(), String> {
             }
             Ok(())
         }
-        Cmd::Showcase { recipe, out, size, duration, fps, pitch, keep_frames, animation } => {
+        Cmd::Showcase {
+            recipe,
+            out,
+            size,
+            duration,
+            fps,
+            pitch,
+            keep_frames,
+            animation,
+        } => {
             let r = load_recipe(&recipe)?;
             let asset = r.build()?;
             let fps = fps.clamp(10, 60);
@@ -251,14 +278,12 @@ fn run() -> Result<(), String> {
                         let posed = imaginu::anim::pose_asset(&asset, name, t)?;
                         // fixed ¾ camera framed on the bind pose
                         let cam = auto_camera(&asset, 35.0, cam_pitch.min(15.0), zoom);
-                        render_png(&posed, &cam, size, size, &path)
-                            .map_err(|e| e.to_string())?;
+                        render_png(&posed, &cam, size, size, &path).map_err(|e| e.to_string())?;
                     }
                     _ => {
                         let yaw = f as f32 / frames as f32 * 360.0;
                         let cam = auto_camera(&asset, yaw, cam_pitch, zoom);
-                        render_png(&asset, &cam, size, size, &path)
-                            .map_err(|e| e.to_string())?;
+                        render_png(&asset, &cam, size, size, &path).map_err(|e| e.to_string())?;
                     }
                 }
                 if f % 10 == 0 {
@@ -271,7 +296,14 @@ fn run() -> Result<(), String> {
                 .arg(fps.to_string())
                 .arg("-i")
                 .arg(dir.join("frame_%04d.png"))
-                .args(["-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart"])
+                .args([
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-crf",
+                    "18",
+                    "-movflags",
+                    "+faststart",
+                ])
                 .arg(&out)
                 .status()
                 .map_err(|e| format!("ffmpeg not found or failed to start: {e}"))?;
@@ -294,11 +326,21 @@ fn run() -> Result<(), String> {
             println!("{}", SCHEMA_HELP);
             Ok(())
         }
-        Cmd::World { recipe, out, chunk, preview, map, map_only, overview, flyover } => {
+        Cmd::World {
+            recipe,
+            out,
+            chunk,
+            preview,
+            map,
+            map_only,
+            overview,
+            flyover,
+        } => {
             let json = if recipe.trim_start().starts_with('{') {
                 recipe.clone()
             } else {
-                std::fs::read_to_string(&recipe).map_err(|e| format!("cannot read {recipe}: {e}"))?
+                std::fs::read_to_string(&recipe)
+                    .map_err(|e| format!("cannot read {recipe}: {e}"))?
             };
             let params = imaginu::world::WorldParams::parse(&json)?;
             let model = imaginu::world::model::WorldModel::new(&params)?;
@@ -354,32 +396,40 @@ fn run() -> Result<(), String> {
             let done = std::sync::atomic::AtomicUsize::new(0);
             std::thread::scope(|scope| {
                 for _ in 0..n_workers {
-                    scope.spawn(|| loop {
-                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        if i >= jobs.len() {
-                            break;
-                        }
-                        let (cx, cz) = jobs[i];
-                        let mut asset = imaginu::world::chunk::build(&model, cx, cz);
-                        if model.p.lods > 0 {
-                            asset.generate_lods(model.p.lods);
-                        }
-                        let glb = imaginu::gltf::to_glb(&asset);
-                        let path = out.join(imaginu::world::manifest::chunk_file(cx, cz));
-                        if let Err(e) = std::fs::write(&path, &glb) {
-                            errors.lock().unwrap().push(format!("{}: {e}", path.display()));
-                            continue;
-                        }
-                        if preview {
-                            let cam = auto_camera(&asset, 35.0, 38.0, 0.85);
-                            let png = path.with_extension("png");
-                            if let Err(e) = render_png(&asset, &cam, 800, 600, &png) {
-                                errors.lock().unwrap().push(format!("{}: {e}", png.display()));
+                    scope.spawn(|| {
+                        loop {
+                            let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            if i >= jobs.len() {
+                                break;
                             }
-                        }
-                        let d = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                        if d % 16 == 0 || d == jobs.len() {
-                            eprintln!("  built {d}/{} chunks", jobs.len());
+                            let (cx, cz) = jobs[i];
+                            let mut asset = imaginu::world::chunk::build(&model, cx, cz);
+                            if model.p.lods > 0 {
+                                asset.generate_lods(model.p.lods);
+                            }
+                            let glb = imaginu::gltf::to_glb(&asset);
+                            let path = out.join(imaginu::world::manifest::chunk_file(cx, cz));
+                            if let Err(e) = std::fs::write(&path, &glb) {
+                                errors
+                                    .lock()
+                                    .unwrap()
+                                    .push(format!("{}: {e}", path.display()));
+                                continue;
+                            }
+                            if preview {
+                                let cam = auto_camera(&asset, 35.0, 38.0, 0.85);
+                                let png = path.with_extension("png");
+                                if let Err(e) = render_png(&asset, &cam, 800, 600, &png) {
+                                    errors
+                                        .lock()
+                                        .unwrap()
+                                        .push(format!("{}: {e}", png.display()));
+                                }
+                            }
+                            let d = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                            if d.is_multiple_of(16) || d == jobs.len() {
+                                eprintln!("  built {d}/{} chunks", jobs.len());
+                            }
                         }
                     });
                 }
@@ -459,12 +509,19 @@ fn fly_over(
 ) -> Result<(), String> {
     let nums: Vec<f32> = seg
         .split([':', ','])
-        .map(|s| s.trim().parse::<f32>().map_err(|_| format!("bad flyover coord '{s}'")))
+        .map(|s| {
+            s.trim()
+                .parse::<f32>()
+                .map_err(|_| format!("bad flyover coord '{s}'"))
+        })
         .collect::<Result<_, _>>()?;
     if nums.len() != 4 {
         return Err("--flyover wants \"x0,z0:x1,z1\"".into());
     }
-    let (a, b) = (glam::Vec2::new(nums[0], nums[1]), glam::Vec2::new(nums[2], nums[3]));
+    let (a, b) = (
+        glam::Vec2::new(nums[0], nums[1]),
+        glam::Vec2::new(nums[2], nums[3]),
+    );
     eprintln!("building flyover corridor…");
     let asset = imaginu::world::overview::corridor_asset(model, a, b, 380.0);
     let (fps, frames, w, h) = (24u32, 96usize, 960usize, 560usize);
@@ -483,7 +540,11 @@ fn fly_over(
         let g2 = model.height(ahead.x, ahead.y).max(model.p.sea_level);
         let eye = glam::Vec3::new(p.x, ground + 70.0, p.y);
         let target = glam::Vec3::new(ahead.x, g2 + 14.0, ahead.y);
-        let cam = imaginu::render::Camera { eye, target, fov_y: 55f32.to_radians() };
+        let cam = imaginu::render::Camera {
+            eye,
+            target,
+            fov_y: 55f32.to_radians(),
+        };
         render_png(&asset, &cam, w, h, &dir.join(format!("frame_{f:04}.png")))
             .map_err(|e| e.to_string())?;
         if f % 8 == 0 {
@@ -497,7 +558,14 @@ fn fly_over(
         .arg(fps.to_string())
         .arg("-i")
         .arg(dir.join("frame_%04d.png"))
-        .args(["-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart"])
+        .args([
+            "-pix_fmt",
+            "yuv420p",
+            "-crf",
+            "18",
+            "-movflags",
+            "+faststart",
+        ])
         .arg(&mp4)
         .status()
         .map_err(|e| format!("ffmpeg not found or failed to start: {e}"))?;

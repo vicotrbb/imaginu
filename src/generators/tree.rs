@@ -20,17 +20,30 @@ pub fn generate(p: &TreeParams, pal: &Palette) -> Asset {
     let (wood, foliage) = build_tree(&mut r, &n, pal, h, p.style);
 
     let parts = vec![
-        Part { mesh: wood, material: Material { roughness: 0.9, ..Default::default() } },
+        Part {
+            mesh: wood,
+            material: Material {
+                roughness: 0.9,
+                ..Default::default()
+            },
+        },
         Part {
             mesh: foliage,
-            material: Material { roughness: 0.85, double_sided: true, ..Default::default() },
+            material: Material {
+                roughness: 0.85,
+                double_sided: true,
+                ..Default::default()
+            },
         },
     ];
     Asset::static_mesh(
         "tree",
         parts,
         Some(Physics {
-            collider: Collider::Capsule { radius: h * 0.08, height: h },
+            collider: Collider::Capsule {
+                radius: h * 0.08,
+                height: h,
+            },
             mass: 0.0,
             friction: 0.6,
             restitution: 0.1,
@@ -49,6 +62,7 @@ fn build_tree(r: &mut Rand, n: &Noise2, pal: &Palette, h: f32, style: TreeStyle)
 
 /// Recursive branch: returns path-based tube merged into `wood`, canopy
 /// blob positions appended to `tips`.
+#[allow(clippy::too_many_arguments)]
 fn branch(
     r: &mut Rand,
     wood: &mut Mesh,
@@ -83,11 +97,19 @@ fn branch(
         tips.push((path.last().unwrap().0, len * 0.55));
         return;
     }
-    let kids = if depth == 0 { r.gen_range(3..=4) } else { r.gen_range(2..=3) };
+    let kids = if depth == 0 {
+        r.gen_range(3..=4)
+    } else {
+        r.gen_range(2..=3)
+    };
     for _ in 0..kids {
         let spread = Quat::from_axis_angle(
-            Vec3::new(range(r, -1.0, 1.0), range(r, -0.2, 0.4), range(r, -1.0, 1.0))
-                .normalize_or(Vec3::X),
+            Vec3::new(
+                range(r, -1.0, 1.0),
+                range(r, -0.2, 0.4),
+                range(r, -1.0, 1.0),
+            )
+            .normalize_or(Vec3::X),
             range(r, 0.4, 0.9),
         );
         let nd = (spread * d).normalize();
@@ -95,7 +117,17 @@ fn branch(
         let start = path[((steps as f32) * t) as usize].0;
         let child_len = len * range(r, 0.5, 0.7);
         let child_radius = radius * range(r, 0.5, 0.65);
-        branch(r, wood, tips, start, nd, child_len, child_radius, depth + 1, trunk_color);
+        branch(
+            r,
+            wood,
+            tips,
+            start,
+            nd,
+            child_len,
+            child_radius,
+            depth + 1,
+            trunk_color,
+        );
     }
 }
 
@@ -109,7 +141,17 @@ fn oak(r: &mut Rand, n: &Noise2, pal: &Palette, h: f32, leafy: bool) -> (Mesh, M
         // sun-bleached dead wood
         pal.trunk * 0.9 + Vec3::splat(0.09)
     };
-    branch(r, &mut wood, &mut tips, Vec3::ZERO, lean, h * 0.55, h * 0.055, 0, bark);
+    branch(
+        r,
+        &mut wood,
+        &mut tips,
+        Vec3::ZERO,
+        lean,
+        h * 0.55,
+        h * 0.055,
+        0,
+        bark,
+    );
     // root flare
     let flare = lathe(
         &[(h * 0.10, 0.0), (h * 0.065, h * 0.06), (h * 0.05, h * 0.14)],
@@ -149,10 +191,13 @@ fn oak(r: &mut Rand, n: &Noise2, pal: &Palette, h: f32, leafy: bool) -> (Mesh, M
                 let d = Vec3::new(range(r, -1.0, 1.0), range(r, 0.5, 1.2), range(r, -1.0, 1.0))
                     .normalize();
                 let mid = tip + d * s * 0.4;
-                let d2 = (d + Vec3::new(range(r, -0.5, 0.5), 0.3, range(r, -0.5, 0.5)))
-                    .normalize();
+                let d2 = (d + Vec3::new(range(r, -0.5, 0.5), 0.3, range(r, -0.5, 0.5))).normalize();
                 wood.merge(&tube(
-                    &[(tip, s * 0.09), (mid, s * 0.05), (mid + d2 * s * 0.45, s * 0.012)],
+                    &[
+                        (tip, s * 0.09),
+                        (mid, s * 0.05),
+                        (mid + d2 * s * 0.45, s * 0.012),
+                    ],
                     4,
                     |_| twig_bark,
                 ));
@@ -216,7 +261,11 @@ fn palm(r: &mut Rand, pal: &Palette, h: f32) -> (Mesh, Mesh) {
     }
     let top = path.last().unwrap().0;
     wood.merge(&to_flat_shaded(&tube(&path, 8, |i| {
-        if i % 2 == 0 { pal.trunk } else { pal.trunk * 0.78 }
+        if i % 2 == 0 {
+            pal.trunk
+        } else {
+            pal.trunk * 0.78
+        }
     })));
 
     let mut foliage = Mesh::new();
@@ -226,7 +275,11 @@ fn palm(r: &mut Rand, pal: &Palette, h: f32) -> (Mesh, Mesh) {
         let out = Vec3::new(a.cos(), 0.0, a.sin());
         // alternate long low fronds and short high ones for a full crown
         let long = i % 2 == 0;
-        let len = h * if long { range(r, 0.5, 0.62) } else { range(r, 0.34, 0.42) };
+        let len = h * if long {
+            range(r, 0.5, 0.62)
+        } else {
+            range(r, 0.34, 0.42)
+        };
         let lift = if long { 0.30 } else { 0.55 };
         let droop = if long { 0.85 } else { 0.55 };
         let col = vary(pal.foliage[i % 3], 0.14, i as f32 * 0.37 % 1.0);

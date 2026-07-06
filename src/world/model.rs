@@ -81,10 +81,8 @@ impl WorldModel {
             let mut grid = vec![0.0f32; (n * n) as usize];
             for jz in 0..n {
                 for jx in 0..n {
-                    grid[(jz * n + jx) as usize] = model.height(
-                        jx as f32 * step - size * 0.5,
-                        jz as f32 * step - size * 0.5,
-                    );
+                    grid[(jz * n + jx) as usize] =
+                        model.height(jx as f32 * step - size * 0.5, jz as f32 * step - size * 0.5);
                 }
             }
             let before = grid.clone();
@@ -105,7 +103,10 @@ impl WorldModel {
         // order matters: rivers first (hydrology), then POIs avoid rivers
         // and flatten the ground, then roads connect POIs (bridging rivers)
         let km2 = (model.size_x / 1000.0) * (model.size_z / 1000.0);
-        let n_rivers = model.p.rivers.unwrap_or(((km2 / 6.0).ceil() as u32).min(12));
+        let n_rivers = model
+            .p
+            .rivers
+            .unwrap_or(((km2 / 6.0).ceil() as u32).min(12));
         model.network = super::network::build_rivers(&model, n_rivers);
         model.pois = super::poi::place(&model, specs.as_deref());
         model.network = super::network::with_roads(&model);
@@ -165,15 +166,24 @@ impl WorldModel {
         // coast dips below sea where the continent field is low → bays
         h += zi(ZoneKind::Coast) * (2.0 + hills * amp * 0.05 + cont * amp * 0.08);
         h += zi(ZoneKind::Badlands)
-            * (10.0 + soft_steps(((mesa + 0.35) * 1.4).clamp(0.0, 1.3) * amp * 0.45, amp * 0.11));
-        h += micro * (0.7 + (zi(ZoneKind::Mountains) * (1.0 + ridge)) * 3.2
-            + zi(ZoneKind::Badlands) * 1.6);
+            * (10.0
+                + soft_steps(
+                    ((mesa + 0.35) * 1.4).clamp(0.0, 1.3) * amp * 0.45,
+                    amp * 0.11,
+                ));
+        h += micro
+            * (0.7
+                + (zi(ZoneKind::Mountains) * (1.0 + ridge)) * 3.2
+                + zi(ZoneKind::Badlands) * 1.6);
         // steepen the crossing through the waterline so shores read as crisp
         // banks instead of a z-fighting speckle band (pure function of h)
         let d = h - sea;
         let w = 3.0;
-        let mut h =
-            if d.abs() < w { sea + w * d.signum() * (d.abs() / w).powf(0.6) } else { h };
+        let mut h = if d.abs() < w {
+            sea + w * d.signum() * (d.abs() / w).powf(0.6)
+        } else {
+            h
+        };
         // world-scale erosion delta (C1 upsample of the global field)
         if let Some(e) = &self.erosion {
             h += e.sample(wx, wz);
@@ -237,8 +247,8 @@ impl WorldModel {
             + zw[ZoneKind::Lake.index()]
             + zw[ZoneKind::Coast.index()];
         if grassy > 0.3 && rockiness < 0.3 {
-            let patch = (self.n.fbm(wx / 23.0 + 5.0, wz / 23.0 - 2.0, 2, 2.0, 0.5) * 1.6)
-                .clamp(0.0, 1.0);
+            let patch =
+                (self.n.fbm(wx / 23.0 + 5.0, wz / 23.0 - 2.0, 2, 2.0, 0.5) * 1.6).clamp(0.0, 1.0);
             c = crate::palette::lerp(c, c * Vec3::new(1.16, 1.06, 0.70), patch * grassy * 0.45);
         }
         // dune ripple shading
@@ -266,7 +276,9 @@ impl WorldModel {
         for s in &self.pois {
             if matches!(
                 s.kind,
-                super::poi::PoiKind::City | super::poi::PoiKind::Village | super::poi::PoiKind::Castle
+                super::poi::PoiKind::City
+                    | super::poi::PoiKind::Village
+                    | super::poi::PoiKind::Castle
             ) {
                 let (dx, dz) = (wx - s.x, wz - s.z);
                 let r_out = s.radius * 1.15;
@@ -277,7 +289,11 @@ impl WorldModel {
                 }
             }
         }
-        vary(c, 0.10, self.n.sample(wx * 0.13 + 31.0, wz * 0.13 + 17.0) * 0.5 + 0.5)
+        vary(
+            c,
+            0.10,
+            self.n.sample(wx * 0.13 + 31.0, wz * 0.13 + 17.0) * 0.5 + 0.5,
+        )
     }
 
     /// Per-chunk mesh resolution: a pure function of chunk coords, so any
@@ -313,8 +329,8 @@ impl WorldModel {
             }
         }
         let relief = hi - lo;
-        let has_net = self.network.river_within(ox, oz, cs * 0.75)
-            || self.network.road_mask(ox, oz) > 0.0;
+        let has_net =
+            self.network.river_within(ox, oz, cs * 0.75) || self.network.road_mask(ox, oz) > 0.0;
         if near_poi || relief > self.amp * 0.8 || steep > 0.6 {
             (base * 2).min(256)
         } else if relief < self.amp * 0.10 && steep < 0.12 && !has_net {

@@ -123,7 +123,13 @@ pub fn generate(p: &BuildingParams, pal: &Palette) -> Asset {
     let half = Vec3::new(hw, (ridge_y) / 2.0, hd);
     Asset::static_mesh(
         "building",
-        vec![Part { mesh: m, material: Material { roughness: 0.9, ..Default::default() } }],
+        vec![Part {
+            mesh: m,
+            material: Material {
+                roughness: 0.9,
+                ..Default::default()
+            },
+        }],
         Some(Physics {
             collider: Collider::Box { half_extents: half },
             mass: 0.0,

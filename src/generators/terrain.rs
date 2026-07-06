@@ -18,11 +18,16 @@ pub fn generate(p: &TerrainParams, pal: &Palette) -> Asset {
     let res = p.resolution.clamp(16, 1024) as usize;
     let size = p.size.clamp(4.0, 4096.0);
     let shape = p.shape;
-    let amp = size * 0.16
+    let amp = size
+        * 0.16
         * p.mountainousness.clamp(0.05, 3.0)
-        * if shape == TerrainShape::Mountains { 1.5 } else { 1.0 };
+        * if shape == TerrainShape::Mountains {
+            1.5
+        } else {
+            1.0
+        };
     // noise frequency fixed in world units so adjacent chunks tile seamlessly
-    let freq = 3.0 / size.min(96.0).max(24.0);
+    let freq = 3.0 / size.clamp(24.0, 96.0);
     let (ox, oz) = (p.offset_x, p.offset_z);
 
     let height = |x: f32, z: f32| -> f32 {
@@ -53,7 +58,13 @@ pub fn generate(p: &TerrainParams, pal: &Palette) -> Asset {
                 h += (1.0 - r).clamp(0.0, 1.0) * amp * 0.5;
             }
             TerrainShape::Archipelago => {
-                let m = n.fbm((wx + 311.0) * freq * 0.6, (wz + 97.0) * freq * 0.6, 3, 2.0, 0.5);
+                let m = n.fbm(
+                    (wx + 311.0) * freq * 0.6,
+                    (wz + 97.0) * freq * 0.6,
+                    3,
+                    2.0,
+                    0.5,
+                );
                 h -= amp * 0.9;
                 h += (m + 0.25).max(0.0) * amp * 2.4;
             }
@@ -66,7 +77,13 @@ pub fn generate(p: &TerrainParams, pal: &Palette) -> Asset {
                 h -= carve * amp * 2.4;
             }
             TerrainShape::Mesa => {
-                let m = n.fbm((wx + 87.0) * freq * 0.7, (wz + 13.0) * freq * 0.7, 3, 2.0, 0.5);
+                let m = n.fbm(
+                    (wx + 87.0) * freq * 0.7,
+                    (wz + 13.0) * freq * 0.7,
+                    3,
+                    2.0,
+                    0.5,
+                );
                 let plate = ((m + 0.15) * 5.0).clamp(0.0, 1.0);
                 h = h * 0.25 + plate * amp * 1.15;
             }
@@ -120,9 +137,14 @@ pub fn generate(p: &TerrainParams, pal: &Palette) -> Asset {
     // rivers: trace springs downhill, carve channels, keep ribbon paths
     let mut rivers: Vec<Vec<Vec3>> = Vec::new();
     for k in 0..p.rivers.min(8) {
-        if let Some(ribbon) =
-            carve_river(&mut grid, res, size, amp, water_h, p.seed.wrapping_add(k as u64 * 7919))
-        {
+        if let Some(ribbon) = carve_river(
+            &mut grid,
+            res,
+            size,
+            amp,
+            water_h,
+            p.seed.wrapping_add(k as u64 * 7919),
+        ) {
             rivers.push(ribbon);
         }
     }
@@ -155,7 +177,11 @@ pub fn generate(p: &TerrainParams, pal: &Palette) -> Asset {
             // shore sand near the waterline
             let shore = (1.0 - ((h - water_h).abs() / (amp * 0.06 + 1e-3))).clamp(0.0, 1.0);
             c = c * (1.0 - shore * 0.7) + pal.terrain[0] * shore * 0.7;
-            let mut c = vary(c, 0.10, n.sample(x * 2.1 + 31.0, z * 2.1 + 17.0) * 0.5 + 0.5);
+            let mut c = vary(
+                c,
+                0.10,
+                n.sample(x * 2.1 + 31.0, z * 2.1 + 17.0) * 0.5 + 0.5,
+            );
             // dirt path tint
             let pm = path_mask[iz * (res + 1) + ix];
             if pm > 0.0 {
@@ -236,7 +262,11 @@ pub fn generate(p: &TerrainParams, pal: &Palette) -> Asset {
     };
     let mut parts = vec![Part {
         mesh: ground,
-        material: Material { roughness: 0.95, texture: ground_tex, ..Default::default() },
+        material: Material {
+            roughness: 0.95,
+            texture: ground_tex,
+            ..Default::default()
+        },
     }];
 
     // river water ribbons
@@ -323,8 +353,7 @@ pub fn generate(p: &TerrainParams, pal: &Palette) -> Asset {
             let z = range(&mut r, -size * 0.48, size * 0.48);
             let h = sample_grid(x, z);
             let probe = 0.6;
-            let s = ((sample_grid(x + probe, z) - h).abs()
-                + (sample_grid(x, z + probe) - h).abs())
+            let s = ((sample_grid(x + probe, z) - h).abs() + (sample_grid(x, z + probe) - h).abs())
                 / probe;
             let t_alt = ((h - h_min) / (h_max - h_min + 1e-6)).clamp(0.0, 1.0);
             // grid indices for the path mask
@@ -455,8 +484,8 @@ fn erode(grid: &mut [f32], res: usize, amount: f32, seed: u64) {
                     let (gx, gz) = (ix as i64 + dxi, iz as i64 + dzi);
                     if gx >= 0 && gz >= 0 && gx < n as i64 && gz < n as i64 {
                         let idx = gz as usize * n + gx as usize;
-                        grid[idx] = (grid[idx] + amt * w)
-                            .clamp(orig[idx] - budget, orig[idx] + budget);
+                        grid[idx] =
+                            (grid[idx] + amt * w).clamp(orig[idx] - budget, orig[idx] + budget);
                     }
                 }
             };
@@ -489,10 +518,7 @@ fn erode(grid: &mut [f32], res: usize, amount: f32, seed: u64) {
     for iz in 1..res {
         for ix in 1..res {
             let idx = iz * n + ix;
-            let sum = snapshot[idx - 1]
-                + snapshot[idx + 1]
-                + snapshot[idx - n]
-                + snapshot[idx + n];
+            let sum = snapshot[idx - 1] + snapshot[idx + 1] + snapshot[idx - n] + snapshot[idx + n];
             grid[idx] = snapshot[idx] * 0.6 + sum * 0.1;
         }
     }
@@ -516,7 +542,13 @@ fn flatten_path(
     let pts: Vec<Vec3> = spec
         .points
         .iter()
-        .map(|p| Vec3::new(p[0].clamp(-size / 2.0, size / 2.0), 0.0, p[1].clamp(-size / 2.0, size / 2.0)))
+        .map(|p| {
+            Vec3::new(
+                p[0].clamp(-size / 2.0, size / 2.0),
+                0.0,
+                p[1].clamp(-size / 2.0, size / 2.0),
+            )
+        })
         .collect();
     let cell = size / res as f32;
     let width = spec.width.max(cell);
@@ -615,8 +647,16 @@ fn carve_river(
         // steepest descent over the 8-neighborhood
         let mut next = None;
         let mut lowest = h;
-        for (dx, dz) in [(-1i64, 0i64), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)]
-        {
+        for (dx, dz) in [
+            (-1i64, 0i64),
+            (1, 0),
+            (0, -1),
+            (0, 1),
+            (-1, -1),
+            (1, 1),
+            (-1, 1),
+            (1, -1),
+        ] {
             let (jx, jz) = (ix as i64 + dx, iz as i64 + dz);
             if jx < 0 || jz < 0 || jx > res as i64 || jz > res as i64 {
                 continue;
@@ -681,7 +721,7 @@ pub(crate) fn tree_billboardless(r: &mut Rand, pal: &Palette, s: f32) -> Mesh {
         5,
         |_| pal.trunk,
     );
-    m.merge(&mut trunk.clone());
+    m.merge(&trunk.clone());
     let f = pal.foliage[r.gen_range(0..pal.foliage.len())];
     if r.gen_bool(0.5) {
         // cone pine
@@ -700,7 +740,11 @@ pub(crate) fn tree_billboardless(r: &mut Rand, pal: &Palette, s: f32) -> Mesh {
     } else {
         let mut blob = crate::mesh::icosphere(s * 0.62, 1, f);
         blob = to_flat_shaded(&blob);
-        blob.transform(Mat4::from_translation(Vec3::new(0.0, trunk_h + s * 0.5, 0.0)));
+        blob.transform(Mat4::from_translation(Vec3::new(
+            0.0,
+            trunk_h + s * 0.5,
+            0.0,
+        )));
         m.merge(&blob);
     }
     m
@@ -708,7 +752,7 @@ pub(crate) fn tree_billboardless(r: &mut Rand, pal: &Palette, s: f32) -> Mesh {
 
 fn m_push_quad(m: &mut Mesh, a: u32, b: u32, c: u32, d: u32, parity: usize) {
     // alternate diagonal for a nicer wireframe pattern
-    if parity % 2 == 0 {
+    if parity.is_multiple_of(2) {
         m.push_tri(a, c, b);
         m.push_tri(b, c, d);
     } else {

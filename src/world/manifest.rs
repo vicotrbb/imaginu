@@ -98,7 +98,7 @@ pub fn create(m: &WorldModel) -> Manifest {
                 }
             }
             lo = lo.min(m.p.sea_level) - 8.0;
-            hi = hi + 16.0; // headroom for detail octaves + scattered trees
+            hi += 16.0; // headroom for detail octaves + scattered trees
             chunks.push(ChunkEntry {
                 x: cx,
                 z: cz,
@@ -175,7 +175,10 @@ pub fn create(m: &WorldModel) -> Manifest {
                 [m.size_x / 2.0, m.size_z / 2.0],
             )
             .into_iter()
-            .map(|(kind, center)| ZoneSummary { kind: kind.name().into(), center })
+            .map(|(kind, center)| ZoneSummary {
+                kind: kind.name().into(),
+                center,
+            })
             .collect(),
     }
 }
@@ -220,8 +223,7 @@ pub fn validate_dir(dir: &Path) -> Result<String, String> {
             if !dir.join(f).exists() {
                 return Err(format!("POI '{}' references missing file {f}", p.name));
             }
-            crate::validate::validate_glb(&dir.join(f))
-                .map_err(|e| format!("POI GLB {f}: {e}"))?;
+            crate::validate::validate_glb(&dir.join(f)).map_err(|e| format!("POI GLB {f}: {e}"))?;
         }
     }
     let mut missing = 0usize;

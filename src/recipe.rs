@@ -6,11 +6,19 @@ use serde::{Deserialize, Serialize};
 use crate::gltf::Asset;
 use crate::palette;
 
-fn d_seed() -> u64 { 1 }
-fn d_palette() -> String { "verdant".into() }
-fn d_true() -> bool { true }
+fn d_seed() -> u64 {
+    1
+}
+fn d_palette() -> String {
+    "verdant".into()
+}
+fn d_true() -> bool {
+    true
+}
 /// exposed for the custom-DSL serde defaults
-pub fn d_true_pub() -> bool { true }
+pub fn d_true_pub() -> bool {
+    true
+}
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -113,12 +121,22 @@ pub struct PathSpec {
     #[serde(default = "d_path_w")]
     pub width: f32,
 }
-fn d_path_w() -> f32 { 2.0 }
+fn d_path_w() -> f32 {
+    2.0
+}
 
-fn d_terrain_size() -> f32 { 48.0 }
-fn d_terrain_res() -> u32 { 110 }
-fn d_one() -> f32 { 1.0 }
-fn d_water() -> f32 { 0.28 }
+fn d_terrain_size() -> f32 {
+    48.0
+}
+fn d_terrain_res() -> u32 {
+    110
+}
+fn d_one() -> f32 {
+    1.0
+}
+fn d_water() -> f32 {
+    0.28
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TreeParams {
@@ -129,7 +147,9 @@ pub struct TreeParams {
     #[serde(default = "d_tree_h")]
     pub height: f32,
 }
-fn d_tree_h() -> f32 { 6.0 }
+fn d_tree_h() -> f32 {
+    6.0
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RockParams {
@@ -140,7 +160,9 @@ pub struct RockParams {
     #[serde(default = "d_jag")]
     pub jaggedness: f32,
 }
-fn d_jag() -> f32 { 0.6 }
+fn d_jag() -> f32 {
+    0.6
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CrystalParams {
@@ -151,7 +173,9 @@ pub struct CrystalParams {
     #[serde(default = "d_crystal_count")]
     pub count: u32,
 }
-fn d_crystal_count() -> u32 { 7 }
+fn d_crystal_count() -> u32 {
+    7
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BuildingParams {
@@ -162,8 +186,12 @@ pub struct BuildingParams {
     #[serde(default = "d_floors")]
     pub floors: u32,
 }
-fn d_bwidth() -> f32 { 6.0 }
-fn d_floors() -> u32 { 1 }
+fn d_bwidth() -> f32 {
+    6.0
+}
+fn d_floors() -> u32 {
+    1
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct PropParams {
@@ -224,8 +252,12 @@ pub struct CharacterParams {
     #[serde(default = "d_one")]
     pub detail: f32,
 }
-fn d_ornament() -> f32 { 0.6 }
-fn d_char_h() -> f32 { 1.7 }
+fn d_ornament() -> f32 {
+    0.6
+}
+fn d_char_h() -> f32 {
+    1.7
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -314,7 +346,9 @@ impl Recipe {
             Recipe::Crystal { params, .. } => crate::generators::crystal::generate(params, &pal),
             Recipe::Building { params, .. } => crate::generators::building::generate(params, &pal),
             Recipe::Prop { params, .. } => crate::generators::prop::generate(params, &pal),
-            Recipe::Character { params, .. } => crate::generators::character::generate(params, &pal),
+            Recipe::Character { params, .. } => {
+                crate::generators::character::generate(params, &pal)
+            }
             Recipe::Custom { params } => crate::generators::custom::generate(params)?,
         };
         asset.validate()?;
@@ -331,7 +365,13 @@ mod tests {
         for kind in ["tree", "rock", "crystal", "building", "prop", "character"] {
             let r = Recipe::parse(&format!("{{\"kind\": \"{kind}\"}}")).unwrap();
             let a = r.build().unwrap();
-            assert!(a.parts.iter().map(|p| p.mesh.triangle_count()).sum::<usize>() > 0);
+            assert!(
+                a.parts
+                    .iter()
+                    .map(|p| p.mesh.triangle_count())
+                    .sum::<usize>()
+                    > 0
+            );
         }
     }
 
@@ -424,7 +464,12 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        let names: Vec<&str> = a.parts[0].mesh.morphs.iter().map(|m| m.name.as_str()).collect();
+        let names: Vec<&str> = a.parts[0]
+            .mesh
+            .morphs
+            .iter()
+            .map(|m| m.name.as_str())
+            .collect();
         for e in ["smile", "blink", "angry", "surprised"] {
             assert!(names.contains(&e), "missing morph {e}");
         }
@@ -476,7 +521,10 @@ mod tests {
         let j = r#"{"kind":"character","seed":3,"accessories":["necklace","staff","belt_knot"]}"#;
         let a = Recipe::parse(j).unwrap().build().unwrap();
         a.validate().unwrap();
-        let bare = Recipe::parse(r#"{"kind":"character","seed":3}"#).unwrap().build().unwrap();
+        let bare = Recipe::parse(r#"{"kind":"character","seed":3}"#)
+            .unwrap()
+            .build()
+            .unwrap();
         assert!(
             a.parts[0].mesh.vertex_count() > bare.parts[0].mesh.vertex_count() + 100,
             "accessories should add geometry"
@@ -484,9 +532,18 @@ mod tests {
         // staff reaches above the head
         let (_, hi) = a.parts[0].mesh.bounds();
         let (_, bare_hi) = bare.parts[0].mesh.bounds();
-        assert!(hi.y > bare_hi.y + 0.05, "staff orb should top the silhouette");
+        assert!(
+            hi.y > bare_hi.y + 0.05,
+            "staff orb should top the silhouette"
+        );
         // AO darkened somewhere without blowing out colors
-        assert!(a.parts[0].mesh.colors.iter().all(|c| c.max_element() <= 4.0));
+        assert!(
+            a.parts[0]
+                .mesh
+                .colors
+                .iter()
+                .all(|c| c.max_element() <= 4.0)
+        );
         let b = Recipe::parse(j).unwrap().build().unwrap();
         assert_eq!(crate::gltf::to_glb(&a), crate::gltf::to_glb(&b));
     }
@@ -497,24 +554,40 @@ mod tests {
         let a = Recipe::parse(j).unwrap().build().unwrap();
         a.validate().unwrap();
         // body + under-robe + coat + 2 sleeves + sash + tail + mantle
-        assert!(a.parts.len() >= 7, "robe outfit should add garment parts: {}", a.parts.len());
+        assert!(
+            a.parts.len() >= 7,
+            "robe outfit should add garment parts: {}",
+            a.parts.len()
+        );
         // garments carry painted textures and skin weights
-        let dressed_parts = a.parts.iter().filter(|p| p.material.texture.is_some()).count();
+        let dressed_parts = a
+            .parts
+            .iter()
+            .filter(|p| p.material.texture.is_some())
+            .count();
         assert!(dressed_parts >= 5);
         assert!(a.parts[1].mesh.is_skinned());
         // deterministic incl. baked garment paint
         let b = Recipe::parse(j).unwrap().build().unwrap();
         assert_eq!(crate::gltf::to_glb(&a), crate::gltf::to_glb(&b));
         // plain = body + painted-face head only
-        let p = Recipe::parse(r#"{"kind":"character","seed":9}"#).unwrap().build().unwrap();
+        let p = Recipe::parse(r#"{"kind":"character","seed":9}"#)
+            .unwrap()
+            .build()
+            .unwrap();
         assert_eq!(p.parts.len(), 2);
     }
 
     #[test]
     fn character_ships_clip_library() {
-        let a = Recipe::parse(r#"{"kind":"character","seed":2}"#).unwrap().build().unwrap();
+        let a = Recipe::parse(r#"{"kind":"character","seed":2}"#)
+            .unwrap()
+            .build()
+            .unwrap();
         let names: Vec<&str> = a.animations.iter().map(|c| c.name.as_str()).collect();
-        for expected in ["idle", "walk", "run", "attack", "sit", "wave", "death", "dance"] {
+        for expected in [
+            "idle", "walk", "run", "attack", "sit", "wave", "death", "dance",
+        ] {
             assert!(names.contains(&expected), "missing clip {expected}");
         }
         // posing at mid-clip moves vertices
@@ -594,10 +667,9 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        assert_ne!(
-            a.parts[0].mesh.positions.len() == flat.parts[0].mesh.positions.len()
-                && a.parts[0].mesh.positions == flat.parts[0].mesh.positions,
-            true,
+        assert!(
+            !(a.parts[0].mesh.positions.len() == flat.parts[0].mesh.positions.len()
+                && a.parts[0].mesh.positions == flat.parts[0].mesh.positions),
             "erosion should alter geometry"
         );
     }

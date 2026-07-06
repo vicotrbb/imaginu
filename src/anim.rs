@@ -19,7 +19,11 @@ fn sample_channel(times: &[f32], t: f32) -> (usize, usize, f32) {
     }
     let j = (i + 1).min(times.len() - 1);
     let span = times[j] - times[i];
-    let u = if span > 1e-9 { (t - times[i]) / span } else { 0.0 };
+    let u = if span > 1e-9 {
+        (t - times[i]) / span
+    } else {
+        0.0
+    };
     (i, j, u)
 }
 
@@ -95,11 +99,18 @@ pub fn pose_asset(asset: &Asset, clip_name: &str, t: f32) -> Result<Asset, Strin
         .ok_or_else(|| {
             format!(
                 "no clip '{clip_name}' (available: {})",
-                asset.animations.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")
+                asset
+                    .animations
+                    .iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
         })?;
     let globals = pose_at(skel, clip, t);
-    let ibms: Vec<Mat4> = (0..skel.joints.len()).map(|i| skel.global(i).inverse()).collect();
+    let ibms: Vec<Mat4> = (0..skel.joints.len())
+        .map(|i| skel.global(i).inverse())
+        .collect();
     let mut posed = asset.clone();
     for part in &mut posed.parts {
         part.mesh = skin_mesh(&part.mesh, &globals, &ibms);
@@ -124,8 +135,18 @@ mod tests {
     fn two_bone_skel() -> Skeleton {
         Skeleton {
             joints: vec![
-                Joint { name: "root".into(), parent: None, translation: Vec3::ZERO, rotation: Quat::IDENTITY },
-                Joint { name: "tip".into(), parent: Some(0), translation: Vec3::Y, rotation: Quat::IDENTITY },
+                Joint {
+                    name: "root".into(),
+                    parent: None,
+                    translation: Vec3::ZERO,
+                    rotation: Quat::IDENTITY,
+                },
+                Joint {
+                    name: "tip".into(),
+                    parent: Some(0),
+                    translation: Vec3::Y,
+                    rotation: Quat::IDENTITY,
+                },
             ],
         }
     }
@@ -166,7 +187,10 @@ mod tests {
         let s = skin_mesh(&m, &globals, &ibms);
         // a box at +Y rigid to a root rotated 90° about Z lands at -X
         let c = s.positions.iter().sum::<Vec3>() / s.positions.len() as f32;
-        assert!((c - Vec3::new(-1.0, 0.0, 0.0)).length() < 1e-4, "centroid {c}");
+        assert!(
+            (c - Vec3::new(-1.0, 0.0, 0.0)).length() < 1e-4,
+            "centroid {c}"
+        );
         // halfway through, it's partway around
         let mid = skin_mesh(&m, &pose_at(&skel, &clip, 0.5), &ibms);
         let cm = mid.positions.iter().sum::<Vec3>() / mid.positions.len() as f32;

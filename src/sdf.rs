@@ -49,7 +49,11 @@ pub fn sd_ellipsoid(p: Vec3, c: Vec3, r: Vec3) -> f32 {
     let q = p - c;
     let k0 = (q / r).length();
     let k1 = (q / (r * r)).length();
-    if k1 < 1e-9 { -r.min_element() } else { k0 * (k0 - 1.0) / k1 }
+    if k1 < 1e-9 {
+        -r.min_element()
+    } else {
+        k0 * (k0 - 1.0) / k1
+    }
 }
 
 /// Round cone evaluated in a squashed space (elliptical cross-sections):
@@ -81,9 +85,7 @@ pub fn mesh_field(
 ) -> Mesh {
     let n = |a: f32, b: f32| (((b - a) / cell).ceil() as usize).max(2);
     let (nx, ny, nz) = (n(lo.x, hi.x), n(lo.y, hi.y), n(lo.z, hi.z));
-    let corner = |i: usize, j: usize, k: usize| {
-        lo + Vec3::new(i as f32, j as f32, k as f32) * cell
-    };
+    let corner = |i: usize, j: usize, k: usize| lo + Vec3::new(i as f32, j as f32, k as f32) * cell;
     // sample corners
     let sx = nx + 1;
     let sy = ny + 1;
@@ -103,6 +105,7 @@ pub fn mesh_field(
     let cidx = |i: usize, j: usize, k: usize| (i * ny + j) * nz + k;
     let mut cell_vert = vec![u32::MAX; nx * ny * nz];
     let mut m = Mesh::new();
+    #[allow(clippy::type_complexity)]
     const EDGES: [((usize, usize, usize), (usize, usize, usize)); 12] = [
         ((0, 0, 0), (1, 0, 0)),
         ((0, 1, 0), (1, 1, 0)),

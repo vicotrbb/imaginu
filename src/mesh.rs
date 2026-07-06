@@ -99,7 +99,9 @@ impl Mesh {
             *n = nm.transform_vector3(*n).normalize_or(Vec3::Y);
         }
         for t in &mut self.tangents {
-            let v = m.transform_vector3(Vec3::new(t.x, t.y, t.z)).normalize_or(Vec3::X);
+            let v = m
+                .transform_vector3(Vec3::new(t.x, t.y, t.z))
+                .normalize_or(Vec3::X);
             *t = Vec4::new(v.x, v.y, v.z, t.w);
         }
         for mt in &mut self.morphs {
@@ -130,21 +132,23 @@ impl Mesh {
                 self.joints.extend_from_slice(&other.joints);
                 self.weights.extend_from_slice(&other.weights);
             } else {
-                self.joints.extend(std::iter::repeat([0; 4]).take(extra));
-                self.weights.extend(std::iter::repeat([1.0, 0.0, 0.0, 0.0]).take(extra));
+                self.joints.extend(std::iter::repeat_n([0; 4], extra));
+                self.weights
+                    .extend(std::iter::repeat_n([1.0, 0.0, 0.0, 0.0], extra));
             }
         }
         if self.has_uvs() || other.has_uvs() {
             self.uvs.resize(base as usize, Vec2::ZERO);
-            self.tangents.resize(base as usize, Vec4::new(1.0, 0.0, 0.0, 1.0));
+            self.tangents
+                .resize(base as usize, Vec4::new(1.0, 0.0, 0.0, 1.0));
             let extra = other.positions.len();
             if other.has_uvs() {
                 self.uvs.extend_from_slice(&other.uvs);
                 self.tangents.extend_from_slice(&other.tangents);
             } else {
-                self.uvs.extend(std::iter::repeat(Vec2::ZERO).take(extra));
+                self.uvs.extend(std::iter::repeat_n(Vec2::ZERO, extra));
                 self.tangents
-                    .extend(std::iter::repeat(Vec4::new(1.0, 0.0, 0.0, 1.0)).take(extra));
+                    .extend(std::iter::repeat_n(Vec4::new(1.0, 0.0, 0.0, 1.0), extra));
             }
         }
         if !self.morphs.is_empty() || !other.morphs.is_empty() {
@@ -161,7 +165,10 @@ impl Mesh {
                 if !self.morphs.iter().any(|m| m.name == o.name) {
                     let mut deltas = vec![Vec3::ZERO; base as usize];
                     deltas.extend_from_slice(&o.deltas);
-                    self.morphs.push(MorphTarget { name: o.name.clone(), deltas });
+                    self.morphs.push(MorphTarget {
+                        name: o.name.clone(),
+                        deltas,
+                    });
                 }
             }
         }
@@ -189,7 +196,7 @@ impl Mesh {
         if self.normals.len() != n || self.colors.len() != n {
             return Err("attribute count mismatch".into());
         }
-        if self.indices.len() % 3 != 0 {
+        if !self.indices.len().is_multiple_of(3) {
             return Err("index count not multiple of 3".into());
         }
         for &i in &self.indices {
@@ -388,7 +395,11 @@ pub fn to_flat_shaded(src: &Mesh) -> Mesh {
     }
     if src.has_uvs() {
         m.uvs = src.indices.iter().map(|&i| src.uvs[i as usize]).collect();
-        m.tangents = src.indices.iter().map(|&i| src.tangents[i as usize]).collect();
+        m.tangents = src
+            .indices
+            .iter()
+            .map(|&i| src.tangents[i as usize])
+            .collect();
     }
     m.morphs = src
         .morphs
@@ -428,6 +439,7 @@ pub fn bake_ao(m: &mut Mesh, strength: f32) {
         grid.entry(key(m.positions[i])).or_default().push(i as u32);
     }
     let mut occ = vec![0.0f32; n];
+    #[allow(clippy::needless_range_loop)]
     for i in 0..n {
         let p = m.positions[i];
         let nm = m.normals[i];
@@ -459,6 +471,7 @@ pub fn bake_ao(m: &mut Mesh, strength: f32) {
         occ[i] = sum;
     }
     let max = occ.iter().cloned().fold(0.0f32, f32::max).max(1e-6);
+    #[allow(clippy::needless_range_loop)]
     for i in 0..n {
         let a = 1.0 - strength.clamp(0.0, 1.0) * 0.55 * (occ[i] / max).powf(0.7);
         m.colors[i] *= a;
@@ -509,10 +522,26 @@ pub fn icosphere(radius: f32, subdiv: u32, color: Vec3) -> Mesh {
         *v = v.normalize();
     }
     let mut faces: Vec<[u32; 3]> = vec![
-        [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
-        [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
-        [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
-        [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
+        [0, 11, 5],
+        [0, 5, 1],
+        [0, 1, 7],
+        [0, 7, 10],
+        [0, 10, 11],
+        [1, 5, 9],
+        [5, 11, 4],
+        [11, 10, 2],
+        [10, 7, 6],
+        [7, 1, 8],
+        [3, 9, 4],
+        [3, 4, 2],
+        [3, 2, 6],
+        [3, 6, 8],
+        [3, 8, 9],
+        [4, 9, 5],
+        [2, 4, 11],
+        [6, 2, 10],
+        [8, 6, 7],
+        [9, 8, 1],
     ];
     use std::collections::HashMap;
     for _ in 0..subdiv {
@@ -553,7 +582,11 @@ mod tests {
         for m in [
             cuboid(Vec3::ZERO, Vec3::ONE, Vec3::splat(0.5)),
             icosphere(1.0, 2, Vec3::splat(0.5)),
-            lathe(&[(0.0, 0.0), (1.0, 0.5), (0.8, 1.0), (0.0, 1.4)], 12, |_, _| Vec3::ONE),
+            lathe(
+                &[(0.0, 0.0), (1.0, 0.5), (0.8, 1.0), (0.0, 1.4)],
+                12,
+                |_, _| Vec3::ONE,
+            ),
         ] {
             m.validate().unwrap();
             assert!(m.triangle_count() > 0);
@@ -563,9 +596,21 @@ mod tests {
     #[test]
     fn loft_structured_uvs() {
         let stations = [
-            LoftStation { center: Vec3::ZERO, rx: 1.2, rz: 0.9 },
-            LoftStation { center: Vec3::Y, rx: 0.8, rz: 0.7 },
-            LoftStation { center: Vec3::Y * 2.0, rx: 0.5, rz: 0.5 },
+            LoftStation {
+                center: Vec3::ZERO,
+                rx: 1.2,
+                rz: 0.9,
+            },
+            LoftStation {
+                center: Vec3::Y,
+                rx: 0.8,
+                rz: 0.7,
+            },
+            LoftStation {
+                center: Vec3::Y * 2.0,
+                rx: 0.5,
+                rz: 0.5,
+            },
         ];
         let closed = loft(&stations, 12, 360.0, 0.0, |_| Vec3::ONE);
         closed.validate().unwrap();

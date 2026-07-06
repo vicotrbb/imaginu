@@ -30,7 +30,10 @@ fn seg_distance(p: Vec3, a: Vec3, b: Vec3) -> f32 {
 /// Assign up to 4 joint weights per vertex with inverse-distance falloff
 /// `w = 1/(d + eps)^falloff`. Deterministic: ties resolve by joint index.
 pub fn smooth_bind(mesh: &mut Mesh, segs: &[BoneSeg], falloff: f32) {
-    assert!(!segs.is_empty(), "smooth_bind needs at least one bone segment");
+    assert!(
+        !segs.is_empty(),
+        "smooth_bind needs at least one bone segment"
+    );
     let falloff = falloff.clamp(0.5, 8.0);
     let n = mesh.positions.len();
     mesh.joints = Vec::with_capacity(n);
@@ -78,8 +81,16 @@ pub fn skeleton_segments(skel: &Skeleton) -> Vec<BoneSeg> {
     (0..skel.joints.len())
         .map(|i| {
             let (sum, count) = child_sum[i];
-            let b = if count > 0 { sum / count as f32 } else { world[i] };
-            BoneSeg { joint: i as u16, a: world[i], b }
+            let b = if count > 0 {
+                sum / count as f32
+            } else {
+                world[i]
+            };
+            BoneSeg {
+                joint: i as u16,
+                a: world[i],
+                b,
+            }
         })
         .collect()
 }
@@ -98,8 +109,16 @@ mod tests {
             |_| Vec3::ONE,
         );
         let segs = [
-            BoneSeg { joint: 0, a: Vec3::ZERO, b: Vec3::Y },
-            BoneSeg { joint: 1, a: Vec3::Y, b: Vec3::Y * 2.0 },
+            BoneSeg {
+                joint: 0,
+                a: Vec3::ZERO,
+                b: Vec3::Y,
+            },
+            BoneSeg {
+                joint: 1,
+                a: Vec3::Y,
+                b: Vec3::Y * 2.0,
+            },
         ];
         smooth_bind(&mut m, &segs, 2.5);
         m.validate().unwrap();
@@ -132,8 +151,16 @@ mod tests {
         let mk = || {
             let mut m = tube(&[(Vec3::ZERO, 0.3), (Vec3::Y * 2.0, 0.3)], 6, |_| Vec3::ONE);
             let segs = [
-                BoneSeg { joint: 0, a: Vec3::ZERO, b: Vec3::Y },
-                BoneSeg { joint: 1, a: Vec3::Y, b: Vec3::Y * 2.0 },
+                BoneSeg {
+                    joint: 0,
+                    a: Vec3::ZERO,
+                    b: Vec3::Y,
+                },
+                BoneSeg {
+                    joint: 1,
+                    a: Vec3::Y,
+                    b: Vec3::Y * 2.0,
+                },
             ];
             smooth_bind(&mut m, &segs, 2.5);
             (m.joints, m.weights)

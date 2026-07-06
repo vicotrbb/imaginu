@@ -49,7 +49,7 @@ pub fn render(m: &WorldModel, px: usize) -> (usize, usize, Vec<u8>) {
                 }
                 // altitude lightening + snow tips
                 let t = ((hv - sea) / (m.amp * 3.5)).clamp(0.0, 1.0).powf(0.5);
-                c = c * (0.85 + t * 0.35);
+                c *= 0.85 + t * 0.35;
                 let snow = ((hv - sea - m.amp * 2.1) / (m.amp * 0.5)).clamp(0.0, 1.0);
                 c = c.lerp(Vec3::splat(0.95), snow * 0.8);
                 // hillshade from the height buffer
@@ -80,7 +80,15 @@ pub fn render(m: &WorldModel, px: usize) -> (usize, usize, Vec<u8>) {
             let steps = ((x1 - x0).hypot(y1 - y0).ceil() as usize).max(1);
             for i in 0..=steps {
                 let t = i as f32 / steps as f32;
-                dot(&mut out, w, h, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, r, color);
+                dot(
+                    &mut out,
+                    w,
+                    h,
+                    x0 + (x1 - x0) * t,
+                    y0 + (y1 - y0) * t,
+                    r,
+                    color,
+                );
             }
         }
     };
@@ -115,8 +123,14 @@ pub fn render(m: &WorldModel, px: usize) -> (usize, usize, Vec<u8>) {
 pub fn dot(img: &mut [u8], w: usize, h: usize, x: f32, y: f32, r: f32, color: [u8; 3]) {
     let (cx, cy) = (x, y);
     let r2 = r * r;
-    let (x0, x1) = (((cx - r).floor() as i64).max(0), ((cx + r).ceil() as i64).min(w as i64 - 1));
-    let (y0, y1) = (((cy - r).floor() as i64).max(0), ((cy + r).ceil() as i64).min(h as i64 - 1));
+    let (x0, x1) = (
+        ((cx - r).floor() as i64).max(0),
+        ((cx + r).ceil() as i64).min(w as i64 - 1),
+    );
+    let (y0, y1) = (
+        ((cy - r).floor() as i64).max(0),
+        ((cy + r).ceil() as i64).min(h as i64 - 1),
+    );
     for py in y0..=y1 {
         for px in x0..=x1 {
             let d2 = (px as f32 - cx).powi(2) + (py as f32 - cy).powi(2);

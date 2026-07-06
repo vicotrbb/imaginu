@@ -8,17 +8,17 @@ use std::collections::HashMap;
 use crate::mesh::Mesh;
 
 fn avg4(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
-    [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0, (a[2] + b[2]) / 2.0, (a[3] + b[3]) / 2.0]
+    [
+        (a[0] + b[0]) / 2.0,
+        (a[1] + b[1]) / 2.0,
+        (a[2] + b[2]) / 2.0,
+        (a[3] + b[3]) / 2.0,
+    ]
 }
 
 /// Blend two joint/weight sets: union the influences, halve the weights,
 /// keep the 4 strongest, renormalize.
-fn blend_skin(
-    ja: [u16; 4],
-    wa: [f32; 4],
-    jb: [u16; 4],
-    wb: [f32; 4],
-) -> ([u16; 4], [f32; 4]) {
+fn blend_skin(ja: [u16; 4], wa: [f32; 4], jb: [u16; 4], wb: [f32; 4]) -> ([u16; 4], [f32; 4]) {
     let mut acc: Vec<(u16, f32)> = Vec::with_capacity(8);
     for (j, w) in ja.iter().zip(wa).chain(jb.iter().zip(wb)) {
         if w <= 0.0 {
@@ -67,41 +67,43 @@ pub fn subdivide(src: &Mesh, smooth: bool) -> Mesh {
         }
     }
 
-    let mut mid = |a: u32, b: u32, m: &mut Mesh, morphs: &mut Vec<crate::mesh::MorphTarget>| -> u32 {
-        let key = (a.min(b), a.max(b));
-        if let Some(&i) = midpoint_cache.get(&key) {
-            return i;
-        }
-        let (ia, ib) = (a as usize, b as usize);
-        // Loop odd-vertex rule when the edge has two opposite corners
-        let opp = edge_of.get(&key).map(|v| v.as_slice()).unwrap_or(&[]);
-        let pos = if smooth && opp.len() == 2 {
-            (m.positions[ia] + m.positions[ib]) * 0.375
-                + (m.positions[opp[0] as usize] + m.positions[opp[1] as usize]) * 0.125
-        } else {
-            (m.positions[ia] + m.positions[ib]) / 2.0
+    let mut mid =
+        |a: u32, b: u32, m: &mut Mesh, morphs: &mut Vec<crate::mesh::MorphTarget>| -> u32 {
+            let key = (a.min(b), a.max(b));
+            if let Some(&i) = midpoint_cache.get(&key) {
+                return i;
+            }
+            let (ia, ib) = (a as usize, b as usize);
+            // Loop odd-vertex rule when the edge has two opposite corners
+            let opp = edge_of.get(&key).map(|v| v.as_slice()).unwrap_or(&[]);
+            let pos = if smooth && opp.len() == 2 {
+                (m.positions[ia] + m.positions[ib]) * 0.375
+                    + (m.positions[opp[0] as usize] + m.positions[opp[1] as usize]) * 0.125
+            } else {
+                (m.positions[ia] + m.positions[ib]) / 2.0
+            };
+            m.positions.push(pos);
+            m.normals
+                .push(((m.normals[ia] + m.normals[ib]) / 2.0).normalize_or(Vec3::Y));
+            m.colors.push((m.colors[ia] + m.colors[ib]) / 2.0);
+            if !m.joints.is_empty() {
+                let (j, w) = blend_skin(m.joints[ia], m.weights[ia], m.joints[ib], m.weights[ib]);
+                m.joints.push(j);
+                m.weights.push(w);
+            }
+            if !m.uvs.is_empty() {
+                m.uvs.push((m.uvs[ia] + m.uvs[ib]) / 2.0);
+                m.tangents
+                    .push(avg4(m.tangents[ia].into(), m.tangents[ib].into()).into());
+            }
+            for mt in morphs.iter_mut() {
+                let d = (mt.deltas[ia] + mt.deltas[ib]) / 2.0;
+                mt.deltas.push(d);
+            }
+            let i = (m.positions.len() - 1) as u32;
+            midpoint_cache.insert(key, i);
+            i
         };
-        m.positions.push(pos);
-        m.normals
-            .push(((m.normals[ia] + m.normals[ib]) / 2.0).normalize_or(Vec3::Y));
-        m.colors.push((m.colors[ia] + m.colors[ib]) / 2.0);
-        if !m.joints.is_empty() {
-            let (j, w) = blend_skin(m.joints[ia], m.weights[ia], m.joints[ib], m.weights[ib]);
-            m.joints.push(j);
-            m.weights.push(w);
-        }
-        if !m.uvs.is_empty() {
-            m.uvs.push((m.uvs[ia] + m.uvs[ib]) / 2.0);
-            m.tangents.push(avg4(m.tangents[ia].into(), m.tangents[ib].into()).into());
-        }
-        for mt in morphs.iter_mut() {
-            let d = (mt.deltas[ia] + mt.deltas[ib]) / 2.0;
-            mt.deltas.push(d);
-        }
-        let i = (m.positions.len() - 1) as u32;
-        midpoint_cache.insert(key, i);
-        i
-    };
 
     for t in src.indices.chunks_exact(3) {
         let (a, b, c) = (t[0], t[1], t[2]);
@@ -131,8 +133,8 @@ pub fn subdivide(src: &Mesh, smooth: bool) -> Mesh {
                 continue;
             }
             let k = nbrs.len() as f32;
-            let beta = (5.0 / 8.0 - (0.375 + 0.25 * (core::f32::consts::TAU / k).cos()).powi(2))
-                / k;
+            let beta =
+                (5.0 / 8.0 - (0.375 + 0.25 * (core::f32::consts::TAU / k).cos()).powi(2)) / k;
             let sum: Vec3 = nbrs.iter().map(|&i| src.positions[i as usize]).sum();
             new_pos[v] = src.positions[v] * (1.0 - k * beta) + sum * beta;
         }
@@ -214,7 +216,11 @@ fn cluster(src: &Mesh, lo: Vec3, cell: f32) -> Mesh {
         m.normals[i] = m.normals[i].normalize_or(Vec3::Y);
     }
     for t in src.indices.chunks_exact(3) {
-        let (a, b, c) = (remap[t[0] as usize], remap[t[1] as usize], remap[t[2] as usize]);
+        let (a, b, c) = (
+            remap[t[0] as usize],
+            remap[t[1] as usize],
+            remap[t[2] as usize],
+        );
         if a != b && b != c && a != c {
             m.indices.extend_from_slice(&[a, b, c]);
         }
@@ -265,6 +271,10 @@ mod tests {
         let s = subdivide(&m, true);
         assert_eq!(s.joints.len(), s.positions.len());
         assert!(s.joints.iter().all(|j| j[0] == 3));
-        assert!(s.weights.iter().all(|w| (w.iter().sum::<f32>() - 1.0).abs() < 1e-4));
+        assert!(
+            s.weights
+                .iter()
+                .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < 1e-4)
+        );
     }
 }

@@ -85,9 +85,16 @@ pub struct AnimationClip {
 /// Physics metadata embedded in the root node's `extras.imaginu_physics`.
 #[derive(Clone, Debug)]
 pub enum Collider {
-    Box { half_extents: Vec3 },
-    Sphere { radius: f32 },
-    Capsule { radius: f32, height: f32 },
+    Box {
+        half_extents: Vec3,
+    },
+    Sphere {
+        radius: f32,
+    },
+    Capsule {
+        radius: f32,
+        height: f32,
+    },
     /// Use the render mesh (or a decimated copy) as a static collider.
     TriMesh,
     /// Heightfield terrain collider.
@@ -190,7 +197,7 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     let mut accessors: Vec<Value> = Vec::new();
 
     let mut push_view = |bin: &mut Vec<u8>, bytes: &[u8], target: Option<u32>| -> usize {
-        while bin.len() % 4 != 0 {
+        while !bin.len().is_multiple_of(4) {
             bin.push(0);
         }
         let offset = bin.len();
@@ -206,9 +213,8 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
         buffer_views.len() - 1
     };
 
-    let f32s_to_bytes = |data: &[f32]| -> Vec<u8> {
-        data.iter().flat_map(|f| f.to_le_bytes()).collect()
-    };
+    let f32s_to_bytes =
+        |data: &[f32]| -> Vec<u8> { data.iter().flat_map(|f| f.to_le_bytes()).collect() };
 
     let mut meshes_json: Vec<Value> = Vec::new();
     let mut materials_json: Vec<Value> = Vec::new();
@@ -226,182 +232,191 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     // instanced scatter meshes follow the LOD meshes
     let inst_mesh_base = groups.len();
     for (i, ip) in asset.instanced.iter().enumerate() {
-        groups.push((format!("{}_scatter{}", asset.name, i), std::slice::from_ref(&ip.part)));
+        groups.push((
+            format!("{}_scatter{}", asset.name, i),
+            std::slice::from_ref(&ip.part),
+        ));
     }
 
     for (group_name, group_parts) in &groups {
-    let mut primitives: Vec<Value> = Vec::new();
-    for part in group_parts.iter() {
-        let m = &part.mesh;
-        // glTF forbids zero-count accessors; skip empty parts
-        if m.positions.is_empty() || m.indices.is_empty() {
-            continue;
-        }
-        // positions
-        let pos_flat: Vec<f32> = m.positions.iter().flat_map(|p| [p.x, p.y, p.z]).collect();
-        let (lo, hi) = m.bounds();
-        let vp = push_view(&mut bin, &f32s_to_bytes(&pos_flat), Some(34962));
-        accessors.push(json!({
-            "bufferView": vp, "componentType": 5126, "count": m.positions.len(),
-            "type": "VEC3", "min": [lo.x, lo.y, lo.z], "max": [hi.x, hi.y, hi.z],
-        }));
-        let a_pos = accessors.len() - 1;
-        // normals
-        let nrm_flat: Vec<f32> = m.normals.iter().flat_map(|n| [n.x, n.y, n.z]).collect();
-        let vn = push_view(&mut bin, &f32s_to_bytes(&nrm_flat), Some(34962));
-        accessors.push(json!({
-            "bufferView": vn, "componentType": 5126, "count": m.normals.len(), "type": "VEC3",
-        }));
-        let a_nrm = accessors.len() - 1;
-        // colors
-        let col_flat: Vec<f32> = m.colors.iter().flat_map(|c| [c.x, c.y, c.z]).collect();
-        let vc = push_view(&mut bin, &f32s_to_bytes(&col_flat), Some(34962));
-        accessors.push(json!({
-            "bufferView": vc, "componentType": 5126, "count": m.colors.len(), "type": "VEC3",
-        }));
-        let a_col = accessors.len() - 1;
-        // indices
-        let idx_bytes: Vec<u8> = m.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
-        let vi = push_view(&mut bin, &idx_bytes, Some(34963));
-        accessors.push(json!({
-            "bufferView": vi, "componentType": 5125, "count": m.indices.len(), "type": "SCALAR",
-        }));
-        let a_idx = accessors.len() - 1;
-
-        let mut attrs = Map::new();
-        attrs.insert("POSITION".into(), json!(a_pos));
-        attrs.insert("NORMAL".into(), json!(a_nrm));
-        attrs.insert("COLOR_0".into(), json!(a_col));
-
-        if skinned {
-            let joints = if m.is_skinned() {
-                m.joints.clone()
-            } else {
-                vec![[0u16; 4]; m.positions.len()]
-            };
-            let weights = if m.is_skinned() {
-                m.weights.clone()
-            } else {
-                vec![[1.0f32, 0.0, 0.0, 0.0]; m.positions.len()]
-            };
-            let j_bytes: Vec<u8> =
-                joints.iter().flatten().flat_map(|j| j.to_le_bytes()).collect();
-            let vj = push_view(&mut bin, &j_bytes, Some(34962));
-            accessors.push(json!({
-                "bufferView": vj, "componentType": 5123, "count": joints.len(), "type": "VEC4",
-            }));
-            attrs.insert("JOINTS_0".into(), json!(accessors.len() - 1));
-            let w_flat: Vec<f32> = weights.iter().flatten().copied().collect();
-            let vw = push_view(&mut bin, &f32s_to_bytes(&w_flat), Some(34962));
-            accessors.push(json!({
-                "bufferView": vw, "componentType": 5126, "count": weights.len(), "type": "VEC4",
-            }));
-            attrs.insert("WEIGHTS_0".into(), json!(accessors.len() - 1));
-        }
-
-        let mat = &part.material;
-        let textured = mat.texture.is_some() && m.has_uvs();
-        if textured {
-            let tex = mat.texture.as_ref().unwrap();
-            // TEXCOORD_0
-            let uv_flat: Vec<f32> = m.uvs.iter().flat_map(|t| [t.x, t.y]).collect();
-            let vuv = push_view(&mut bin, &f32s_to_bytes(&uv_flat), Some(34962));
-            accessors.push(json!({
-                "bufferView": vuv, "componentType": 5126, "count": m.uvs.len(), "type": "VEC2",
-            }));
-            attrs.insert("TEXCOORD_0".into(), json!(accessors.len() - 1));
-            // TANGENT
-            let tan_flat: Vec<f32> =
-                m.tangents.iter().flat_map(|t| [t.x, t.y, t.z, t.w]).collect();
-            let vtan = push_view(&mut bin, &f32s_to_bytes(&tan_flat), Some(34962));
-            accessors.push(json!({
-                "bufferView": vtan, "componentType": 5126,
-                "count": m.tangents.len(), "type": "VEC4",
-            }));
-            attrs.insert("TANGENT".into(), json!(accessors.len() - 1));
-            // images + textures (deduped by spec key)
-            let triple = match tex_by_key.iter().find(|(k, _)| *k == tex.key) {
-                Some((_, t)) => *t,
-                None => {
-                    let mut mk = |img: &crate::texture::Rgb8Image,
-                                  bin: &mut Vec<u8>|
-                     -> usize {
-                        let v = push_view(bin, &img.to_png_bytes(), None);
-                        images_json.push(json!({"bufferView": v, "mimeType": "image/png"}));
-                        textures_json
-                            .push(json!({"source": images_json.len() - 1, "sampler": 0}));
-                        textures_json.len() - 1
-                    };
-                    let t = [
-                        mk(&tex.base_color, &mut bin),
-                        mk(&tex.normal, &mut bin),
-                        mk(&tex.orm, &mut bin),
-                    ];
-                    tex_by_key.push((tex.key.clone(), t));
-                    t
-                }
-            };
-            materials_json.push(json!({
-                "pbrMetallicRoughness": {
-                    "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
-                    "baseColorTexture": {"index": triple[0], "texCoord": 0},
-                    "metallicRoughnessTexture": {"index": triple[2], "texCoord": 0},
-                    "metallicFactor": 1.0,
-                    "roughnessFactor": 1.0,
-                },
-                "normalTexture": {"index": triple[1], "texCoord": 0},
-                "occlusionTexture": {"index": triple[2], "texCoord": 0},
-                "emissiveFactor": [mat.emissive.x, mat.emissive.y, mat.emissive.z],
-                "doubleSided": mat.double_sided,
-            }));
-        } else {
-            materials_json.push(json!({
-                "pbrMetallicRoughness": {
-                    "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
-                    "metallicFactor": mat.metallic,
-                    "roughnessFactor": mat.roughness,
-                },
-                "emissiveFactor": [mat.emissive.x, mat.emissive.y, mat.emissive.z],
-                "doubleSided": mat.double_sided,
-            }));
-        }
-
-        let mut prim = Map::new();
-        prim.insert("attributes".into(), Value::Object(attrs));
-        prim.insert("indices".into(), json!(a_idx));
-        prim.insert("material".into(), json!(materials_json.len() - 1));
-        prim.insert("mode".into(), json!(4));
-        if !m.morphs.is_empty() {
-            let mut targets = Vec::new();
-            for mt in &m.morphs {
-                let flat: Vec<f32> = mt.deltas.iter().flat_map(|d| [d.x, d.y, d.z]).collect();
-                let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
-                for d in &mt.deltas {
-                    lo = lo.min(*d);
-                    hi = hi.max(*d);
-                }
-                let v = push_view(&mut bin, &f32s_to_bytes(&flat), Some(34962));
-                accessors.push(json!({
-                    "bufferView": v, "componentType": 5126, "count": mt.deltas.len(),
-                    "type": "VEC3", "min": [lo.x, lo.y, lo.z], "max": [hi.x, hi.y, hi.z],
-                }));
-                targets.push(json!({"POSITION": accessors.len() - 1}));
+        let mut primitives: Vec<Value> = Vec::new();
+        for part in group_parts.iter() {
+            let m = &part.mesh;
+            // glTF forbids zero-count accessors; skip empty parts
+            if m.positions.is_empty() || m.indices.is_empty() {
+                continue;
             }
-            prim.insert("targets".into(), Value::Array(targets));
-        }
-        primitives.push(Value::Object(prim));
-    }
+            // positions
+            let pos_flat: Vec<f32> = m.positions.iter().flat_map(|p| [p.x, p.y, p.z]).collect();
+            let (lo, hi) = m.bounds();
+            let vp = push_view(&mut bin, &f32s_to_bytes(&pos_flat), Some(34962));
+            accessors.push(json!({
+                "bufferView": vp, "componentType": 5126, "count": m.positions.len(),
+                "type": "VEC3", "min": [lo.x, lo.y, lo.z], "max": [hi.x, hi.y, hi.z],
+            }));
+            let a_pos = accessors.len() - 1;
+            // normals
+            let nrm_flat: Vec<f32> = m.normals.iter().flat_map(|n| [n.x, n.y, n.z]).collect();
+            let vn = push_view(&mut bin, &f32s_to_bytes(&nrm_flat), Some(34962));
+            accessors.push(json!({
+                "bufferView": vn, "componentType": 5126, "count": m.normals.len(), "type": "VEC3",
+            }));
+            let a_nrm = accessors.len() - 1;
+            // colors
+            let col_flat: Vec<f32> = m.colors.iter().flat_map(|c| [c.x, c.y, c.z]).collect();
+            let vc = push_view(&mut bin, &f32s_to_bytes(&col_flat), Some(34962));
+            accessors.push(json!({
+                "bufferView": vc, "componentType": 5126, "count": m.colors.len(), "type": "VEC3",
+            }));
+            let a_col = accessors.len() - 1;
+            // indices
+            let idx_bytes: Vec<u8> = m.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
+            let vi = push_view(&mut bin, &idx_bytes, Some(34963));
+            accessors.push(json!({
+                "bufferView": vi, "componentType": 5125, "count": m.indices.len(), "type": "SCALAR",
+            }));
+            let a_idx = accessors.len() - 1;
 
-    let mut mesh_obj = Map::new();
-    mesh_obj.insert("name".into(), json!(group_name));
-    mesh_obj.insert("primitives".into(), Value::Array(primitives));
-    // morph metadata comes from the first part that has targets
-    if let Some(part) = group_parts.iter().find(|p| !p.mesh.morphs.is_empty()) {
-        let names: Vec<&str> = part.mesh.morphs.iter().map(|m| m.name.as_str()).collect();
-        mesh_obj.insert("weights".into(), json!(vec![0.0; names.len()]));
-        mesh_obj.insert("extras".into(), json!({"targetNames": names}));
-    }
-    meshes_json.push(Value::Object(mesh_obj));
+            let mut attrs = Map::new();
+            attrs.insert("POSITION".into(), json!(a_pos));
+            attrs.insert("NORMAL".into(), json!(a_nrm));
+            attrs.insert("COLOR_0".into(), json!(a_col));
+
+            if skinned {
+                let joints = if m.is_skinned() {
+                    m.joints.clone()
+                } else {
+                    vec![[0u16; 4]; m.positions.len()]
+                };
+                let weights = if m.is_skinned() {
+                    m.weights.clone()
+                } else {
+                    vec![[1.0f32, 0.0, 0.0, 0.0]; m.positions.len()]
+                };
+                let j_bytes: Vec<u8> = joints
+                    .iter()
+                    .flatten()
+                    .flat_map(|j| j.to_le_bytes())
+                    .collect();
+                let vj = push_view(&mut bin, &j_bytes, Some(34962));
+                accessors.push(json!({
+                    "bufferView": vj, "componentType": 5123, "count": joints.len(), "type": "VEC4",
+                }));
+                attrs.insert("JOINTS_0".into(), json!(accessors.len() - 1));
+                let w_flat: Vec<f32> = weights.iter().flatten().copied().collect();
+                let vw = push_view(&mut bin, &f32s_to_bytes(&w_flat), Some(34962));
+                accessors.push(json!({
+                    "bufferView": vw, "componentType": 5126, "count": weights.len(), "type": "VEC4",
+                }));
+                attrs.insert("WEIGHTS_0".into(), json!(accessors.len() - 1));
+            }
+
+            let mat = &part.material;
+            let textured = mat.texture.is_some() && m.has_uvs();
+            if textured {
+                let tex = mat.texture.as_ref().unwrap();
+                // TEXCOORD_0
+                let uv_flat: Vec<f32> = m.uvs.iter().flat_map(|t| [t.x, t.y]).collect();
+                let vuv = push_view(&mut bin, &f32s_to_bytes(&uv_flat), Some(34962));
+                accessors.push(json!({
+                    "bufferView": vuv, "componentType": 5126, "count": m.uvs.len(), "type": "VEC2",
+                }));
+                attrs.insert("TEXCOORD_0".into(), json!(accessors.len() - 1));
+                // TANGENT
+                let tan_flat: Vec<f32> = m
+                    .tangents
+                    .iter()
+                    .flat_map(|t| [t.x, t.y, t.z, t.w])
+                    .collect();
+                let vtan = push_view(&mut bin, &f32s_to_bytes(&tan_flat), Some(34962));
+                accessors.push(json!({
+                    "bufferView": vtan, "componentType": 5126,
+                    "count": m.tangents.len(), "type": "VEC4",
+                }));
+                attrs.insert("TANGENT".into(), json!(accessors.len() - 1));
+                // images + textures (deduped by spec key)
+                let triple = match tex_by_key.iter().find(|(k, _)| *k == tex.key) {
+                    Some((_, t)) => *t,
+                    None => {
+                        let mut mk =
+                            |img: &crate::texture::Rgb8Image, bin: &mut Vec<u8>| -> usize {
+                                let v = push_view(bin, &img.to_png_bytes(), None);
+                                images_json.push(json!({"bufferView": v, "mimeType": "image/png"}));
+                                textures_json
+                                    .push(json!({"source": images_json.len() - 1, "sampler": 0}));
+                                textures_json.len() - 1
+                            };
+                        let t = [
+                            mk(&tex.base_color, &mut bin),
+                            mk(&tex.normal, &mut bin),
+                            mk(&tex.orm, &mut bin),
+                        ];
+                        tex_by_key.push((tex.key.clone(), t));
+                        t
+                    }
+                };
+                materials_json.push(json!({
+                    "pbrMetallicRoughness": {
+                        "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+                        "baseColorTexture": {"index": triple[0], "texCoord": 0},
+                        "metallicRoughnessTexture": {"index": triple[2], "texCoord": 0},
+                        "metallicFactor": 1.0,
+                        "roughnessFactor": 1.0,
+                    },
+                    "normalTexture": {"index": triple[1], "texCoord": 0},
+                    "occlusionTexture": {"index": triple[2], "texCoord": 0},
+                    "emissiveFactor": [mat.emissive.x, mat.emissive.y, mat.emissive.z],
+                    "doubleSided": mat.double_sided,
+                }));
+            } else {
+                materials_json.push(json!({
+                    "pbrMetallicRoughness": {
+                        "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+                        "metallicFactor": mat.metallic,
+                        "roughnessFactor": mat.roughness,
+                    },
+                    "emissiveFactor": [mat.emissive.x, mat.emissive.y, mat.emissive.z],
+                    "doubleSided": mat.double_sided,
+                }));
+            }
+
+            let mut prim = Map::new();
+            prim.insert("attributes".into(), Value::Object(attrs));
+            prim.insert("indices".into(), json!(a_idx));
+            prim.insert("material".into(), json!(materials_json.len() - 1));
+            prim.insert("mode".into(), json!(4));
+            if !m.morphs.is_empty() {
+                let mut targets = Vec::new();
+                for mt in &m.morphs {
+                    let flat: Vec<f32> = mt.deltas.iter().flat_map(|d| [d.x, d.y, d.z]).collect();
+                    let (mut lo, mut hi) =
+                        (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+                    for d in &mt.deltas {
+                        lo = lo.min(*d);
+                        hi = hi.max(*d);
+                    }
+                    let v = push_view(&mut bin, &f32s_to_bytes(&flat), Some(34962));
+                    accessors.push(json!({
+                        "bufferView": v, "componentType": 5126, "count": mt.deltas.len(),
+                        "type": "VEC3", "min": [lo.x, lo.y, lo.z], "max": [hi.x, hi.y, hi.z],
+                    }));
+                    targets.push(json!({"POSITION": accessors.len() - 1}));
+                }
+                prim.insert("targets".into(), Value::Array(targets));
+            }
+            primitives.push(Value::Object(prim));
+        }
+
+        let mut mesh_obj = Map::new();
+        mesh_obj.insert("name".into(), json!(group_name));
+        mesh_obj.insert("primitives".into(), Value::Array(primitives));
+        // morph metadata comes from the first part that has targets
+        if let Some(part) = group_parts.iter().find(|p| !p.mesh.morphs.is_empty()) {
+            let names: Vec<&str> = part.mesh.morphs.iter().map(|m| m.name.as_str()).collect();
+            mesh_obj.insert("weights".into(), json!(vec![0.0; names.len()]));
+            mesh_obj.insert("extras".into(), json!({"targetNames": names}));
+        }
+        meshes_json.push(Value::Object(mesh_obj));
     } // end mesh groups
 
     // Nodes: mesh node (+ joint hierarchy if skinned)
@@ -422,7 +437,9 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
         let ids: Vec<usize> = (1..=asset.lods.len()).collect();
         mesh_node.insert("extensions".into(), json!({"MSFT_lod": {"ids": ids}}));
         // screen coverage hints: halve per level
-        let cov: Vec<f32> = (0..=asset.lods.len()).map(|i| 0.5f32.powi(i as i32 + 1)).collect();
+        let cov: Vec<f32> = (0..=asset.lods.len())
+            .map(|i| 0.5f32.powi(i as i32 + 1))
+            .collect();
         extras.insert("MSFT_screencoverage".into(), json!(cov));
     }
     if !extras.is_empty() {
@@ -438,15 +455,21 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     }
     // instanced scatter nodes (EXT_mesh_gpu_instancing)
     for (i, ip) in asset.instanced.iter().enumerate() {
-        let t_flat: Vec<f32> =
-            ip.transforms.iter().flat_map(|(t, _, _)| [t.x, t.y, t.z]).collect();
+        let t_flat: Vec<f32> = ip
+            .transforms
+            .iter()
+            .flat_map(|(t, _, _)| [t.x, t.y, t.z])
+            .collect();
         let r_flat: Vec<f32> = ip
             .transforms
             .iter()
             .flat_map(|(_, r, _)| [r.x, r.y, r.z, r.w])
             .collect();
-        let s_flat: Vec<f32> =
-            ip.transforms.iter().flat_map(|(_, _, s)| [s.x, s.y, s.z]).collect();
+        let s_flat: Vec<f32> = ip
+            .transforms
+            .iter()
+            .flat_map(|(_, _, s)| [s.x, s.y, s.z])
+            .collect();
         let n_inst = ip.transforms.len();
         let vt = push_view(&mut bin, &f32s_to_bytes(&t_flat), None);
         accessors.push(json!({
@@ -542,8 +565,7 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
                 let a_in = accessors.len() - 1;
                 let (path, a_out) = match &ch.data {
                     ChannelData::Rotation(qs) => {
-                        let flat: Vec<f32> =
-                            qs.iter().flat_map(|q| [q.x, q.y, q.z, q.w]).collect();
+                        let flat: Vec<f32> = qs.iter().flat_map(|q| [q.x, q.y, q.z, q.w]).collect();
                         let v = push_view(&mut bin, &f32s_to_bytes(&flat), None);
                         accessors.push(json!({
                             "bufferView": v, "componentType": 5126,
@@ -552,8 +574,7 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
                         ("rotation", accessors.len() - 1)
                     }
                     ChannelData::Translation(ts) => {
-                        let flat: Vec<f32> =
-                            ts.iter().flat_map(|t| [t.x, t.y, t.z]).collect();
+                        let flat: Vec<f32> = ts.iter().flat_map(|t| [t.x, t.y, t.z]).collect();
                         let v = push_view(&mut bin, &f32s_to_bytes(&flat), None);
                         accessors.push(json!({
                             "bufferView": v, "componentType": 5126,
@@ -616,10 +637,10 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     }
 
     let mut json_bytes = serde_json::to_vec(&Value::Object(root)).unwrap();
-    while json_bytes.len() % 4 != 0 {
+    while !json_bytes.len().is_multiple_of(4) {
         json_bytes.push(b' ');
     }
-    while bin.len() % 4 != 0 {
+    while !bin.len().is_multiple_of(4) {
         bin.push(0);
     }
 
@@ -645,9 +666,14 @@ mod tests {
     fn sample_asset() -> Asset {
         Asset::static_mesh(
             "box",
-            vec![Part { mesh: cuboid(Vec3::ZERO, Vec3::ONE, Vec3::splat(0.5)), material: Material::default() }],
+            vec![Part {
+                mesh: cuboid(Vec3::ZERO, Vec3::ONE, Vec3::splat(0.5)),
+                material: Material::default(),
+            }],
             Some(Physics {
-                collider: Collider::Box { half_extents: Vec3::ONE },
+                collider: Collider::Box {
+                    half_extents: Vec3::ONE,
+                },
                 mass: 1.0,
                 friction: 0.5,
                 restitution: 0.2,
@@ -693,7 +719,10 @@ mod tests {
         let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
         let doc: Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
         assert_eq!(doc["meshes"].as_array().unwrap().len(), 3);
-        assert_eq!(doc["nodes"][0]["extensions"]["MSFT_lod"]["ids"], json!([1, 2]));
+        assert_eq!(
+            doc["nodes"][0]["extensions"]["MSFT_lod"]["ids"],
+            json!([1, 2])
+        );
         assert_eq!(doc["extensionsUsed"][0], "MSFT_lod");
         assert_eq!(doc["nodes"][1]["mesh"], 1);
         assert_eq!(doc["meshes"][1]["name"], "rock_LOD1");
@@ -710,7 +739,10 @@ mod tests {
         }];
         let asset = Asset::static_mesh(
             "m",
-            vec![Part { mesh, material: Material::default() }],
+            vec![Part {
+                mesh,
+                material: Material::default(),
+            }],
             None,
         );
         let glb = to_glb(&asset);
@@ -721,9 +753,13 @@ mod tests {
         assert_eq!(mesh_j["weights"][0], 0.0);
         let target = &mesh_j["primitives"][0]["targets"][0];
         let acc = target["POSITION"].as_u64().unwrap() as usize;
-        let pos_acc =
-            mesh_j["primitives"][0]["attributes"]["POSITION"].as_u64().unwrap() as usize;
-        assert_eq!(doc["accessors"][acc]["count"], doc["accessors"][pos_acc]["count"]);
+        let pos_acc = mesh_j["primitives"][0]["attributes"]["POSITION"]
+            .as_u64()
+            .unwrap() as usize;
+        assert_eq!(
+            doc["accessors"][acc]["count"],
+            doc["accessors"][pos_acc]["count"]
+        );
     }
 
     #[test]
@@ -745,7 +781,10 @@ mod tests {
             "tex",
             vec![Part {
                 mesh,
-                material: Material { texture: Some(baked), ..Default::default() },
+                material: Material {
+                    texture: Some(baked),
+                    ..Default::default()
+                },
             }],
             None,
         );
@@ -757,7 +796,10 @@ mod tests {
         let prim = &doc["meshes"][0]["primitives"][0];
         let uv_acc = prim["attributes"]["TEXCOORD_0"].as_u64().unwrap() as usize;
         let pos_acc = prim["attributes"]["POSITION"].as_u64().unwrap() as usize;
-        assert_eq!(doc["accessors"][uv_acc]["count"], doc["accessors"][pos_acc]["count"]);
+        assert_eq!(
+            doc["accessors"][uv_acc]["count"],
+            doc["accessors"][pos_acc]["count"]
+        );
         assert!(prim["attributes"]["TANGENT"].is_u64());
         let m = &doc["materials"][0];
         assert!(m["pbrMetallicRoughness"]["baseColorTexture"]["index"].is_u64());

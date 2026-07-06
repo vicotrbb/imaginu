@@ -16,14 +16,30 @@ pub mod zones;
 
 use serde::{Deserialize, Serialize};
 
-fn d_seed() -> u64 { 1 }
-fn d_palette() -> String { "verdant".into() }
-fn d_name() -> String { "world".into() }
-fn d_size() -> f32 { 2048.0 }
-fn d_chunk_size() -> f32 { 256.0 }
-fn d_chunk_res() -> u32 { 128 }
-fn d_one() -> f32 { 1.0 }
-fn d_true() -> bool { true }
+fn d_seed() -> u64 {
+    1
+}
+fn d_palette() -> String {
+    "verdant".into()
+}
+fn d_name() -> String {
+    "world".into()
+}
+fn d_size() -> f32 {
+    2048.0
+}
+fn d_chunk_size() -> f32 {
+    256.0
+}
+fn d_chunk_res() -> u32 {
+    128
+}
+fn d_one() -> f32 {
+    1.0
+}
+fn d_true() -> bool {
+    true
+}
 
 /// The `{"kind":"world", ...}` recipe surface.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -85,8 +101,12 @@ pub struct WorldParams {
     #[serde(default)]
     pub lods: u32,
 }
-fn d_erosion() -> f32 { 0.5 }
-fn d_zone_size() -> f32 { 900.0 }
+fn d_erosion() -> f32 {
+    0.5
+}
+fn d_zone_size() -> f32 {
+    900.0
+}
 
 impl WorldParams {
     /// Parse a `{"kind":"world"}` recipe.
@@ -284,7 +304,11 @@ mod tests {
             .expect("pinned castle placed");
         assert_eq!((castle.x, castle.z), (200.0, 180.0));
         assert_eq!(castle.name, "Pinhold");
-        let cities = m.pois.iter().filter(|s| s.kind == poi::PoiKind::City).count();
+        let cities = m
+            .pois
+            .iter()
+            .filter(|s| s.kind == poi::PoiKind::City)
+            .count();
         assert_eq!(cities, 1);
         // every settlement sits above water on flat ground
         for s in &m.pois {
@@ -311,13 +335,20 @@ mod tests {
         let m2 = model::WorldModel::new(&p).unwrap();
         assert_eq!(m.pois.len(), m2.pois.len());
         for (a, b) in m.pois.iter().zip(&m2.pois) {
-            assert_eq!((a.x, a.z, a.seed, a.name.clone()), (b.x, b.z, b.seed, b.name.clone()));
+            assert_eq!(
+                (a.x, a.z, a.seed, a.name.clone()),
+                (b.x, b.z, b.seed, b.name.clone())
+            );
         }
         // manifest carries them with files + spawn points (+ bridges)
         let man = manifest::create(&m);
         let non_bridge = man.pois.iter().filter(|p| p.kind != "bridge").count();
         assert_eq!(non_bridge, m.pois.len());
-        assert!(man.pois.iter().all(|p| p.file.is_some() && !p.spawn_points.is_empty()));
+        assert!(
+            man.pois
+                .iter()
+                .all(|p| p.file.is_some() && !p.spawn_points.is_empty())
+        );
     }
 
     #[test]
@@ -345,7 +376,9 @@ mod tests {
             // channel is carved: center lower than 25 m to the side
             let mid = r.points[r.points.len() / 2];
             let h_center = m.height(mid.x, mid.z);
-            let h_side = m.height(mid.x + 25.0, mid.z).max(m.height(mid.x - 25.0, mid.z));
+            let h_side = m
+                .height(mid.x + 25.0, mid.z)
+                .max(m.height(mid.x - 25.0, mid.z));
             assert!(
                 h_center < h_side - 0.5,
                 "river channel not carved: {h_center} vs {h_side}"
@@ -355,11 +388,18 @@ mod tests {
         let road = &m.network.roads[0];
         let mid = road.points[road.points.len() / 2];
         let h = m.height(mid.x, mid.z);
-        assert!((h - mid.y).abs() < 1.0, "road not flattened: {h} vs deck {}", mid.y);
+        assert!(
+            (h - mid.y).abs() < 1.0,
+            "road not flattened: {h} vs deck {}",
+            mid.y
+        );
         // determinism
         let m2 = model::WorldModel::new(&p).unwrap();
         assert_eq!(m.network.rivers.len(), m2.network.rivers.len());
-        assert_eq!(m.network.roads[0].points.len(), m2.network.roads[0].points.len());
+        assert_eq!(
+            m.network.roads[0].points.len(),
+            m2.network.roads[0].points.len()
+        );
         // manifest carries polylines
         let man = manifest::create(&m);
         assert!(!man.rivers.is_empty());
@@ -373,14 +413,11 @@ mod tests {
             "adaptive_resolution":false,"pois":[],"rivers":0,
             "zones":[{"kind":"mountains","weight":1},{"kind":"plains","weight":1}],
             "erosion":ER}"#;
-        let with = model::WorldModel::new(
-            &WorldParams::parse(&base.replace("ER", "0.8")).unwrap(),
-        )
-        .unwrap();
-        let without = model::WorldModel::new(
-            &WorldParams::parse(&base.replace("ER", "0.0")).unwrap(),
-        )
-        .unwrap();
+        let with = model::WorldModel::new(&WorldParams::parse(&base.replace("ER", "0.8")).unwrap())
+            .unwrap();
+        let without =
+            model::WorldModel::new(&WorldParams::parse(&base.replace("ER", "0.0")).unwrap())
+                .unwrap();
         // erosion actually moves terrain
         let mut moved = 0;
         for i in 0..100 {
@@ -391,10 +428,9 @@ mod tests {
         }
         assert!(moved > 30, "erosion changed only {moved}/100 samples");
         // deterministic across model rebuilds
-        let with2 = model::WorldModel::new(
-            &WorldParams::parse(&base.replace("ER", "0.8")).unwrap(),
-        )
-        .unwrap();
+        let with2 =
+            model::WorldModel::new(&WorldParams::parse(&base.replace("ER", "0.8")).unwrap())
+                .unwrap();
         for i in 0..50 {
             let (x, z) = (i as f32 * 11.3 - 300.0, i as f32 * 5.9 - 200.0);
             assert_eq!(with.height(x, z).to_bits(), with2.height(x, z).to_bits());
@@ -433,7 +469,10 @@ mod tests {
         let m = model::WorldModel::new(&p).unwrap();
         let r00 = m.chunk_res(1, 0);
         let r10 = m.chunk_res(2, 0);
-        assert!(r00 > r10, "expected mountain-side chunk finer: {r00} vs {r10}");
+        assert!(
+            r00 > r10,
+            "expected mountain-side chunk finer: {r00} vs {r10}"
+        );
         let fine = chunk::vertex_grid(&m, 1, 0).1;
         let coarse = chunk::vertex_grid(&m, 2, 0).1;
         let cs = m.p.chunk_size;
@@ -456,7 +495,9 @@ mod tests {
                 continue;
             }
             let key = p.z.to_bits() as i64;
-            let (fy, _fc) = fine_edge.get(&key).expect("coarse edge vertex missing from fine edge");
+            let (fy, _fc) = fine_edge
+                .get(&key)
+                .expect("coarse edge vertex missing from fine edge");
             assert_eq!(*fy, p.y.to_bits(), "height crack at z={}", p.z);
             coarse_hits += 1;
         }
@@ -479,6 +520,7 @@ mod tests {
             let w = &fine_sorted[s..=s + ratio];
             let (z0, y0) = w[0];
             let (z1, y1) = w[ratio];
+            #[allow(clippy::needless_range_loop)]
             for k in 1..ratio {
                 let (zk, yk) = w[k];
                 let t = (zk - z0) / (z1 - z0);
@@ -532,9 +574,14 @@ mod tests {
                 seed: 77,
             };
             let a = poi::build_asset(&site, &pal);
-            a.validate().unwrap_or_else(|e| panic!("{}: {e}", kind.name()));
+            a.validate()
+                .unwrap_or_else(|e| panic!("{}: {e}", kind.name()));
             assert!(
-                a.parts.iter().map(|p| p.mesh.triangle_count()).sum::<usize>() > 50,
+                a.parts
+                    .iter()
+                    .map(|p| p.mesh.triangle_count())
+                    .sum::<usize>()
+                    > 50,
                 "{} too small",
                 kind.name()
             );
@@ -561,5 +608,3 @@ mod tests {
         assert!(has_dark_blue, "expected water pixels (ref r {wr})");
     }
 }
-
-

@@ -38,26 +38,42 @@ enum SegKind {
 /// height/color hot path. Deterministic: lookup only, insertion ordered.
 struct SegGrid {
     cell: f32,
+    #[allow(clippy::type_complexity)]
     map: HashMap<(i32, i32), Vec<(SegKind, u32, u32)>>,
 }
 
 impl SegGrid {
     fn new(cell: f32) -> Self {
-        Self { cell, map: HashMap::new() }
+        Self {
+            cell,
+            map: HashMap::new(),
+        }
     }
     fn insert(&mut self, kind: SegKind, poly: u32, seg: u32, a: Vec2, b: Vec2, reach: f32) {
         let min = a.min(b) - Vec2::splat(reach);
         let max = a.max(b) + Vec2::splat(reach);
-        let (x0, z0) = ((min.x / self.cell).floor() as i32, (min.y / self.cell).floor() as i32);
-        let (x1, z1) = ((max.x / self.cell).floor() as i32, (max.y / self.cell).floor() as i32);
+        let (x0, z0) = (
+            (min.x / self.cell).floor() as i32,
+            (min.y / self.cell).floor() as i32,
+        );
+        let (x1, z1) = (
+            (max.x / self.cell).floor() as i32,
+            (max.y / self.cell).floor() as i32,
+        );
         for gz in z0..=z1 {
             for gx in x0..=x1 {
-                self.map.entry((gx, gz)).or_default().push((kind, poly, seg));
+                self.map
+                    .entry((gx, gz))
+                    .or_default()
+                    .push((kind, poly, seg));
             }
         }
     }
     fn at(&self, p: Vec2) -> Option<&Vec<(SegKind, u32, u32)>> {
-        self.map.get(&((p.x / self.cell).floor() as i32, (p.y / self.cell).floor() as i32))
+        self.map.get(&(
+            (p.x / self.cell).floor() as i32,
+            (p.y / self.cell).floor() as i32,
+        ))
     }
 }
 
@@ -85,7 +101,9 @@ impl Network {
     /// world position (+ the precomputed network).
     pub fn apply_height(&self, wx: f32, wz: f32, mut h: f32) -> f32 {
         let p = Vec2::new(wx, wz);
-        let Some(segs) = self.grid.at(p) else { return h };
+        let Some(segs) = self.grid.at(p) else {
+            return h;
+        };
         // rivers first: carve the channel toward the bed
         for &(kind, pi, si) in segs {
             if kind != SegKind::River {
@@ -113,7 +131,11 @@ impl Network {
             let reach = w * 2.4;
             if d < reach {
                 let deck = seg_lerp_y(poly, si as usize, t);
-                let mut s = if d <= w { 1.0 } else { 1.0 - (d - w) / (reach - w) };
+                let mut s = if d <= w {
+                    1.0
+                } else {
+                    1.0 - (d - w) / (reach - w)
+                };
                 s = (s * s * (3.0 - 2.0 * s)).clamp(0.0, 1.0);
                 // keep the gully open under bridges
                 for b in &self.bridges {
@@ -132,7 +154,9 @@ impl Network {
     /// Dirt tint strength for roads (0..1) at a world position.
     pub fn road_mask(&self, wx: f32, wz: f32) -> f32 {
         let p = Vec2::new(wx, wz);
-        let Some(segs) = self.grid.at(p) else { return 0.0 };
+        let Some(segs) = self.grid.at(p) else {
+            return 0.0;
+        };
         let mut m: f32 = 0.0;
         for &(kind, pi, si) in segs {
             if kind != SegKind::Road {
@@ -151,7 +175,9 @@ impl Network {
     /// 1 inside a river channel, 0 outside (for scatter suppression).
     pub fn river_mask(&self, wx: f32, wz: f32) -> f32 {
         let p = Vec2::new(wx, wz);
-        let Some(segs) = self.grid.at(p) else { return 0.0 };
+        let Some(segs) = self.grid.at(p) else {
+            return 0.0;
+        };
         for &(kind, pi, si) in segs {
             if kind != SegKind::River {
                 continue;
@@ -170,11 +196,19 @@ impl Network {
     pub fn river_within(&self, wx: f32, wz: f32, r: f32) -> bool {
         let p = Vec2::new(wx, wz);
         let cell = self.grid.cell;
-        let (x0, z0) = (((wx - r) / cell).floor() as i32, ((wz - r) / cell).floor() as i32);
-        let (x1, z1) = (((wx + r) / cell).floor() as i32, ((wz + r) / cell).floor() as i32);
+        let (x0, z0) = (
+            ((wx - r) / cell).floor() as i32,
+            ((wz - r) / cell).floor() as i32,
+        );
+        let (x1, z1) = (
+            ((wx + r) / cell).floor() as i32,
+            ((wz + r) / cell).floor() as i32,
+        );
         for gz in z0..=z1 {
             for gx in x0..=x1 {
-                let Some(segs) = self.grid.map.get(&(gx, gz)) else { continue };
+                let Some(segs) = self.grid.map.get(&(gx, gz)) else {
+                    continue;
+                };
                 for &(kind, pi, si) in segs {
                     if kind != SegKind::River {
                         continue;
@@ -192,28 +226,22 @@ impl Network {
 
     /// River segments overlapping a world-space rectangle (for per-chunk
     /// water ribbons), clipped to it.
-    pub fn river_ribbons_in(
-        &self,
-        min: Vec2,
-        max: Vec2,
-    ) -> Vec<(Vec3, Vec3, f32)> {
+    pub fn river_ribbons_in(&self, min: Vec2, max: Vec2) -> Vec<(Vec3, Vec3, f32)> {
         let mut out = Vec::new();
         for poly in &self.rivers {
             for i in 0..poly.points.len().saturating_sub(1) {
                 let (a, b) = (poly.points[i], poly.points[i + 1]);
-                if let Some((ca, cb)) = clip_seg(
-                    Vec2::new(a.x, a.z),
-                    Vec2::new(b.x, b.z),
-                    min,
-                    max,
-                ) {
+                if let Some((ca, cb)) = clip_seg(Vec2::new(a.x, a.z), Vec2::new(b.x, b.z), min, max)
+                {
                     let ta = if (b - a).length() > 1e-5 {
-                        (ca - Vec2::new(a.x, a.z)).length() / (Vec2::new(b.x, b.z) - Vec2::new(a.x, a.z)).length()
+                        (ca - Vec2::new(a.x, a.z)).length()
+                            / (Vec2::new(b.x, b.z) - Vec2::new(a.x, a.z)).length()
                     } else {
                         0.0
                     };
                     let tb = if (b - a).length() > 1e-5 {
-                        (cb - Vec2::new(a.x, a.z)).length() / (Vec2::new(b.x, b.z) - Vec2::new(a.x, a.z)).length()
+                        (cb - Vec2::new(a.x, a.z)).length()
+                            / (Vec2::new(b.x, b.z) - Vec2::new(a.x, a.z)).length()
                     } else {
                         1.0
                     };
@@ -384,9 +412,8 @@ fn build_inner(model: &WorldModel, n_rivers: u32, roads_on: bool) -> Network {
             hgrid[(jz * n + jx) as usize] = model.height(hx(jx), hx(jz));
         }
     }
-    let hat = |jx: i32, jz: i32| -> f32 {
-        hgrid[(jz.clamp(0, n - 1) * n + jx.clamp(0, n - 1)) as usize]
-    };
+    let hat =
+        |jx: i32, jz: i32| -> f32 { hgrid[(jz.clamp(0, n - 1) * n + jx.clamp(0, n - 1)) as usize] };
     // priority-flood depression fill: rivers trace on the FILLED surface so
     // steepest descent always drains to the sea or the map edge instead of
     // dying in the first noise basin (tiny epsilon forces through-flow)
@@ -405,12 +432,18 @@ fn build_inner(model: &WorldModel, n_rivers: u32, roads_on: bool) -> Network {
         }
         while let Some((_, x, z)) = heap.pop() {
             let hc = filled[idx(x, z)];
-            for (dx, dz) in
-                [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)]
-            {
+            for (dx, dz) in [
+                (-1, 0),
+                (1, 0),
+                (0, -1),
+                (0, 1),
+                (-1, -1),
+                (1, 1),
+                (-1, 1),
+                (1, -1),
+            ] {
                 let (kx, kz) = (x + dx, z + dz);
-                if kx < 0 || kz < 0 || kx >= n || kz >= n || !filled[idx(kx, kz)].is_infinite()
-                {
+                if kx < 0 || kz < 0 || kx >= n || kz >= n || !filled[idx(kx, kz)].is_infinite() {
                     continue;
                 }
                 let hv = hgrid[idx(kx, kz)].max(hc + 0.02);
@@ -438,7 +471,11 @@ fn build_inner(model: &WorldModel, n_rivers: u32, roads_on: bool) -> Network {
             springs.push((s, jx, jz));
         }
     }
-    springs.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then((a.1, a.2).cmp(&(b.1, b.2))));
+    springs.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap()
+            .then((a.1, a.2).cmp(&(b.1, b.2)))
+    });
     let mut used: Vec<(f32, f32)> = Vec::new();
     let mut count = 0;
     for &(_, jx, jz) in &springs {
@@ -446,7 +483,9 @@ fn build_inner(model: &WorldModel, n_rivers: u32, roads_on: bool) -> Network {
             break;
         }
         let (sx, sz) = (hx(jx), hx(jz));
-        if used.iter().any(|(ux, uz)| ((ux - sx).powi(2) + (uz - sz).powi(2)).sqrt() < size * 0.18)
+        if used
+            .iter()
+            .any(|(ux, uz)| ((ux - sx).powi(2) + (uz - sz).powi(2)).sqrt() < size * 0.18)
         {
             continue;
         }
@@ -465,7 +504,9 @@ fn build_inner(model: &WorldModel, n_rivers: u32, roads_on: bool) -> Network {
             .filter(|s| {
                 matches!(
                     s.kind,
-                    super::poi::PoiKind::City | super::poi::PoiKind::Village | super::poi::PoiKind::Castle
+                    super::poi::PoiKind::City
+                        | super::poi::PoiKind::Village
+                        | super::poi::PoiKind::Castle
                 )
             })
             .map(|s| (s.x, s.z))
@@ -601,9 +642,16 @@ fn trace_river(
         }
         // steepest descent over 8 neighbors; tiny deterministic tiebreak
         let mut best = (jx, jz, h);
-        for (dx, dz) in
-            [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)]
-        {
+        for (dx, dz) in [
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1),
+            (-1, -1),
+            (1, 1),
+            (-1, 1),
+            (1, -1),
+        ] {
             let (kx, kz) = (jx + dx, jz + dz);
             if kx < 0 || kz < 0 || kx >= n || kz >= n {
                 continue;
@@ -633,7 +681,10 @@ fn trace_river(
         bed = bed.min(p.y) - 0.02;
         p.y = bed - 1.2; // bed sits below the traced surface
     }
-    Some(Polyline3 { points: pts, width: 6.5 })
+    Some(Polyline3 {
+        points: pts,
+        width: 6.5,
+    })
 }
 
 /// A* over the coarse grid, slope-penalized, water-averse.
@@ -669,9 +720,16 @@ fn route_road(
         }
         let gc = g[idx(x, z)];
         let hc = hat(x, z);
-        for (dx, dz) in
-            [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)]
-        {
+        for (dx, dz) in [
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1),
+            (-1, -1),
+            (1, 1),
+            (-1, 1),
+            (1, -1),
+        ] {
             let (kx, kz) = (x + dx, z + dz);
             if kx < 1 || kz < 1 || kx >= n - 1 || kz >= n - 1 {
                 continue;
@@ -729,7 +787,10 @@ fn route_road(
     if let Some(last) = pts.last_mut() {
         last.y = ht;
     }
-    Some(Polyline3 { points: pts, width: 3.2 })
+    Some(Polyline3 {
+        points: pts,
+        width: 3.2,
+    })
 }
 
 fn chaikin(pts: &[Vec3]) -> Vec<Vec3> {
