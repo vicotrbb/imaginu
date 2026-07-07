@@ -1,5 +1,5 @@
 //! Monster generator — a generalization of the character body pipeline past
-//! the fixed humanoid: a data-driven [`rig::MonsterRig`] (joints +
+//! the fixed humanoid: a data-driven `MonsterRig` (joints +
 //! fold-order-ranked SDF primitives + gait descriptor) fed to one shared
 //! organic pass (smooth-min compose -> surface-net mesh -> family-restricted
 //! skin -> procedural clips).
