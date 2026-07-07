@@ -310,6 +310,41 @@ fn organic_body(
             ),
         ));
     }
+    // waist taper: a cross-scaled segment between hips and spine pulls the
+    // midsection in toward pr.waist (on top of the belly ellipsoid's own
+    // waist_k scaling above), so slim/heavy builds read at the waist and
+    // not just at the belly's widest point
+    {
+        let a = hips + Vec3::new(0.0, h * 0.035, 0.0);
+        let b = spine + Vec3::new(0.0, -h * 0.010, 0.0);
+        let o = (a + b) * 0.5;
+        parts.push((
+            Fam::Torso,
+            w.shirt,
+            Shape::ConeScaled(
+                a,
+                b,
+                h * 0.090 * bulk,
+                h * 0.086 * bulk,
+                o,
+                Vec3::new(pr.waist, 1.0, pr.waist),
+            ),
+        ));
+    }
+    // clavicle ridges: thin sternum-to-shoulder cones hint the collarbone
+    // under the shirt without breaking the single-surface blend
+    for s in [-1.0f32, 1.0] {
+        parts.push((
+            Fam::Torso,
+            w.shirt,
+            Shape::Cone(
+                Vec3::new(0.0, chest.y + h * 0.070, h * 0.030),
+                Vec3::new(s * sw * 0.85, chest.y + h * 0.078, h * 0.012),
+                h * 0.012,
+                h * 0.010,
+            ),
+        ));
+    }
     // trapezius wedges into the neck
     for s in [-1.0f32, 1.0] {
         parts.push((
@@ -356,6 +391,8 @@ fn organic_body(
             w.shirt,
             Shape::Sphere(a + Vec3::new(0.0, h * 0.008, 0.0), h * 0.046 * bulk),
         ));
+        // upper arm ends pinched (~12% under its nominal 0.78) so the elbow
+        // reads as a joint instead of a smooth taper
         parts.push((
             fam,
             w.shirt,
@@ -363,21 +400,22 @@ fn organic_body(
                 a + Vec3::new(0.0, -h * 0.010, 0.0),
                 f,
                 arm_r * 0.94,
-                arm_r * 0.78,
+                arm_r * 0.70,
             ),
         ));
+        // forearm starts pinched to match, then tapers to the wrist
         parts.push((
             fam,
             forearm_col,
             Shape::Cone(
                 f,
                 hd + Vec3::new(0.0, h * 0.010, 0.0),
-                arm_r * 0.80,
-                arm_r * 0.58,
+                arm_r * 0.72,
+                arm_r * 0.50,
             ),
         ));
     }
-    // legs: thigh, calf, boot shaft
+    // legs: thigh (pinched at the knee), calf bulge + taper, boot shaft
     for (fam, tj, sj, fj) in [
         (Fam::LegL, THIGH_L, SHIN_L, FOOT_L),
         (Fam::LegR, THIGH_R, SHIN_R, FOOT_R),
@@ -390,21 +428,36 @@ fn organic_body(
                 t + Vec3::new(0.0, h * 0.055, 0.0),
                 s,
                 leg_r * 0.97,
-                leg_r * 0.80,
+                leg_r * 0.70,
             ),
         ));
         parts.push((
             fam,
             w.pants,
-            Shape::Cone(s, s + (f - s) * 0.55, leg_r * 0.86, leg_r * 0.72),
+            Shape::Cone(
+                s + (f - s) * 0.08,
+                s + (f - s) * 0.45,
+                leg_r * 0.92,
+                leg_r * 0.70,
+            ),
+        ));
+        parts.push((
+            fam,
+            w.pants,
+            Shape::Cone(
+                s + (f - s) * 0.40,
+                s + (f - s) * 0.62,
+                leg_r * 0.68,
+                leg_r * 0.52,
+            ),
         ));
         parts.push((
             fam,
             w.boots,
             Shape::Cone(
-                s + (f - s) * 0.45,
+                s + (f - s) * 0.62,
                 f + Vec3::new(0.0, h * 0.012, 0.0),
-                leg_r * 0.72,
+                leg_r * 0.52,
                 leg_r * 0.50,
             ),
         ));
@@ -531,7 +584,7 @@ fn organic_body(
         }
     };
 
-    let cell = (h * 0.011 / det).min(h * 0.015);
+    let cell = (h * 0.0085 / det).min(h * 0.012);
     let lo = Vec3::new(-sw - h * 0.07, -cell, -h * 0.13 * bulk - h * 0.02);
     let hi = Vec3::new(sw + h * 0.07, neck.y + h * 0.09, h * 0.13 * bulk + h * 0.03);
     let mut m = crate::sdf::mesh_field(lo, hi, cell, &field, &color);
