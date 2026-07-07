@@ -36,7 +36,7 @@ pub fn build_boss_rig(p: &BossParams) -> BossRig {
         BossArchetype::Hydra => plan_hydra(p),
         BossArchetype::Colossus => plan_colossus(p),
         BossArchetype::Lich => plan_lich(p),
-        BossArchetype::SwarmQueen => plan_hydra(p),
+        BossArchetype::SwarmQueen => plan_swarm_queen(p),
         BossArchetype::DragonLord => plan_hydra(p),
     }
 }
@@ -1148,6 +1148,267 @@ fn build_throne_mesh(s: f32, pos: Vec3) -> Mesh {
     m
 }
 
+/// Swarm-queen: a HUGE insectoid brood-mother built on the `insectoid` body
+/// plan's shape (thorax/head/abdomen + 6 legs) scaled large, with the
+/// abdomen swollen into a massive bulbous mass studded with glowing
+/// `brood_sac.N` weak points — the money detail. Thorax + head + abdomen are
+/// the rank 0/1 trunk; each of the 6 legs is its own rank-2 family, planted
+/// WIDE so six legs on one broad thorax never web together; the brood sacs
+/// are fold-ranked LAST (rank 5) as their own families (each its own
+/// base->tip joint pair, Eye tint) so every sac pops as a distinct glowing
+/// pustule against the dark carapace, never fusing to the abdomen or to each
+/// other. `abdomen` and `head` are named destructible parts; each
+/// `weak_point.brood_sac.i` is a destructible weak point.
+fn plan_swarm_queen(p: &BossParams) -> BossRig {
+    let s = p.size.clamp(0.4, 8.0);
+    let spikes = p.spikes.clamp(0.0, 1.0);
+    let eyes_n = p.eyes.clamp(2, 16) as usize;
+    let menace = p.menace.clamp(0.0, 1.0);
+    let v = Vec3::new;
+    let mut r = RigBuilder::new();
+    let mut parts = Vec::new();
+    let mut weak_points = Vec::new();
+
+    // trunk (rank 0/1): a broad thorax core, a fanged head thrust forward,
+    // and a MASSIVE bulbous abdomen trailing behind and sagging low (a
+    // brood-mother's egg-heavy abdomen drags, not held aloft like a spider's).
+    let thorax = r.joint(None, "thorax", v(0.0, 0.95 * s, 0.15 * s));
+    let head = r.joint(Some(thorax), "head", v(0.0, 1.05 * s, 0.85 * s));
+    let abdomen = r.joint(Some(thorax), "abdomen", v(0.0, 0.75 * s, -1.15 * s));
+    let abtip = r.joint(Some(abdomen), "abtip", v(0.0, 0.5 * s, -2.15 * s));
+    r.ellip(thorax, thorax, 0.42 * s, 0.05 * s, 0, 0.14 * s); // broad thorax
+    r.ellip(head, head, 0.28 * s, 0.0, 1, 0.1 * s); // head
+    r.cone(thorax, head, 0.24 * s, 0.22 * s, 0, 0.09 * s);
+    // massive bulbous abdomen: a wide connecting cone + two big overlapping
+    // ellipsoids so it swells then tapers to a blunt tip, not a smooth
+    // teardrop cone.
+    r.cone(thorax, abdomen, 0.3 * s, 0.58 * s, 0, 0.16 * s);
+    r.ellip(abdomen, abdomen, 0.66 * s, 0.0, 0, 0.2 * s);
+    r.ellip(abdomen, abtip, 0.58 * s, 0.16 * s, 0, 0.18 * s);
+    parts.push(PartMeta {
+        name: "abdomen".into(),
+        joint: "abdomen".into(),
+        destructible: true,
+    });
+    parts.push(PartMeta {
+        name: "head".into(),
+        joint: "head".into(),
+        destructible: true,
+    });
+
+    // 6 legs off the thorax, planted WIDE (own rank-2 family each) — the web
+    // risk with six legs sharing one broad thorax, so bases spread wide and
+    // feet splay further still.
+    let mut legs = Vec::new();
+    for side in [-1.0f32, 1.0] {
+        for kk in 0..3 {
+            let zc = 0.55 * s - kk as f32 * 0.5 * s;
+            let root = r.joint(Some(thorax), "coxa", v(side * 0.38 * s, 0.85 * s, zc));
+            let knee = r.joint(
+                Some(root),
+                "knee",
+                v(side * 1.0 * s, 1.05 * s, zc + 0.15 * s),
+            );
+            let foot = r.joint(
+                Some(knee),
+                "foot",
+                v(side * 1.4 * s, 0.0, zc + 0.4 * s * (1.0 - kk as f32 * 0.3)),
+            );
+            r.cone(root, knee, 0.12 * s, 0.09 * s, 2, 0.045 * s);
+            r.cone(knee, foot, 0.09 * s, 0.05 * s, 2, 0.045 * s);
+            legs.push(vec![root, knee, foot]);
+        }
+    }
+
+    let gait = GaitDesc {
+        legs,
+        spine: vec![head, thorax, abdomen, abtip],
+        wings: Vec::new(),
+        tail: Vec::new(),
+        head: Some(head),
+        style: Gait::Crawl,
+    };
+    let mut rig = r.finish(gait);
+
+    add_swarm_head_features(&mut rig, head, s, eyes_n);
+    add_carapace_spikes(&mut rig, thorax, abdomen, s, spikes);
+
+    let nsacs = (5.0 + 3.0 * menace).round().clamp(5.0, 8.0) as usize;
+    add_brood_sacs(
+        &mut rig,
+        abdomen,
+        s,
+        nsacs,
+        &mut parts,
+        &mut weak_points,
+        p.weak_points,
+    );
+
+    rig.bounds = crate::generators::monster::rig::compute_bounds(&rig);
+
+    BossRig {
+        rig,
+        weak_points,
+        parts,
+        extra_mesh: None,
+    }
+}
+
+/// A fanged, many-eyed head: two curved mandibles jutting forward-down
+/// (rank-3 `Horn` family) and a cluster of `eyes_n` small glowing eyes
+/// (rank-4 `Eye`, each its own family) staggered across the face — the
+/// "compound eye cluster" read of a huge insectoid.
+fn add_swarm_head_features(rig: &mut MonsterRig, head: usize, s: f32, eyes_n: usize) {
+    let v = Vec3::new;
+    let hp = rig.joint_world(head);
+    for side in [-1.0f32, 1.0] {
+        let mb = add_joint(
+            rig,
+            head,
+            "mandible",
+            hp + v(side * 0.14 * s, -0.06 * s, 0.22 * s),
+        );
+        let mt = add_joint(
+            rig,
+            mb,
+            "mandible_tip",
+            hp + v(side * 0.26 * s, -0.16 * s, 0.44 * s),
+        );
+        push_cone(
+            rig,
+            mb,
+            mt,
+            0.05 * s,
+            0.012 * s,
+            3,
+            0.02 * s,
+            PrimTint::Horn,
+        );
+    }
+    let n = eyes_n.max(2);
+    for i in 0..n {
+        let f = (i as f32 / (n - 1).max(1) as f32 - 0.5) * 2.0; // -1..1 across the face
+        let row = (i % 2) as f32; // stagger two rows for a compound-eye read
+        let eb = add_joint(
+            rig,
+            head,
+            "eye",
+            hp + v(
+                f * 0.2 * s,
+                0.05 * s - row * 0.09 * s,
+                0.24 * s + row * 0.02 * s,
+            ),
+        );
+        push_flat(
+            rig,
+            eb,
+            eb,
+            v(0.03 * s, 0.03 * s, 0.03 * s),
+            4,
+            0.008 * s,
+            PrimTint::Eye,
+        );
+    }
+}
+
+/// A crest of bony carapace spikes running along the thorax->abdomen
+/// dorsal line — `spikes` (0..1) scales count/height. Own rank-3 `Horn`
+/// family per spike, children of `thorax`.
+fn add_carapace_spikes(rig: &mut MonsterRig, thorax: usize, abdomen: usize, s: f32, spikes: f32) {
+    let v = Vec3::new;
+    let n = (3.0 + 4.0 * spikes).round().max(2.0) as usize;
+    let tp = rig.joint_world(thorax);
+    let ap = rig.joint_world(abdomen);
+    for i in 0..n {
+        let f = i as f32 / (n - 1).max(1) as f32;
+        let base_pos = tp.lerp(ap, f) + v(0.0, (0.4 - 0.12 * f) * s, 0.0);
+        let h = (0.14 + 0.14 * spikes) * s * (1.0 - 0.3 * f);
+        let b0 = add_joint(rig, thorax, "carapace_spike", base_pos);
+        let b1 = add_joint(
+            rig,
+            b0,
+            "carapace_spike_tip",
+            base_pos + v(0.0, h, -0.05 * s),
+        );
+        push_cone(
+            rig,
+            b0,
+            b1,
+            0.05 * s,
+            0.008 * s,
+            3,
+            0.015 * s,
+            PrimTint::Horn,
+        );
+    }
+}
+
+/// The money detail: `n` glowing brood sacs studded around the abdomen's
+/// girth, biased toward the underside and flanks (a brood-mother's sacs hang
+/// and bulge outward, not poking up through the dorsal spike crest). Each sac
+/// is a `base -> brood_sac.i` joint pair added fresh (never sharing a joint
+/// with any other sac), so `skin_body`'s union-find gives every sac its own
+/// rank-5 skinning family — they pop as distinct glowing pustules and never
+/// fuse to the abdomen or to each other. Named `brood_sac.i` destructible
+/// parts + `weak_point.brood_sac.i` weak points (when enabled).
+#[allow(clippy::too_many_arguments)]
+fn add_brood_sacs(
+    rig: &mut MonsterRig,
+    abdomen: usize,
+    s: f32,
+    n: usize,
+    parts: &mut Vec<PartMeta>,
+    weak_points: &mut Vec<WeakPointMeta>,
+    emit_weak_points: bool,
+) {
+    let v = Vec3::new;
+    let ap = rig.joint_world(abdomen);
+    let body_r = 0.66 * s; // approx abdomen radius; sacs bulge well outside it
+    for i in 0..n {
+        let frac = i as f32 / n as f32;
+        let theta = frac * TAU;
+        // a gentle downward/outward bias (sacs hang low+wide, not poking up
+        // through the dorsal spike crest) but spread across the FULL flank
+        // (not just the underside) so several sacs are visible from any
+        // viewing angle, front/side/3-4/back alike.
+        let phi = -0.15 - 0.35 * (theta * 3.0).sin().abs();
+        let dir = v(theta.sin() * phi.cos(), phi.sin(), theta.cos() * phi.cos()).normalize();
+        let base_pos = ap + dir * body_r * 0.75;
+        let tip_pos = ap + dir * body_r * 1.55;
+        let name = format!("brood_sac.{}", i + 1);
+        let base = add_joint(rig, abdomen, "sac_base", base_pos);
+        let tip = add_joint(rig, base, &name, tip_pos);
+        // BIG relative to the abdomen (a third of its radius) with a small
+        // blend `k` so each sac reads as a distinct bulging pustule breaking
+        // the abdomen's silhouette, not a smoothed-in speckle.
+        let r1 = 0.24 * s;
+        push_flat(
+            rig,
+            base,
+            tip,
+            v(r1, r1, r1 * 1.2),
+            5,
+            0.018 * s,
+            PrimTint::Eye,
+        );
+        parts.push(PartMeta {
+            name: name.clone(),
+            joint: name.clone(),
+            destructible: true,
+        });
+        if emit_weak_points {
+            weak_points.push(WeakPointMeta {
+                name: format!("weak_point.brood_sac.{}", i + 1),
+                joint: name,
+                collider: ColliderJson::Sphere { radius: r1 * 1.3 },
+                offset: [0.0, 0.0, 0.0],
+                destructible: true,
+                phase: 2,
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1487,6 +1748,102 @@ mod tests {
         assert_eq!(
             throne_moved, 0,
             "throne must stay rigid/static under a pose"
+        );
+    }
+
+    #[test]
+    fn swarm_queen_rig_is_wellformed() {
+        let br = build_boss_rig(&boss(r#"{"kind":"boss","archetype":"swarm_queen"}"#));
+        let n = br.rig.skeleton.joints.len();
+        assert!(br.rig.prims.iter().all(|d| d.joint_a < n && d.joint_b < n));
+        assert!(br.rig.prims.iter().any(|d| d.fold_rank == 0), "has a core");
+        assert!(
+            br.rig.skeleton.joints.iter().any(|j| j.name == "abdomen"),
+            "has an abdomen joint"
+        );
+        assert!(
+            br.parts
+                .iter()
+                .any(|p| p.name == "abdomen" && p.destructible),
+            "has destructible abdomen part"
+        );
+        assert!(br.parts.iter().any(|p| p.name == "head"), "has head part");
+        assert!(
+            br.parts
+                .iter()
+                .filter(|p| p.name.starts_with("brood_sac."))
+                .count()
+                >= 3,
+            "has at least 3 brood_sac parts"
+        );
+        assert!(
+            br.weak_points
+                .iter()
+                .filter(|w| w.name.starts_with("weak_point.brood_sac.") && w.destructible)
+                .count()
+                >= 3,
+            "has at least 3 brood_sac weak points"
+        );
+    }
+
+    #[test]
+    fn swarm_queen_hostile_input_cannot_panic() {
+        let br = build_boss_rig(&boss(
+            r#"{"kind":"boss","archetype":"swarm_queen","size":1e30,"phases":999,"eyes":999999,"spikes":1e30,"menace":1e30}"#,
+        ));
+        let n = br.rig.skeleton.joints.len();
+        assert!(br.rig.prims.iter().all(|d| d.joint_a < n && d.joint_b < n));
+        assert!(n < 2000, "joint count bounded: {n}");
+    }
+
+    #[test]
+    fn swarm_queen_skinning_has_no_webs() {
+        let p = boss(r#"{"kind":"boss","archetype":"swarm_queen","element":"fungal"}"#);
+        let br = build_boss_rig(&p);
+        let pal = crate::palette::by_name("fungal");
+        let mut mesh = super::super::body::build_body(&br.rig, p.size, p.detail, p.seed, 0.0, &pal);
+        mesh.validate()
+            .expect("bind mesh valid (no degenerate/zero-area tris)");
+        crate::generators::monster::skin_body(&mut mesh, &br.rig);
+        assert!(mesh.is_skinned(), "boss mesh must be skinned");
+
+        // synthetic clip: swing the legs (knee bend) so the many-leg junction
+        // this probe targets actually deforms relative to the thorax.
+        let skel = &br.rig.skeleton;
+        let mut channels = Vec::new();
+        for (i, j) in skel.joints.iter().enumerate() {
+            if j.name == "coxa" || j.name == "knee" {
+                channels.push(crate::gltf::Channel {
+                    joint: i,
+                    times: vec![0.0, 1.0],
+                    data: crate::gltf::ChannelData::Rotation(vec![
+                        Quat::IDENTITY,
+                        Quat::from_rotation_x(0.6),
+                    ]),
+                });
+            }
+        }
+        let clip = crate::gltf::AnimationClip {
+            name: "probe".into(),
+            channels,
+        };
+        let globals = crate::anim::pose_at(skel, &clip, 1.0);
+        let ibms: Vec<Mat4> = (0..skel.joints.len())
+            .map(|i| skel.global(i).inverse())
+            .collect();
+        let posed = crate::anim::skin_mesh(&mesh, &globals, &ibms);
+
+        let moved = mesh
+            .positions
+            .iter()
+            .zip(&posed.positions)
+            .any(|(a, b)| a.distance(*b) > 0.01);
+        assert!(moved, "leg bend pose should deform the mesh");
+
+        let stretch = max_edge_stretch(&mesh, &posed);
+        assert!(
+            stretch < 8.0,
+            "edge stretch {stretch} indicates a skinning web between legs/thorax/brood sacs"
         );
     }
 }

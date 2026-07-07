@@ -22,6 +22,7 @@ fn collider_plan(a: crate::recipe::BossArchetype) -> crate::recipe::BodyPlan {
         crate::recipe::BossArchetype::Colossus | crate::recipe::BossArchetype::Lich => {
             crate::recipe::BodyPlan::BipedBrute
         }
+        crate::recipe::BossArchetype::SwarmQueen => crate::recipe::BodyPlan::Insectoid,
         _ => crate::recipe::BodyPlan::Serpent,
     }
 }
@@ -70,6 +71,14 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     // of these knobs), NOT measled bright-green speckle over the whole robe.
     let colossus = matches!(p.archetype, crate::recipe::BossArchetype::Colossus);
     let lich = matches!(p.archetype, crate::recipe::BossArchetype::Lich);
+    // The swarm-queen is fungal-element (a brood-mother's palette) and hits
+    // the same over-saturation failure necrotic did on the lich: fungal's
+    // teal/green accent reads loud even at a moderate value, so a uniform
+    // whole-body emissive wash would flatten the huge carapace into a green
+    // glow blob instead of a dark insectoid with bright brood sacs. Same
+    // dark-base treatment: near-black carapace, glow concentrated at the
+    // brood sacs + eyes (`PrimTint::Eye`, already unconditional full accent).
+    let swarm_queen = matches!(p.archetype, crate::recipe::BossArchetype::SwarmQueen);
     let (body_accent, emissive) = if colossus {
         (
             (e * 0.12).clamp(0.03, 0.07),
@@ -90,6 +99,11 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
             (e * 0.04).clamp(0.008, 0.02),
             if eye_glow { 0.02 } else { 0.0 },
         )
+    } else if swarm_queen {
+        (
+            (e * 0.04).clamp(0.008, 0.02),
+            if eye_glow { 0.02 } else { 0.0 },
+        )
     } else {
         (e, e.max(if eye_glow { 0.12 } else { 0.0 }))
     };
@@ -103,7 +117,7 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     // genuinely near-black instead of "toxic green wash" — the glow stays
     // exactly as bright since `accent` (the phylactery/eyes/crown/implement
     // color) is untouched.
-    let body_pal = if lich {
+    let body_pal = if lich || swarm_queen {
         let mut dp = *pal;
         let dim = 0.2;
         for t in &mut dp.terrain {
