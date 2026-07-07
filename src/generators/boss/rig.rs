@@ -1524,17 +1524,17 @@ fn plan_dragon_lord(p: &BossParams) -> BossRig {
     // display — the money silhouette. The membranes are thin on the DEPTH (Z)
     // axis (NOT the vertical Y axis) so each wing is an upright sheet FACING
     // the viewer, spread far out to the side and up — a spread bat/dragon
-    // wing, not a horizontal fin folded flat along the back. Each wing spans
-    // ~2.4*s to each side (a full wingspan wider than the body is long) and
-    // rises ~1.3*s tall, dominating the silhouette. Built from TWO panels
-    // (inner root->wrist, outer wrist->tip) each an explicit-radii flat
-    // ellipsoid (wide X, tall Y, THIN Z), fold-ranked LAST (rank 4) at LOW k
-    // so smooth-min keeps them genuine thin sheets, plus a leading-edge spar
-    // bone (root->wrist->tip along the TOP edge) and finger-rib spars fanning
-    // down to the trailing edge for a scalloped bat-wing read. Each wing is
-    // its OWN rank-4 skin family (its joints are never touched by a rank<=1
-    // trunk primitive), so `skin_body`'s union-find never webs a wing to the
-    // torso or to the other wing. Named `wing.l`/`wing.r`, destructible.
+    // wing, not a horizontal fin folded flat along the back. Each wing reaches
+    // ~3.0*s out to its side (a full wingspan wider than the body is long) and
+    // rises ~1.9*s tall, dominating the silhouette. Built from ONE big
+    // continuous explicit-radii flat ellipsoid (wide X, tall Y, THIN Z)
+    // spanning root->tip, fold-ranked LAST (rank 4) at LOW k so smooth-min
+    // keeps it a genuine thin sheet, plus a leading-edge spar bone
+    // (root->wrist->tip along the TOP edge) and finger-rib spars fanning down
+    // to the trailing edge for a scalloped bat-wing read. Each wing is its OWN
+    // rank-4 skin family (its joints are never touched by a rank<=1 trunk
+    // primitive), so `skin_body`'s union-find never webs a wing to the torso
+    // or to the other wing. Named `wing.l`/`wing.r`, destructible.
     let mut wings = Vec::new();
     for (side, name) in [(-1.0f32, "wing.l"), (1.0f32, "wing.r")] {
         // root at the shoulder; wrist is the leading-edge apex thrust far OUT
