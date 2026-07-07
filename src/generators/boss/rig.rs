@@ -6,7 +6,9 @@
 
 use glam::Vec3;
 
-use crate::generators::monster::rig::{Gait, GaitDesc, MonsterRig, RigBuilder};
+use crate::generators::monster::rig::{
+    Gait, GaitDesc, MonsterRig, PrimTint, RigBuilder, add_joint, push_cone, push_flat,
+};
 use crate::recipe::{BossArchetype, BossParams};
 
 use super::meta::{ColliderJson, PartMeta, WeakPointMeta};
@@ -31,10 +33,12 @@ pub fn build_boss_rig(p: &BossParams) -> BossRig {
     }
 }
 
-/// Hydra: broad low torso + haunches + tail, and `nheads` reared serpentine
-/// necks fanning forward, each ending in its own head. The `core` joint
-/// (rank 0) sits at the torso center and is the exposed weak point between
-/// the necks. Each `neck{i}_head` joint is a targetable, destructible part.
+/// Hydra: a heavy coiled torso + haunches + a thick tapering tail, and
+/// `nheads` LONG sinuous necks rearing up in a menacing cobra-hood fan, each
+/// ending in a real wedge/skull head (elongated cranium + underslung maw + two
+/// glowing infernal eyes + back-swept horns). A row of dorsal spikes runs the
+/// spine and up each neck. The `core` joint (rank 0) is the exposed weak point
+/// where the necks converge; each `neck{i}_head` is a targetable head part.
 fn plan_hydra(p: &BossParams) -> BossRig {
     let s = p.size.clamp(0.4, 8.0);
     let v = Vec3::new;
@@ -42,29 +46,28 @@ fn plan_hydra(p: &BossParams) -> BossRig {
     let mut parts = Vec::new();
     let mut weak_points = Vec::new();
 
-    // core torso (rank 0): a low, ELONGATED body along Z (hips at the rear ->
-    // shoulders up front), not a round ball — a sphere left no room below for
-    // legs or behind for the tail to read past the torso silhouette. `core`
-    // is a small raised chest lump on top of the shoulders where the necks
-    // sprout and the exposed weak point sits.
-    let hips = r.joint(None, "hips", v(0.0, 0.5 * s, -0.75 * s));
-    let shoulders = r.joint(Some(hips), "shoulders", v(0.0, 0.58 * s, 0.4 * s));
-    let core = r.joint(Some(shoulders), "core", v(0.0, 0.92 * s, 0.55 * s));
-    let tail1 = r.joint(Some(hips), "tail1", v(0.0, 0.35 * s, -1.3 * s));
-    let tail2 = r.joint(Some(tail1), "tail2", v(0.0, 0.18 * s, -1.9 * s));
-    r.ellip(hips, shoulders, 0.42 * s, 0.1 * s, 0, 0.16 * s);
-    r.ellip(shoulders, core, 0.28 * s, 0.05 * s, 0, 0.1 * s);
-    r.cone(hips, tail1, 0.3 * s, 0.14 * s, 0, 0.07 * s);
-    r.cone(tail1, tail2, 0.14 * s, 0.04 * s, 0, 0.05 * s);
+    // core torso (rank 0): a low, HEAVY elongated coil along Z (hips at the
+    // rear -> shoulders up front), not a round ball. `core` is a raised chest
+    // hump on the shoulders where the necks converge and the weak point sits.
+    let hips = r.joint(None, "hips", v(0.0, 0.5 * s, -0.8 * s));
+    let shoulders = r.joint(Some(hips), "shoulders", v(0.0, 0.6 * s, 0.45 * s));
+    let core = r.joint(Some(shoulders), "core", v(0.0, 1.0 * s, 0.6 * s));
+    let tail1 = r.joint(Some(hips), "tail1", v(0.0, 0.36 * s, -1.5 * s));
+    let tail2 = r.joint(Some(tail1), "tail2", v(0.0, 0.22 * s, -2.2 * s));
+    let tail3 = r.joint(Some(tail2), "tail3", v(0.0, 0.1 * s, -2.9 * s));
+    r.ellip(hips, shoulders, 0.5 * s, 0.12 * s, 0, 0.18 * s);
+    r.ellip(shoulders, core, 0.32 * s, 0.06 * s, 0, 0.12 * s);
+    r.cone(hips, tail1, 0.34 * s, 0.18 * s, 0, 0.08 * s);
+    r.cone(tail1, tail2, 0.18 * s, 0.08 * s, 0, 0.06 * s);
+    r.cone(tail2, tail3, 0.08 * s, 0.02 * s, 0, 0.05 * s);
 
-    // haunches (rank 2): four thick legs planted WIDE of the (now slimmer)
-    // torso so they read below its silhouette instead of being swallowed by
-    // it, grounding the creature.
+    // haunches (rank 2): four thick legs planted WIDE of the torso so they
+    // read below its silhouette and ground the creature in a coiled crouch.
     for (dx, dz, name) in [
-        (0.42, 0.15, "leg_fl"),
-        (-0.42, 0.15, "leg_fr"),
-        (0.42, -0.85, "leg_bl"),
-        (-0.42, -0.85, "leg_br"),
+        (0.46, 0.2, "leg_fl"),
+        (-0.46, 0.2, "leg_fr"),
+        (0.46, -0.95, "leg_bl"),
+        (-0.46, -0.95, "leg_br"),
     ] {
         let up = r.joint(
             Some(hips),
@@ -72,41 +75,45 @@ fn plan_hydra(p: &BossParams) -> BossRig {
             v(dx * s, 0.42 * s, dz * s),
         );
         let ft = r.joint(Some(up), &format!("{name}_ft"), v(dx * s, 0.0, dz * s));
-        r.cone(up, ft, 0.15 * s, 0.09 * s, 2, 0.05 * s);
+        r.cone(up, ft, 0.17 * s, 0.1 * s, 2, 0.05 * s);
     }
 
-    // nheads reared serpentine necks fanning forward-up from the core, wide
-    // enough apart (base/mid/head each fan out MORE than the last) that
-    // adjacent neck radii never sum past their separation — the exact
-    // webbing failure the first pass hit. A height stagger (center neck
-    // tallest) reads as a fan instead of a row of parallel tubes.
+    // nheads LONG serpentine necks, each a 4-joint S-curve rearing up + forward
+    // in a wide cobra-hood fan. Bases spread enough that adjacent neck radii
+    // never sum past their separation (the webbing failure the first pass hit);
+    // a height stagger (center neck tallest) reads as a fan, not parallel tubes.
+    // fold_rank 2 (NOT the rank-1 trunk band): each neck is its OWN skinning
+    // family bound to its own chain, so necks rear independently and never fuse.
     let nheads = 5usize;
+    let mut head_joints = Vec::new();
     for i in 0..nheads {
         let f = (i as f32 / (nheads - 1) as f32 - 0.5) * 2.0; // -1..1 fan
-        let rise = 1.0 - 0.35 * f.abs(); // center neck rears highest
-        let base = r.joint(
+        let rise = 1.0 - 0.28 * f.abs(); // center necks rear highest
+        // sinuous S: base leans back, then sweeps up + forward to the head.
+        let b = r.joint(
             Some(core),
             &format!("neck{i}_0"),
-            v(f * 1.0 * s, (0.92 + 0.1 * rise) * s, 0.7 * s),
+            v(f * 0.85 * s, 1.15 * s, 0.55 * s),
         );
-        let mid = r.joint(
-            Some(base),
+        let m1 = r.joint(
+            Some(b),
             &format!("neck{i}_1"),
-            v(f * 1.7 * s, (1.5 * rise) * s, 1.15 * s),
+            v(f * 1.5 * s, (1.75 * rise) * s, 0.45 * s),
+        );
+        let m2 = r.joint(
+            Some(m1),
+            &format!("neck{i}_2"),
+            v(f * 1.9 * s, (2.45 * rise) * s, 0.95 * s),
         );
         let head = r.joint(
-            Some(mid),
+            Some(m2),
             &format!("neck{i}_head"),
-            v(f * 2.2 * s, (1.95 * rise) * s, 1.6 * s),
+            v(f * 2.05 * s, (2.75 * rise) * s, 1.6 * s),
         );
-        // fold_rank 2 (not 1/trunk): each neck must be its OWN skinning
-        // family, bound to its own joint chain — a multi-neck hydra where
-        // every neck rode the rigid trunk (spine-bound) couldn't rear
-        // independently, and grouping them all under one rank risks the
-        // union-find family split going wrong at the shared `core` root.
-        r.cone(base, mid, 0.13 * s, 0.1 * s, 2, 0.045 * s);
-        r.cone(mid, head, 0.1 * s, 0.1 * s, 2, 0.045 * s);
-        r.ellip(head, head, 0.19 * s, 0.02 * s, 2, 0.05 * s);
+        r.cone(b, m1, 0.15 * s, 0.12 * s, 2, 0.05 * s);
+        r.cone(m1, m2, 0.12 * s, 0.1 * s, 2, 0.045 * s);
+        r.cone(m2, head, 0.1 * s, 0.11 * s, 2, 0.045 * s);
+        head_joints.push(head);
         parts.push(PartMeta {
             name: format!("head.{}", i + 1),
             joint: format!("neck{i}_head"),
@@ -118,7 +125,7 @@ fn plan_hydra(p: &BossParams) -> BossRig {
         weak_points.push(WeakPointMeta {
             name: "weak_point.core".into(),
             joint: "core".into(),
-            collider: ColliderJson::Sphere { radius: 0.4 * s },
+            collider: ColliderJson::Sphere { radius: 0.45 * s },
             offset: [0.0, 0.0, 0.0],
             destructible: true,
             phase: 2,
@@ -129,15 +136,165 @@ fn plan_hydra(p: &BossParams) -> BossRig {
         legs: Vec::new(),
         spine: vec![hips, shoulders, core],
         wings: Vec::new(),
-        tail: vec![tail1, tail2],
+        tail: vec![tail1, tail2, tail3],
         head: None, // multi-headed: no single roar head
         style: Gait::Slither,
     };
-    let rig = r.finish(gait);
+    let mut rig = r.finish(gait);
+
+    // Head detail + dorsal spikes are pushed onto the FINISHED rig with the
+    // promoted monster helpers so they carry PrimTint::Eye/Horn (glow/bone) —
+    // the RigBuilder only makes Body prims. They fold at ranks strictly ABOVE
+    // the neck rank (3=skull/maw, 4=eyes, 5=horns/spikes) so each stays crisp
+    // and, being children of the neck-head joints, joins that neck's skinning
+    // family (never webs across heads). This mirrors the monster knob system.
+    for &head in &head_joints {
+        add_head_features(&mut rig, head, s);
+    }
+    add_dorsal_spikes(&mut rig, s, &[hips, shoulders, core], &head_joints);
+
+    rig.bounds = crate::generators::monster::rig::compute_bounds(&rig);
+
     BossRig {
         rig,
         weak_points,
         parts,
+    }
+}
+
+/// Build a real predatory head on the neck-tip joint `head`: an elongated
+/// cranium wedge tapering to a snout, an underslung lower jaw (a maw), two
+/// small glowing eyes on the sides, and a pair of back-swept horns.
+fn add_head_features(rig: &mut MonsterRig, head: usize, s: f32) {
+    let v = Vec3::new;
+    let hp = rig.joint_world(head);
+
+    // cranium wedge: broad at the back (the neck-tip), tapering forward-down to
+    // a snout. An explicit-radii ellipsoid gives a defined skull block.
+    let snout = add_joint(rig, head, "snout", hp + v(0.0, -0.05 * s, 0.34 * s));
+    push_flat(
+        rig,
+        head,
+        snout,
+        v(0.17 * s, 0.16 * s, 0.3 * s),
+        3,
+        0.05 * s,
+        PrimTint::Body,
+    );
+    // underslung lower jaw = a maw jutting forward-down under the cranium.
+    let jaw = add_joint(rig, head, "jaw", hp + v(0.0, -0.16 * s, 0.24 * s));
+    push_cone(
+        rig,
+        head,
+        jaw,
+        0.13 * s,
+        0.06 * s,
+        3,
+        0.04 * s,
+        PrimTint::Body,
+    );
+
+    // two glowing infernal eyes on the sides of the cranium, facing forward.
+    for side in [-1.0f32, 1.0] {
+        let eb = add_joint(
+            rig,
+            head,
+            "eye",
+            hp + v(side * 0.13 * s, 0.06 * s, 0.13 * s),
+        );
+        let eo = add_joint(
+            rig,
+            eb,
+            "eye_out",
+            hp + v(side * 0.15 * s, 0.06 * s, 0.16 * s),
+        );
+        push_cone(
+            rig,
+            eb,
+            eo,
+            0.055 * s,
+            0.035 * s,
+            4,
+            0.006 * s,
+            PrimTint::Eye,
+        );
+    }
+
+    // back-swept horns curving up and rearward off the crown.
+    for side in [-1.0f32, 1.0] {
+        let hb = add_joint(rig, head, "horn", hp + v(side * 0.09 * s, 0.11 * s, 0.0));
+        let hm = add_joint(
+            rig,
+            hb,
+            "horn_mid",
+            hp + v(side * 0.13 * s, 0.26 * s, -0.14 * s),
+        );
+        let ht = add_joint(
+            rig,
+            hm,
+            "horn_tip",
+            hp + v(side * 0.14 * s, 0.36 * s, -0.3 * s),
+        );
+        push_cone(
+            rig,
+            hb,
+            hm,
+            0.05 * s,
+            0.03 * s,
+            5,
+            0.015 * s,
+            PrimTint::Horn,
+        );
+        push_cone(
+            rig,
+            hm,
+            ht,
+            0.03 * s,
+            0.008 * s,
+            5,
+            0.012 * s,
+            PrimTint::Horn,
+        );
+    }
+}
+
+/// A crest of bony dorsal spikes marching up the spine (`back` joints, from
+/// hips to core) and a smaller crest up each neck to its head. Each spike is a
+/// tiny rank-5 `Horn` family rooted on the joint it grows from.
+fn add_dorsal_spikes(rig: &mut MonsterRig, s: f32, back: &[usize], heads: &[usize]) {
+    let v = Vec3::new;
+    // torso crest: a spike near each back joint, tallest over the shoulders.
+    for (i, &j) in back.iter().enumerate() {
+        let jp = rig.joint_world(j);
+        let h = (0.22 - 0.03 * i as f32) * s;
+        let b0 = add_joint(rig, j, "spike", jp + v(0.0, 0.24 * s, 0.0));
+        let b1 = add_joint(rig, b0, "spike_tip", jp + v(0.0, 0.24 * s + h, -0.08 * s));
+        push_cone(
+            rig,
+            b0,
+            b1,
+            0.05 * s,
+            0.006 * s,
+            5,
+            0.012 * s,
+            PrimTint::Horn,
+        );
+    }
+    // a small spike on the crown-back of each head, continuing the crest line.
+    for &head in heads {
+        let hp = rig.joint_world(head);
+        let b0 = add_joint(rig, head, "neck_spike", hp + v(0.0, 0.16 * s, -0.06 * s));
+        let b1 = add_joint(rig, b0, "neck_spike_tip", hp + v(0.0, 0.28 * s, -0.14 * s));
+        push_cone(
+            rig,
+            b0,
+            b1,
+            0.035 * s,
+            0.005 * s,
+            5,
+            0.01 * s,
+            PrimTint::Horn,
+        );
     }
 }
 

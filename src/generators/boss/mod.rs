@@ -22,7 +22,18 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     let p = &owned;
 
     let br = rig::build_boss_rig(p);
-    let emissive = p.emissive.clamp(0.0, 1.0).max(0.0);
+    // Eyes must glow regardless of the emissive knob: floor the emission
+    // whenever the rig carries eye primitives (same rule as monster generate),
+    // so the default sentinel emissive still lights up an infernal hydra.
+    let eye_glow = br
+        .rig
+        .prims
+        .iter()
+        .any(|d| d.tint == crate::generators::monster::rig::PrimTint::Eye);
+    let emissive = p
+        .emissive
+        .clamp(0.0, 1.0)
+        .max(if eye_glow { 0.3 } else { 0.0 });
     let mut mesh = body::build_body(&br.rig, p.size, p.detail, p.seed, emissive, pal);
     crate::generators::monster::skin_body(&mut mesh, &br.rig);
     mesh.validate().expect("boss mesh invalid");
