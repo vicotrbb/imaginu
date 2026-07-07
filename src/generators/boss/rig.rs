@@ -28,16 +28,14 @@ pub struct BossRig {
     pub extra_mesh: Option<Mesh>,
 }
 
-/// Dispatch on archetype. `Hydra`, `Colossus`, and `Lich` have dedicated
-/// plans; the remaining archetypes fall back to `plan_hydra` so dispatch
-/// stays total until Tasks 9-10 land.
+/// Dispatch on archetype. Every archetype has a dedicated plan.
 pub fn build_boss_rig(p: &BossParams) -> BossRig {
     match p.archetype {
         BossArchetype::Hydra => plan_hydra(p),
         BossArchetype::Colossus => plan_colossus(p),
         BossArchetype::Lich => plan_lich(p),
         BossArchetype::SwarmQueen => plan_swarm_queen(p),
-        BossArchetype::DragonLord => plan_hydra(p),
+        BossArchetype::DragonLord => plan_dragon_lord(p),
     }
 }
 
@@ -1440,6 +1438,333 @@ fn add_brood_sacs(
     }
 }
 
+/// Dragon-lord: a WINGED SERPENT at scale — the `serpent` body plan's thick
+/// reared spine + blunt underslung-jaw head, crossed with `winged_flyer`'s two
+/// large flat membrane wings. A low sprawling torso (hips to waist to chest to
+/// shoulders) carries a tall reared S-curve neck lifting a horned, fanged head
+/// high above the shoulders (`head`, the breath-weapon origin) and a long
+/// sweeping tail trailing behind. Unlike the hydra's BRANCHING multi-neck fan
+/// (which forces each neck into its own rank-2 limb family), the dragon-lord
+/// has a single sequential neck, so the whole torso+neck chain is one rank
+/// 0/1 TRUNK band riding `gait.spine`'s bone-segment chain directly, the same
+/// "long straight trunk chain" pattern `plan_colossus` uses for its neck+head.
+/// Four planted legs (rank-2, own family each) ground the huge body. The two
+/// wings are each their OWN rank-4 family — massive flat sheets (LOW k,
+/// fold-ranked LAST exactly like `plan_winged_flyer`'s wings) so smooth-min
+/// never inflates them back into lobes and `skin_body`'s union-find never
+/// webs a wing to the torso or to each other. `wing.l`/`wing.r` are
+/// destructible parts. A glowing `heart` (its own rank-3 `Eye` family) sits
+/// exposed in the chest — the weak point.
+fn plan_dragon_lord(p: &BossParams) -> BossRig {
+    let s = p.size.clamp(0.4, 8.0);
+    let menace = p.menace.clamp(0.0, 1.0);
+    let horns_k = p.horns.clamp(0.0, 1.0);
+    let v = Vec3::new;
+    let mut r = RigBuilder::new();
+    let mut parts = Vec::new();
+    let mut weak_points = Vec::new();
+
+    // trunk (rank 0 torso / rank 1 neck): a low sprawling serpent torso
+    // rearing up into a tall S-curve neck that lifts the head high above the
+    // shoulders. One SEQUENTIAL chain (no branching), so it binds cleanly to
+    // `gait.spine`'s trunk bone segments (the neck sway/breath-thrust
+    // animation deforms the mesh correctly, unlike a rank>=2 limb family).
+    let hips = r.joint(None, "hips", v(0.0, 0.56 * s, -0.75 * s));
+    let waist = r.joint(Some(hips), "waist", v(0.0, 0.62 * s, 0.0));
+    let chest = r.joint(Some(waist), "chest", v(0.0, 0.74 * s, 0.7 * s));
+    let shoulders = r.joint(Some(chest), "shoulders", v(0.0, 0.9 * s, 1.15 * s));
+    let neck0 = r.joint(Some(shoulders), "neck0", v(0.0, 1.5 * s, 1.35 * s));
+    let neck1 = r.joint(Some(neck0), "neck1", v(0.0, 2.15 * s, 1.5 * s));
+    let neck2 = r.joint(Some(neck1), "neck2", v(0.0, 2.75 * s, 1.65 * s));
+    let head = r.joint(Some(neck2), "head", v(0.0, 3.2 * s, 1.95 * s));
+    r.ellip(hips, waist, 0.4 * s, 0.06 * s, 0, 0.16 * s);
+    r.cone(hips, waist, 0.38 * s, 0.32 * s, 0, 0.14 * s);
+    r.cone(waist, chest, 0.32 * s, 0.26 * s, 0, 0.13 * s);
+    r.cone(chest, shoulders, 0.26 * s, 0.22 * s, 0, 0.11 * s);
+    r.cone(shoulders, neck0, 0.22 * s, 0.18 * s, 1, 0.09 * s);
+    r.cone(neck0, neck1, 0.17 * s, 0.145 * s, 1, 0.07 * s);
+    r.cone(neck1, neck2, 0.145 * s, 0.13 * s, 1, 0.06 * s);
+    r.cone(neck2, head, 0.13 * s, 0.15 * s, 1, 0.055 * s);
+    parts.push(PartMeta {
+        name: "head".into(),
+        joint: "head".into(),
+        destructible: true,
+    });
+
+    // sweeping tail (rank 0, trunk-rigid — the same read the hydra's tail
+    // uses: a real tapering chain for shape/pose, not its own skin family).
+    let tail1 = r.joint(Some(hips), "tail1", v(0.0, 0.42 * s, -1.6 * s));
+    let tail2 = r.joint(Some(tail1), "tail2", v(0.0, 0.26 * s, -2.5 * s));
+    let tail3 = r.joint(Some(tail2), "tail3", v(0.0, 0.12 * s, -3.3 * s));
+    let tail4 = r.joint(Some(tail3), "tail4", v(0.0, 0.04 * s, -4.0 * s));
+    r.cone(hips, tail1, 0.34 * s, 0.2 * s, 0, 0.09 * s);
+    r.cone(tail1, tail2, 0.2 * s, 0.1 * s, 0, 0.07 * s);
+    r.cone(tail2, tail3, 0.1 * s, 0.045 * s, 0, 0.055 * s);
+    r.cone(tail3, tail4, 0.045 * s, 0.012 * s, 0, 0.04 * s);
+
+    // 4 legs planted wide (rank 2, own family each) grounding the huge body.
+    let mut legs = Vec::new();
+    for (dx, dz, name) in [
+        (0.34, 0.6, "leg_fl"),
+        (-0.34, 0.6, "leg_fr"),
+        (0.38, -0.7, "leg_bl"),
+        (-0.38, -0.7, "leg_br"),
+    ] {
+        let up = r.joint(
+            Some(hips),
+            &format!("{name}_up"),
+            v(dx * s, 0.42 * s, dz * s),
+        );
+        let ft = r.joint(Some(up), &format!("{name}_ft"), v(dx * s, 0.0, dz * s));
+        r.cone(up, ft, 0.15 * s, 0.09 * s, 2, 0.045 * s);
+        legs.push(vec![up, ft]);
+    }
+
+    // wings: TWO massive flat membrane sheets off the shoulders, spread wide,
+    // UP, and swept back — the money silhouette. Each wing is TWO tapered
+    // panels (root->wrist wide, wrist->tip narrow, pointed) so it reads as an
+    // actual wing profile rather than a round fan/disk, arcing up from the
+    // shoulder to a raised "wrist" before sweeping back down to a pointed
+    // tip. Each wing is its OWN rank-4 family (LOW k, fold-ranked LAST,
+    // exactly `plan_winged_flyer`'s wing pattern scaled up + tapered) so it
+    // stays a genuine thin sheet instead of inflating into a lobe, plus a
+    // leading-edge spar bone continuing root->wrist->tip. Named
+    // `wing.l`/`wing.r`, destructible.
+    let mut wings = Vec::new();
+    for (side, name) in [(-1.0f32, "wing.l"), (1.0f32, "wing.r")] {
+        let root = r.joint(
+            Some(shoulders),
+            &format!("{name}_root"),
+            v(side * 0.3 * s, 1.25 * s, 0.85 * s),
+        );
+        // wrist: out and moderately up from the root — a gentle arc, not a
+        // tall spike — so the wing reads as a swept membrane rather than a
+        // second hump.
+        let wrist = r.joint(
+            Some(root),
+            &format!("{name}_wrist"),
+            v(side * 1.7 * s, 1.8 * s, 0.55 * s),
+        );
+        // tip: far out and swept back/down, tapering to a point below the
+        // wrist.
+        let tip = r.joint(Some(wrist), name, v(side * 3.1 * s, 1.55 * s, -0.25 * s));
+        // inner panel: wide-SPAN, NARROW-chord (span:chord ~3:1, not a
+        // round disk) so it reads as a blade, tapering toward the wrist.
+        r.flat(root, wrist, v(0.82 * s, 0.045 * s, 0.28 * s), 4, 0.02 * s);
+        r.cone(root, wrist, 0.13 * s, 0.07 * s, 4, 0.03 * s);
+        // outer panel: narrower still, tapering to a pointed tip.
+        r.flat(wrist, tip, v(0.78 * s, 0.032 * s, 0.15 * s), 4, 0.015 * s);
+        r.cone(wrist, tip, 0.07 * s, 0.018 * s, 4, 0.025 * s);
+        // two thin "finger" ribs fanning from the wrist toward the trailing
+        // edge (same rank-4 family, RigBuilder-level so they're built before
+        // `finish`), breaking the smooth blade into a bat-wing scallop read.
+        for (fdx, fdz) in [(1.15f32, -0.4f32), (0.35f32, -0.55f32)] {
+            let ftip = r.joint(
+                Some(wrist),
+                &format!("{name}_finger"),
+                v(side * fdx * s, 1.55 * s, fdz * s),
+            );
+            r.cone(wrist, ftip, 0.03 * s, 0.006 * s, 4, 0.02 * s);
+        }
+        wings.push(root);
+        parts.push(PartMeta {
+            name: name.to_string(),
+            joint: name.to_string(),
+            destructible: true,
+        });
+    }
+
+    let gait = GaitDesc {
+        legs,
+        spine: vec![hips, waist, chest, shoulders, neck0, neck1, neck2, head],
+        wings,
+        tail: vec![tail1, tail2, tail3, tail4],
+        head: Some(head),
+        style: Gait::Fly,
+    };
+    let mut rig = r.finish(gait);
+
+    add_dragon_head_features(&mut rig, head, s, horns_k);
+
+    // glowing exposed heart (own rank-3 family, Eye tint = full accent glow):
+    // a large orb set into the chest, popping against the body — the weak
+    // point, exposed on enrage.
+    // pushed well clear of the chest cone's own surface (~0.26*s nominal
+    // radius, more with smooth-min blending against the neighboring torso
+    // segments) so the orb visibly PROTRUDES instead of being swallowed by
+    // the torso, mirroring the colossus's `chest_r2`-relative core offset.
+    let chest_wp = rig.joint_world(chest);
+    let heart = add_joint(
+        &mut rig,
+        chest,
+        "heart",
+        chest_wp + v(0.0, -0.04 * s, 0.46 * s),
+    );
+    let heart_r = (0.2 + 0.06 * menace) * s;
+    push_flat(
+        &mut rig,
+        heart,
+        heart,
+        v(heart_r, heart_r, heart_r),
+        3,
+        0.045 * s,
+        PrimTint::Eye,
+    );
+
+    if p.weak_points {
+        weak_points.push(WeakPointMeta {
+            name: "weak_point.heart".into(),
+            joint: "heart".into(),
+            collider: ColliderJson::Sphere {
+                radius: heart_r * 1.3,
+            },
+            offset: [0.0, 0.0, 0.0],
+            destructible: true,
+            phase: 2,
+        });
+    }
+
+    rig.bounds = crate::generators::monster::rig::compute_bounds(&rig);
+
+    BossRig {
+        rig,
+        weak_points,
+        parts,
+        extra_mesh: None,
+    }
+}
+
+/// A horned, fanged dragon head on the neck-tip joint `head`: a broad blunt
+/// cranium + underslung fanged jaw (the `plan_serpent` maw, at trunk fold
+/// rank 1 so it rides rigidly with the neck), two big glowing frost eyes
+/// (own rank-6 `Eye` family), a pair of long back-swept horns crowning the
+/// brow (own rank-5 `Horn` family, `horns` scales their length), and two
+/// small fangs jutting from the jaw (own rank-6 `Horn` family) — the "fanged
+/// maw" read.
+fn add_dragon_head_features(rig: &mut MonsterRig, head: usize, s: f32, horns: f32) {
+    let v = Vec3::new;
+    let hp = rig.joint_world(head);
+
+    // broad blunt cranium + underslung fanged jaw (serpent-style maw)
+    let snout = add_joint(rig, head, "snout", hp + v(0.0, -0.05 * s, 0.34 * s));
+    push_flat(
+        rig,
+        head,
+        snout,
+        v(0.22 * s, 0.2 * s, 0.3 * s),
+        1,
+        0.05 * s,
+        PrimTint::Body,
+    );
+    let jaw = add_joint(rig, head, "jaw", hp + v(0.0, -0.22 * s, 0.26 * s));
+    push_cone(
+        rig,
+        head,
+        jaw,
+        0.16 * s,
+        0.07 * s,
+        1,
+        0.045 * s,
+        PrimTint::Body,
+    );
+
+    // two BIG glowing frost eyes set forward on the snout.
+    for side in [-1.0f32, 1.0] {
+        let eb = add_joint(
+            rig,
+            head,
+            "eye",
+            hp + v(side * 0.14 * s, 0.06 * s, 0.22 * s),
+        );
+        let eo = add_joint(
+            rig,
+            eb,
+            "eye_out",
+            hp + v(side * 0.17 * s, 0.06 * s, 0.27 * s),
+        );
+        push_cone(
+            rig,
+            eb,
+            eo,
+            0.055 * s,
+            0.035 * s,
+            6,
+            0.008 * s,
+            PrimTint::Eye,
+        );
+    }
+
+    // two long back-swept horns crowning the brow — always present (a core
+    // silhouette feature per the brief), `horns` (0..1) scales their length.
+    let hlen = (0.22 + 0.3 * horns) * s;
+    for side in [-1.0f32, 1.0] {
+        let hb = add_joint(
+            rig,
+            head,
+            "horn",
+            hp + v(side * 0.1 * s, 0.1 * s, -0.02 * s),
+        );
+        let hm = add_joint(
+            rig,
+            hb,
+            "horn_mid",
+            hp + v(side * 0.14 * s, 0.14 * s + 0.5 * hlen, -0.16 * s),
+        );
+        let ht = add_joint(
+            rig,
+            hm,
+            "horn_tip",
+            hp + v(side * 0.16 * s, 0.16 * s + hlen, -0.4 * s),
+        );
+        push_cone(
+            rig,
+            hb,
+            hm,
+            0.05 * s,
+            0.03 * s,
+            5,
+            0.014 * s,
+            PrimTint::Horn,
+        );
+        push_cone(
+            rig,
+            hm,
+            ht,
+            0.03 * s,
+            0.008 * s,
+            5,
+            0.012 * s,
+            PrimTint::Horn,
+        );
+    }
+
+    // two small fangs jutting down from the jaw — the "fanged" read.
+    for side in [-1.0f32, 1.0] {
+        let fb = add_joint(
+            rig,
+            head,
+            "fang",
+            hp + v(side * 0.08 * s, -0.28 * s, 0.32 * s),
+        );
+        let ft = add_joint(
+            rig,
+            fb,
+            "fang_tip",
+            hp + v(side * 0.07 * s, -0.4 * s, 0.34 * s),
+        );
+        push_cone(
+            rig,
+            fb,
+            ft,
+            0.022 * s,
+            0.004 * s,
+            6,
+            0.01 * s,
+            PrimTint::Horn,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1875,6 +2200,138 @@ mod tests {
         assert!(
             stretch < 8.0,
             "edge stretch {stretch} indicates a skinning web between legs/thorax/brood sacs"
+        );
+    }
+
+    #[test]
+    fn dragon_lord_rig_is_wellformed() {
+        let br = build_boss_rig(&boss(r#"{"kind":"boss","archetype":"dragon_lord"}"#));
+        let n = br.rig.skeleton.joints.len();
+        assert!(br.rig.prims.iter().all(|d| d.joint_a < n && d.joint_b < n));
+        assert!(br.rig.prims.iter().any(|d| d.fold_rank == 0), "has a core");
+        assert!(
+            br.rig.skeleton.joints.iter().any(|j| j.name == "head"),
+            "has a head joint (breath origin)"
+        );
+        assert!(br.parts.iter().any(|p| p.name == "head"), "has head part");
+        assert!(
+            br.parts
+                .iter()
+                .any(|p| p.name == "wing.l" && p.destructible),
+            "has destructible wing.l"
+        );
+        assert!(
+            br.parts
+                .iter()
+                .any(|p| p.name == "wing.r" && p.destructible),
+            "has destructible wing.r"
+        );
+        assert!(
+            br.rig.skeleton.joints.iter().any(|j| j.name == "heart"),
+            "has a heart joint"
+        );
+        assert!(
+            br.weak_points
+                .iter()
+                .any(|w| w.name == "weak_point.heart" && w.joint == "heart" && w.destructible)
+        );
+    }
+
+    #[test]
+    fn dragon_lord_hostile_input_cannot_panic() {
+        let br = build_boss_rig(&boss(
+            r#"{"kind":"boss","archetype":"dragon_lord","size":1e30,"phases":999,"eyes":999999,"horns":1e30,"wings":1e30,"menace":1e30}"#,
+        ));
+        let n = br.rig.skeleton.joints.len();
+        assert!(br.rig.prims.iter().all(|d| d.joint_a < n && d.joint_b < n));
+        assert!(n < 2000, "joint count bounded: {n}");
+    }
+
+    #[test]
+    fn dragon_lord_skinning_has_no_webs() {
+        let p = boss(r#"{"kind":"boss","archetype":"dragon_lord","element":"arctic"}"#);
+        let br = build_boss_rig(&p);
+        let pal = crate::palette::by_name("arctic");
+        let mut mesh = super::super::body::build_body(&br.rig, p.size, p.detail, p.seed, 0.0, &pal);
+        mesh.validate()
+            .expect("bind mesh valid (no degenerate/zero-area tris)");
+        crate::generators::monster::skin_body(&mut mesh, &br.rig);
+        assert!(mesh.is_skinned(), "boss mesh must be skinned");
+
+        // synthetic clip: bend the neck forward and spread the wings — the
+        // web risk this probe targets (the huge flat wing sheets must move as
+        // their own family without dragging the torso/neck along).
+        let skel = &br.rig.skeleton;
+        let mut channels = Vec::new();
+        for (i, j) in skel.joints.iter().enumerate() {
+            if j.name.starts_with("neck") {
+                channels.push(crate::gltf::Channel {
+                    joint: i,
+                    times: vec![0.0, 1.0],
+                    data: crate::gltf::ChannelData::Rotation(vec![
+                        Quat::IDENTITY,
+                        Quat::from_rotation_x(0.35),
+                    ]),
+                });
+            }
+            if j.name.ends_with("_root") {
+                channels.push(crate::gltf::Channel {
+                    joint: i,
+                    times: vec![0.0, 1.0],
+                    data: crate::gltf::ChannelData::Rotation(vec![
+                        Quat::IDENTITY,
+                        Quat::from_rotation_z(0.35),
+                    ]),
+                });
+            }
+        }
+        let clip = crate::gltf::AnimationClip {
+            name: "probe".into(),
+            channels,
+        };
+        let globals = crate::anim::pose_at(skel, &clip, 1.0);
+        let ibms: Vec<Mat4> = (0..skel.joints.len())
+            .map(|i| skel.global(i).inverse())
+            .collect();
+        let posed = crate::anim::skin_mesh(&mesh, &globals, &ibms);
+
+        let moved = mesh
+            .positions
+            .iter()
+            .zip(&posed.positions)
+            .any(|(a, b)| a.distance(*b) > 0.01);
+        assert!(moved, "neck/wing pose should deform the mesh");
+
+        // wing verts must move as their own family without dragging body
+        // verts: sample body-only vertices far from either wing (near the
+        // hips/tail, well clear of the shoulders where the wings root) and
+        // assert they stay put under a wing-only-adjacent pose (the neck
+        // bend is expected to move the neck/head region, so restrict this
+        // check to the rear torso/tail).
+        let sz = p.size.clamp(0.4, 8.0);
+        let mut rear_checked = 0usize;
+        let mut rear_moved = 0usize;
+        for (a, b) in mesh.positions.iter().zip(&posed.positions) {
+            if a.z < -sz {
+                rear_checked += 1;
+                if a.distance(*b) > 0.05 * sz {
+                    rear_moved += 1;
+                }
+            }
+        }
+        assert!(
+            rear_checked > 0,
+            "probe should sample rear torso/tail verts"
+        );
+        assert_eq!(
+            rear_moved, 0,
+            "wing/neck pose should not drag rear torso/tail vertices (web)"
+        );
+
+        let stretch = max_edge_stretch(&mesh, &posed);
+        assert!(
+            stretch < 8.0,
+            "edge stretch {stretch} indicates a skinning web between wings/neck/torso"
         );
     }
 }

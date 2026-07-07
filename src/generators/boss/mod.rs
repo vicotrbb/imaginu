@@ -23,7 +23,9 @@ fn collider_plan(a: crate::recipe::BossArchetype) -> crate::recipe::BodyPlan {
             crate::recipe::BodyPlan::BipedBrute
         }
         crate::recipe::BossArchetype::SwarmQueen => crate::recipe::BodyPlan::Insectoid,
-        _ => crate::recipe::BodyPlan::Serpent,
+        crate::recipe::BossArchetype::DragonLord | crate::recipe::BossArchetype::Hydra => {
+            crate::recipe::BodyPlan::Serpent
+        }
     }
 }
 
@@ -79,12 +81,21 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     // dark-base treatment: near-black carapace, glow concentrated at the
     // brood sacs + eyes (`PrimTint::Eye`, already unconditional full accent).
     let swarm_queen = matches!(p.archetype, crate::recipe::BossArchetype::SwarmQueen);
+    // The dragon-lord's arctic palette hits the same same-hue problem as the
+    // lich's necrotic green: the body (pale icy blues) and the accent glow
+    // (a bright cyan) share a hue family, so a uniform emissive wash reads as
+    // "the whole dragon is glowing pale blue" and washes out flat, instead of
+    // "a dark-scaled dragon with a glowing frost heart/eyes". Same dark-base
+    // treatment as the lich/swarm-queen: glow concentrated at the heart +
+    // eyes (`PrimTint::Eye`, already unconditional full accent), body base
+    // darkened (see `body_pal`) so those glow points POP against contrast.
+    let dragon_lord = matches!(p.archetype, crate::recipe::BossArchetype::DragonLord);
     let (body_accent, emissive) = if colossus {
         (
             (e * 0.12).clamp(0.03, 0.07),
             if eye_glow { 0.11 } else { 0.0 },
         )
-    } else if lich {
+    } else if lich || dragon_lord {
         // Unlike the colossus's brown body / orange glow (different hue
         // families, so a uniform low emissive floor still reads "brown"),
         // the lich's body and glow are BOTH green — any uniform
@@ -117,9 +128,13 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     // genuinely near-black instead of "toxic green wash" — the glow stays
     // exactly as bright since `accent` (the phylactery/eyes/crown/implement
     // color) is untouched.
-    let body_pal = if lich || swarm_queen {
+    let body_pal = if lich || swarm_queen || dragon_lord {
         let mut dp = *pal;
-        let dim = 0.2;
+        // The dragon-lord gets a MILDER dim than the lich/swarm-queen's
+        // near-black 0.2: the brief calls for a darker SLATE-BLUE body (icy
+        // scales, not a void), just dark enough that the glowing frost heart
+        // and eyes clearly pop.
+        let dim = if dragon_lord { 0.3 } else { 0.2 };
         for t in &mut dp.terrain {
             *t *= dim;
         }
