@@ -1621,6 +1621,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         }),
         lods: Vec::new(),
         instanced: Vec::new(),
+        boss: None,
     }
 }
 

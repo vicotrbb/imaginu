@@ -130,6 +130,9 @@ pub struct Asset {
     pub lods: Vec<Vec<Part>>,
     /// GPU-instanced scatter meshes.
     pub instanced: Vec<InstancedPart>,
+    /// Boss gameplay metadata (weak points, phases, arena), embedded into
+    /// `nodes[0].extras.imaginu_boss` when present.
+    pub boss: Option<crate::generators::boss::meta::BossMeta>,
 }
 
 impl Asset {
@@ -142,6 +145,7 @@ impl Asset {
             physics,
             lods: Vec::new(),
             instanced: Vec::new(),
+            boss: None,
         }
     }
 
@@ -432,6 +436,12 @@ pub fn to_glb(asset: &Asset) -> Vec<u8> {
     if let Some(p) = &asset.physics {
         extras.insert("imaginu_physics".into(), physics_json(p));
     }
+    if let Some(bm) = &asset.boss {
+        extras.insert(
+            "imaginu_boss".to_string(),
+            crate::generators::boss::meta::boss_meta_json(bm),
+        );
+    }
     if !asset.lods.is_empty() {
         // LOD nodes occupy indices 1..=n; MSFT_lod lists them coarsest-last
         let ids: Vec<usize> = (1..=asset.lods.len()).collect();
@@ -679,6 +689,32 @@ mod tests {
                 restitution: 0.2,
             }),
         )
+    }
+
+    /// Extract and parse the JSON chunk from a GLB byte buffer.
+    fn extract_json_chunk(glb: &[u8]) -> Value {
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        assert_eq!(&glb[16..20], b"JSON");
+        serde_json::from_slice(&glb[20..20 + json_len]).unwrap()
+    }
+
+    #[test]
+    fn boss_extras_absent_when_none() {
+        // A normal asset with boss: None must not carry an imaginu_boss key.
+        let a = Asset::static_mesh(
+            "t",
+            vec![],
+            Some(Physics {
+                collider: Collider::Sphere { radius: 1.0 },
+                mass: 1.0,
+                friction: 0.5,
+                restitution: 0.2,
+            }),
+        );
+        let glb = to_glb(&a);
+        let json = extract_json_chunk(&glb);
+        let extras = &json["nodes"][0]["extras"];
+        assert!(extras.get("imaginu_boss").is_none());
     }
 
     #[test]

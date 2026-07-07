@@ -6,6 +6,8 @@ use crate::gltf::{Asset, Material, Part};
 use crate::palette::Palette;
 use crate::recipe::BossParams;
 
+pub mod meta;
+
 /// STUB (Task 2): returns a trivial single-sphere asset so recipe dispatch is
 /// testable before archetype geometry lands (Task 4+). Replaced in Task 4.
 pub fn generate(_p: &BossParams, pal: &Palette) -> Asset {
@@ -24,5 +26,6 @@ pub fn generate(_p: &BossParams, pal: &Palette) -> Asset {
         physics: None,
         lods: Vec::new(),
         instanced: Vec::new(),
+        boss: None,
     }
 }

@@ -59,6 +59,7 @@ pub fn generate(p: &MonsterParams, pal: &Palette) -> Asset {
         physics: Some(phys),
         lods: Vec::new(),
         instanced: Vec::new(),
+        boss: None,
     }
 }
 

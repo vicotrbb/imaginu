@@ -974,5 +974,6 @@ pub fn generate(p: &CustomParams) -> Result<Asset, String> {
         physics,
         lods: Vec::new(),
         instanced: Vec::new(),
+        boss: None,
     })
 }
