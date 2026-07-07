@@ -173,9 +173,18 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
         Vec::new()
     };
 
+    // Serialize the archetype/element via serde so the metadata strings match
+    // the recipe's snake_case keys exactly (e.g. "swarm_queen", not the
+    // Debug-derived "SwarmQueen"/"swarmqueen") for clean round-trips.
     let mut bm = BossMeta::new(
-        format!("{:?}", p.archetype).to_lowercase(),
-        format!("{:?}", p.element).to_lowercase(),
+        serde_json::to_value(p.archetype)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default(),
+        serde_json::to_value(p.element)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default(),
     );
     bm.weak_points = br.weak_points;
     bm.parts = br.parts;
