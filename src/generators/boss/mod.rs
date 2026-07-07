@@ -7,6 +7,7 @@ use crate::gltf::{Asset, Material, Part};
 use crate::palette::Palette;
 use crate::recipe::BossParams;
 
+mod anim;
 pub mod meta;
 mod preset;
 mod rig;
@@ -50,8 +51,11 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     // low sprawling torso + reared necks; Tasks 7-10 pick per-archetype plans.
     let phys = body::fit_collider(&br.rig, p.size, crate::recipe::BodyPlan::Serpent);
 
-    // Clip driver lands in Task 6; no procedural clips yet.
-    let animations = Vec::new();
+    let animations = if p.animate {
+        anim::build_boss_clips(&br.rig, p)
+    } else {
+        Vec::new()
+    };
 
     let mut bm = BossMeta::new(
         format!("{:?}", p.archetype).to_lowercase(),
@@ -60,7 +64,7 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     bm.weak_points = br.weak_points;
     bm.parts = br.parts;
     bm.arena.recommended_radius = (p.size * 2.7).max(4.0);
-    // phases filled in Task 6 (clip-linked); leave empty for now.
+    bm.phases = anim::build_phase_meta(p, &bm.weak_points);
 
     Asset {
         name: "boss".into(),
