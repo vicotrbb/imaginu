@@ -423,7 +423,10 @@ pub struct BossParams {
     /// Number of baked phase metadata blocks (clamp 1..=4).
     #[serde(default = "d_two_u32")]
     pub phases: u32,
-    /// Optional single-phase geometry selector.
+    /// Reserved: optional single-phase geometry selector. Not yet
+    /// implemented — per-phase geometry regeneration is deferred; the
+    /// baked `phase_transition` clip + `phases` metadata cover phase
+    /// changes today.
     #[serde(default)]
     pub phase: Option<u32>,
     #[serde(default = "d_true")]
@@ -1077,6 +1080,14 @@ mod tests {
     #[test]
     fn monster_is_deterministic() {
         let json = r#"{"kind":"monster","body":"wyrm","seed":7,"class":"elemental"}"#;
+        let a = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
+        let b = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn boss_is_deterministic() {
+        let json = r#"{"kind":"boss","archetype":"hydra","element":"infernal","seed":3}"#;
         let a = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
         let b = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
         assert_eq!(a, b);

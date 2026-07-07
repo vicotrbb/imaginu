@@ -804,7 +804,8 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic | necrotic | in
  //   "palette" is set explicitly
  // size (alias "bulk"): overall scale (default LARGE per archetype)
  // phases: number of baked phase metadata blocks (clamped 1..=4)
- // phase: optional single-phase geometry selector (build just that phase)
+ // phase: reserved, not yet implemented (per-phase geometry regeneration
+ //   is deferred; ignored today)
  // weak_points: bake destructible weak-point colliders (default true)
  // armor/plates/crown/regalia: 0..1 escalation knobs; -1 = archetype default
  // reused knobs 0..1 (-1 = plan/class default, 0 disables): horns, spikes,

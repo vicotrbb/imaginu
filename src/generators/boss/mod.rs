@@ -128,6 +128,9 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
             if eye_glow { 0.02 } else { 0.0 },
         )
     } else {
+        // Currently unreachable: all 5 archetypes take a dark-base branch
+        // above. Kept as a deliberate default/guard for future archetypes
+        // that don't yet have a dark-base branch of their own.
         (e, e.max(if eye_glow { 0.12 } else { 0.0 }))
     };
     // Necrotic green reads visually "loud"/glowing even at a moderate raw
@@ -179,7 +182,13 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     // low sprawling torso + reared necks; the colossus is a biped, so it maps
     // to BipedBrute. Tasks 8-10 pick plans for the remaining archetypes.
     let plan = collider_plan(p.archetype);
-    let phys = body::fit_collider(&br.rig, p.size, plan);
+    let mut phys = body::fit_collider(&br.rig, p.size, plan);
+    // `fit_collider` clamps size to 4.0 (the monster range), so bosses sized
+    // above 4.0 (boss geometry goes up to 8.0) would saturate at the size-4
+    // mass. Override with a mass scaled to the boss's true size, using the
+    // same 55.0 * s^3 relationship, clamped to the boss size range instead.
+    let boss_s = p.size.clamp(0.2, 8.0);
+    phys.mass = 55.0 * boss_s * boss_s * boss_s;
 
     let animations = if p.animate {
         anim::build_boss_clips(&br.rig, p)
