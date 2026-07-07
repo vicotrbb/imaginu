@@ -2604,4 +2604,91 @@ mod tests {
         assert!(m.positions.iter().any(|v| v.x > r * 0.90));
         assert!(m.positions.iter().any(|v| v.x < -r * 0.90));
     }
+
+    /// Regression test for the googly-eye fix (2d21713 + 37f7815): irises
+    /// must sit on the eye's forward gaze axis (not offset sideways), and
+    /// the eyeball must stay recessed behind the socket (not bulge past the
+    /// lid). Both properties are pinned geometrically against `face()`'s
+    /// actual output so a future edit that reintroduces either bug fails
+    /// this test.
+    #[test]
+    fn face_eyes_iris_on_gaze_axis_and_recessed() {
+        let c = Vec3::ZERO;
+        let r = 0.12_f32; // typical head_r scale
+        let w = Wardrobe {
+            skin: srgb(236, 188, 152),
+            hair: srgb(48, 36, 30),
+            shirt: srgb(120, 124, 134),
+            pants: srgb(90, 90, 96),
+            boots: srgb(60, 50, 44),
+            accent: srgb(150, 60, 40),
+        };
+        let m = face(c, r, &w, false);
+
+        let iris_color = srgb(48, 40, 36);
+        let white = srgb(245, 243, 238);
+        let eye_r = r * 0.135;
+
+        for sx in [-1.0f32, 1.0] {
+            let socket_c = c + Vec3::new(sx * r * 0.34, r * 0.10, r * 0.92);
+            let ec = socket_c - Vec3::new(0.0, 0.0, r * 0.09);
+            let gaze = Vec3::new(sx * 0.10, -0.02, 1.0).normalize();
+
+            // (a) iris vertices for this eye: same color, on this eye's side.
+            let iris_verts: Vec<Vec3> = m
+                .positions
+                .iter()
+                .zip(m.colors.iter())
+                .filter(|(p, col)| (**col - iris_color).length() < 1e-4 && (p.x - c.x) * sx > 0.0)
+                .map(|(p, _)| *p)
+                .collect();
+            assert!(
+                !iris_verts.is_empty(),
+                "expected iris vertices on side sx={sx}"
+            );
+            let centroid = iris_verts.iter().copied().sum::<Vec3>() / iris_verts.len() as f32;
+            // Perpendicular distance from the centroid to the gaze axis
+            // through `ec` must be small: irises sit ON the axis, not
+            // offset sideways like the pre-fix googly-eye bug.
+            let to_centroid = centroid - ec;
+            let along = to_centroid.dot(gaze);
+            let perp = (to_centroid - gaze * along).length();
+            assert!(
+                perp < eye_r * 0.25,
+                "iris centroid off gaze axis on side sx={sx}: perp={perp}, eye_r={eye_r}"
+            );
+            // Sanity: centroid should be roughly one eye radius out along
+            // the gaze axis (where the iris disc is placed), not at the
+            // eyeball center or wildly beyond it.
+            assert!(
+                (0.5 * eye_r..1.5 * eye_r).contains(&along),
+                "iris centroid not on expected forward offset: along={along}, eye_r={eye_r}"
+            );
+
+            // (b) eyeball recess: no white eyeball vertex on this side may
+            // protrude past the socket's forward extent (would bulge
+            // through the lid, the pre-fix "googly eye" symptom).
+            let socket_front_z = socket_c.z;
+            let max_eyeball_z = m
+                .positions
+                .iter()
+                .zip(m.colors.iter())
+                .filter(|(p, col)| (**col - white).length() < 1e-4 && (p.x - c.x) * sx > 0.0)
+                .map(|(p, _)| p.z)
+                .fold(f32::MIN, f32::max);
+            assert!(
+                max_eyeball_z > f32::MIN,
+                "expected eyeball vertices on side sx={sx}"
+            );
+            // Recessed eyeballs still poke slightly past the socket plane
+            // (the socket itself is a shallow dent), but nowhere near a
+            // full eye radius. The pre-fix bug centered the eyeball ON the
+            // socket plane (no recess offset), which would protrude a full
+            // `eye_r` forward of `socket_front_z`; require well under that.
+            assert!(
+                max_eyeball_z <= socket_front_z + eye_r * 0.5,
+                "eyeball bulges past socket front on side sx={sx}: max_eyeball_z={max_eyeball_z}, socket_front_z={socket_front_z}, eye_r={eye_r}"
+            );
+        }
+    }
 }
