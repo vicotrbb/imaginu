@@ -782,23 +782,36 @@ fn cloth_shell(
     // flared skirt cone hugging both legs together, instead of the offset
     // surface bifurcating into two separate leg tubes. Arms are excluded —
     // sleeves are separate parts.
-    let k_cloth = h * 0.050;
+    // trunk (pelvis+torso) keeps roughly the body's own tight blend so the
+    // waist taper survives into the cloth reference surface — the earlier
+    // single wide-k fuse (h*0.05 across everything) smoothed the pelvis/
+    // torso pinch away entirely, reading as a shapeless tent. Legs still
+    // get a wider blend than the body uses so a below-hip hem reads as one
+    // flared skirt cone instead of bifurcating into two leg tubes.
+    let k_trunk = h * 0.050;
+    let k_legs = h * 0.048;
     let cloth_body = move |p: Vec3| -> f32 {
-        let mut d = f32::INFINITY;
+        let mut trunk = f32::INFINITY;
+        let mut legs = f32::INFINITY;
         for (f, _, s) in parts {
-            if matches!(f, Fam::ArmL | Fam::ArmR) {
-                continue;
+            match f {
+                Fam::ArmL | Fam::ArmR => continue,
+                Fam::LegL | Fam::LegR => legs = crate::sdf::smin(legs, s.eval(p), k_legs),
+                _ => trunk = crate::sdf::smin(trunk, s.eval(p), k_trunk),
             }
-            d = crate::sdf::smin(d, s.eval(p), k_cloth);
         }
-        d
+        crate::sdf::smin(trunk, legs, k_legs)
     };
     let span = (y1 - y0).max(1e-4);
     let cloth = |p: Vec3| -> f32 {
         let t = ((y1 - p.y) / span).clamp(0.0, 1.0); // 0 at top, 1 at hem
-        let flare = h * 0.010 + h * 0.055 * t * t * flare_amt; // hem swings out
+        // hug the body through chest/waist; flare is confined to roughly
+        // the lower 35-40% toward the hem so the waist taper reads through
+        // the cloth instead of the whole garment reading as a bell/tent
+        let flare_t = ((t - 0.60) / 0.40).clamp(0.0, 1.0);
+        let flare = h * 0.006 + h * 0.075 * flare_t * flare_t * flare_amt;
         let ang = p.z.atan2(p.x);
-        let folds = h * 0.012 * t * (ang * fold_n as f32).sin();
+        let folds = h * 0.010 * t * (ang * fold_n as f32).sin();
         cloth_body(p) - (thickness + flare + folds)
     };
     let color_fn = |_p: Vec3| color;
@@ -806,7 +819,7 @@ fn cloth_shell(
     // coarser than the body's own mesh_field cell — cloth is a large, low-
     // frequency surface, so a fine grid just burns poly budget without
     // adding visible detail
-    let cell = (h * 0.0105 / det).min(h * 0.014);
+    let cell = (h * 0.0115 / det).min(h * 0.0155);
     let margin = h * 0.03;
     let lo = Vec3::new(-sw - h * 0.11, y0 - margin, -h * 0.17 * bulk - h * 0.04);
     let hi = Vec3::new(sw + h * 0.11, y1 + margin, h * 0.17 * bulk + h * 0.04);
@@ -1498,7 +1511,21 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     let rig = build_rig(h, sw);
     let mut w = wardrobe(&mut r, pal, p.class, p.skin_tone);
     let jw = |i: usize| rig.world[i];
-    let dressed = p.outfit.as_deref().is_some_and(|s| s != "plain");
+    // classes that read visually "undressed" without their signature
+    // garment get a default outfit style when the recipe doesn't specify
+    // one explicitly; other classes keep the pre-existing legacy behavior
+    // (no outfit field => no draped shell) to avoid touching their poly
+    // budgets/silhouettes.
+    let default_outfit = match p.class {
+        CharacterClass::Mage => Some("robe"),
+        CharacterClass::Villager => Some("tunic"),
+        _ => None,
+    };
+    let dressed = match p.outfit.as_deref() {
+        Some("plain") => false,
+        Some(_) => true,
+        None => default_outfit.is_some(),
+    };
     if let Some(hc) = &p.hair_color
         && let Ok(c) = crate::palette::hex(hc)
     {
@@ -2033,7 +2060,12 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
             fold_n,
             flare_amt,
         };
-        parts.extend(outfit_parts(&ctx, p.outfit.as_deref().unwrap_or("robe")));
+        parts.extend(outfit_parts(
+            &ctx,
+            p.outfit
+                .as_deref()
+                .unwrap_or(default_outfit.unwrap_or("robe")),
+        ));
     }
 
     Asset {
@@ -2185,7 +2217,10 @@ fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
         h * 0.165
     };
     let _ = hem_rx; // superseded by the offset-shell hem flare below
-    let under_top = jw(CHEST).y + h * 0.02;
+    // collar sits at the collarbone (just below NECK), not mid-chest — the
+    // previous CHEST+0.02 value landed well below the shoulder joint,
+    // reading as a neckline that had slid off the deltoid down to the ribs
+    let under_top = jw(NECK).y - h * 0.020;
     let under = cloth_shell(
         ctx.rig,
         ctx.body_parts,
@@ -2196,7 +2231,7 @@ fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
         ctx.chest_y,
         hem_y,
         under_top,
-        h * 0.024, // shell thickness floor: keep clear of the body at any pose
+        h * 0.054, // shell thickness floor: keep clear of the body at any pose
         ctx.fold_n,
         ctx.flare_amt,
         ground,

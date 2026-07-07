@@ -952,12 +952,33 @@ mod tests {
         // deterministic incl. baked garment paint
         let b = Recipe::parse(j).unwrap().build().unwrap();
         assert_eq!(crate::gltf::to_glb(&a), crate::gltf::to_glb(&b));
-        // plain = body + painted-face head only
-        let p = Recipe::parse(r#"{"kind":"character","seed":9}"#)
+        // plain = body + painted-face head only (warrior/rogue have no
+        // signature garment, so they stay undressed without an explicit
+        // "outfit" field; villager/mage now default-dress into their
+        // signature tunic/robe so their default drape is visible without
+        // requiring recipe authors to pass "outfit" explicitly — see
+        // `default_outfit` in generators::character::generate)
+        let p = Recipe::parse(r#"{"kind":"character","class":"warrior","seed":9}"#)
             .unwrap()
             .build()
             .unwrap();
         assert_eq!(p.parts.len(), 2);
+        // villager's default class-signature outfit (tunic) is on by
+        // default now — no explicit "outfit" field needed
+        let v = Recipe::parse(r#"{"kind":"character","seed":9}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        assert!(
+            v.parts.len() > 2,
+            "villager should default-dress in a tunic"
+        );
+        // "plain" still opts back out explicitly
+        let plain = Recipe::parse(r#"{"kind":"character","seed":9,"outfit":"plain"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_eq!(plain.parts.len(), 2);
     }
 
     #[test]
