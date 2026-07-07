@@ -127,7 +127,10 @@ Each of these is one line of JSON. Full field reference: `imaginu schema`.
 | `{"kind":"crystal","palette":"mystic"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/crystal.png" width="180"> |
 | `{"kind":"character","class":"mage"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/char_hedge_mage.png" width="180"> |
 | `{"kind":"monster","body":"wyrm","class":"elemental"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/fire_wyrm.png" width="180"> |
+| `{"kind":"monster","body":"arachnid","palette":"necrotic","eyes":6}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/cave_spider.png" width="180"> |
+| `{"kind":"monster","body":"aberration","class":"aberration"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/void_horror.png" width="180"> |
 | `{"kind":"dungeon","type":"crypt","size":"medium"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/crypt.png" width="180"> |
+| `{"kind":"dungeon","type":"cavern","size":"medium"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/cavern.png" width="180"> |
 | `{"kind":"prop","prop":"barrel"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/barrel.png" width="180"> |
 
 Whole worlds, too - Voronoi biome zones, traced rivers, A\*-routed roads, and a

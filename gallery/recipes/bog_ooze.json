@@ -1,0 +1,8 @@
+{
+ "kind": "monster",
+ "body": "ooze",
+ "palette": "fungal",
+ "emissive": 0.6,
+ "size": 1.2,
+ "seed": 2
+}

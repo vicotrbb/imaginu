@@ -669,7 +669,8 @@ fn build_dungeon(
 
 const SCHEMA_HELP: &str = r##"imaginu recipe cheat-sheet (JSON, all fields except "kind" optional):
 
-palettes: verdant | autumn | arctic | volcanic | desert | mystic
+palettes: verdant | autumn | arctic | volcanic | desert | mystic | necrotic | infernal | fungal
+  (necrotic/infernal/fungal carry emissive accents for undead/fire/cavern reads)
 
 {"kind":"terrain","palette":"verdant","seed":1,"size":48,"resolution":110,
  "mountainousness":1.0,"water_level":0.28,"scatter":true,"scatter_density":1.0,
