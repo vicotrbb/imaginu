@@ -90,6 +90,18 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     // eyes (`PrimTint::Eye`, already unconditional full accent), body base
     // darkened (see `body_pal`) so those glow points POP against contrast.
     let dragon_lord = matches!(p.archetype, crate::recipe::BossArchetype::DragonLord);
+    // The hydra is the gallery's marquee boss and is infernal-only (never
+    // element-switched), which hits the exact same same-hue problem as the
+    // dragon-lord's icy blues: the infernal base palette's warm oranges/reds
+    // and the orange accent glow share a hue family, so the ORIGINAL
+    // undecoupled `(e, e.max(...))` fallback below painted roughly half the
+    // body vertices full bright accent — a uniform candy-orange hydra instead
+    // of a dark charcoal-basalt beast with glowing lava eyes/cracks. Same
+    // dark-base treatment as the other three gallery bosses: glow
+    // concentrated at the eyes (`PrimTint::Eye`, already unconditional full
+    // accent) and sparse crack speckle, body base darkened (see `body_pal`)
+    // so those glow points POP against contrast.
+    let hydra = matches!(p.archetype, crate::recipe::BossArchetype::Hydra);
     let (body_accent, emissive) = if colossus {
         (
             (e * 0.12).clamp(0.03, 0.07),
@@ -110,7 +122,7 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
             (e * 0.04).clamp(0.008, 0.02),
             if eye_glow { 0.02 } else { 0.0 },
         )
-    } else if swarm_queen {
+    } else if swarm_queen || hydra {
         (
             (e * 0.04).clamp(0.008, 0.02),
             if eye_glow { 0.02 } else { 0.0 },
@@ -128,12 +140,14 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     // genuinely near-black instead of "toxic green wash" — the glow stays
     // exactly as bright since `accent` (the phylactery/eyes/crown/implement
     // color) is untouched.
-    let body_pal = if lich || swarm_queen || dragon_lord {
+    let body_pal = if lich || swarm_queen || dragon_lord || hydra {
         let mut dp = *pal;
-        // The dragon-lord gets a MILDER dim than the lich/swarm-queen's
+        // The dragon-lord gets a MILDER dim than the lich/swarm-queen/hydra's
         // near-black 0.2: the brief calls for a darker SLATE-BLUE body (icy
         // scales, not a void), just dark enough that the glowing frost heart
-        // and eyes clearly pop.
+        // and eyes clearly pop. The hydra keeps the near-black 0.2 dim: it
+        // needs a dark charcoal-basalt body (not a mere dim orange) so the
+        // glowing lava eyes/cracks read as clearly separate from the base.
         let dim = if dragon_lord { 0.3 } else { 0.2 };
         for t in &mut dp.terrain {
             *t *= dim;
