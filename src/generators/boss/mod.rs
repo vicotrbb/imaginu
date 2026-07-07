@@ -2,30 +2,63 @@
 //! built by escalating the monster rig/body/skin/anim pipeline. See
 //! docs/superpowers/specs/2026-07-06-phase7-bosses-design.md.
 
+use crate::generators::monster::body;
 use crate::gltf::{Asset, Material, Part};
 use crate::palette::Palette;
 use crate::recipe::BossParams;
 
 pub mod meta;
+mod preset;
+mod rig;
 
-/// STUB (Task 2): returns a trivial single-sphere asset so recipe dispatch is
-/// testable before archetype geometry lands (Task 4+). Replaced in Task 4.
-pub fn generate(_p: &BossParams, pal: &Palette) -> Asset {
-    let mesh = crate::mesh::icosphere(0.5, 1, pal.accent);
+use meta::BossMeta;
+
+/// Real boss pipeline: archetype preset -> rig plan -> shared organic
+/// body/skin pass -> collider fit -> (clips in Task 6) -> `BossMeta`
+/// assembly (weak points, destructible parts, arena sizing).
+pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
+    let mut owned = p.clone();
+    preset::apply_archetype_preset(&mut owned);
+    let p = &owned;
+
+    let br = rig::build_boss_rig(p);
+    let emissive = p.emissive.clamp(0.0, 1.0).max(0.0);
+    let mut mesh = body::build_body(&br.rig, p.size, p.detail, p.seed, emissive, pal);
+    crate::generators::monster::skin_body(&mut mesh, &br.rig);
+    mesh.validate().expect("boss mesh invalid");
+    // Whole-body collider reuses the monster fit; boss body plan approximated
+    // by the closest monster BodyPlan for the collider shape. Serpent (a
+    // capsule along the long axis) is the right approximation for the hydra's
+    // low sprawling torso + reared necks; Tasks 7-10 pick per-archetype plans.
+    let phys = body::fit_collider(&br.rig, p.size, crate::recipe::BodyPlan::Serpent);
+
+    // Clip driver lands in Task 6; no procedural clips yet.
+    let animations = Vec::new();
+
+    let mut bm = BossMeta::new(
+        format!("{:?}", p.archetype).to_lowercase(),
+        format!("{:?}", p.element).to_lowercase(),
+    );
+    bm.weak_points = br.weak_points;
+    bm.parts = br.parts;
+    bm.arena.recommended_radius = (p.size * 2.7).max(4.0);
+    // phases filled in Task 6 (clip-linked); leave empty for now.
+
     Asset {
         name: "boss".into(),
         parts: vec![Part {
             mesh,
             material: Material {
-                emissive: pal.accent * 0.3,
+                roughness: 0.7,
+                emissive: pal.accent * emissive * 0.6,
                 ..Default::default()
             },
         }],
-        skeleton: None,
-        animations: Vec::new(),
-        physics: None,
+        skeleton: Some(br.rig.skeleton),
+        animations,
+        physics: Some(phys),
+        boss: Some(bm),
         lods: Vec::new(),
         instanced: Vec::new(),
-        boss: None,
     }
 }
