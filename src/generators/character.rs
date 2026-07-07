@@ -227,8 +227,11 @@ fn organic_body(
     let leg_r = pr.leg_r;
     // build/frame deltas relative to the Average/Neutral baseline, so the
     // default silhouette is unchanged and only non-default combos shift it.
-    let waist_k = pr.waist / 0.82;
-    let hip_k = pr.hip_w / (h * 0.095);
+    // Baseline is derived from the same Proportions formulas (single
+    // source of truth) rather than retyped constants.
+    let baseline = Proportions::baseline(h, bulk);
+    let waist_k = pr.waist / baseline.waist;
+    let hip_k = pr.hip_w / baseline.hip_w;
 
     #[derive(Clone, Copy, PartialEq)]
     enum Fam {
@@ -1093,9 +1096,13 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     let seg = |n: f32| ((n * det).round() as u32).max(6);
     let pr = Proportions::derive(h, bulk, p.build, p.frame);
     // frame's shoulder multiplier, isolated from Proportions::shoulder_w so
-    // the Average/Neutral default silhouette matches v0.3.0 exactly.
-    let shoulder_k = pr.shoulder_w / (h * 0.118 * (0.9 + 0.1 * bulk));
+    // the Average/Neutral default silhouette matches v0.3.0 exactly. Baseline
+    // comes from Proportions::baseline (single source of truth), not a
+    // retyped copy of the derive() formula.
+    let shoulder_k = pr.shoulder_w / Proportions::baseline(h, bulk).shoulder_w;
     let sw = h * 0.135 * bulk * shoulder_k;
+    // build_rig takes the derived `sw` scalar rather than `&Proportions`
+    // (deliberate deviation from the plan's wording).
     let rig = build_rig(h, sw);
     let mut w = wardrobe(&mut r, pal, p.class, p.skin_tone);
     let jw = |i: usize| rig.world[i];

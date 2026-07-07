@@ -76,6 +76,13 @@ impl Proportions {
             torso_lean: 0.008 * height,
         }
     }
+
+    /// Average-build, Neutral-frame baseline for the given height/bulk.
+    /// Used by callers that need a reference to compute deviation
+    /// (k-factor) scalars against, without retyping the derive() formulas.
+    pub fn baseline(height: f32, bulk: f32) -> Self {
+        Self::derive(height, bulk, Build::Average, Frame::Neutral)
+    }
 }
 
 #[cfg(test)]
@@ -107,5 +114,11 @@ mod tests {
         let h = Proportions::derive(1.7, 1.0, Build::Heavy, Frame::Neutral);
         assert!(s.arm_r < a.arm_r && a.arm_r < h.arm_r);
         assert!(s.leg_r < a.leg_r && a.leg_r < h.leg_r);
+    }
+    #[test]
+    fn baseline_matches_average_neutral_derive() {
+        let baseline = Proportions::baseline(1.7, 1.0);
+        let derived = Proportions::derive(1.7, 1.0, Build::Average, Frame::Neutral);
+        assert_eq!(baseline, derived);
     }
 }
