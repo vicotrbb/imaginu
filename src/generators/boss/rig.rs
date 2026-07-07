@@ -88,27 +88,31 @@ fn plan_hydra(p: &BossParams) -> BossRig {
     let mut head_joints = Vec::new();
     for i in 0..nheads {
         let f = (i as f32 / (nheads - 1) as f32 - 0.5) * 2.0; // -1..1 fan
-        let rise = 1.0 - 0.28 * f.abs(); // center necks rear highest
-        // sinuous S: base leans back, then sweeps up + forward to the head.
+        let rise = 1.0 - 0.22 * f.abs(); // center necks rear highest
+        // A hydra REARS its necks UP, not out: each neck is a tall S rising
+        // well above the torso (like plan_serpent's reared front third, x5).
+        // Horizontal spread is kept NARROW (heads sit high above the body, not
+        // splayed out to the sides at torso height); the S leans back low then
+        // sweeps up + forward so the heads crown forward at the top.
         let b = r.joint(
             Some(core),
             &format!("neck{i}_0"),
-            v(f * 0.85 * s, 1.15 * s, 0.55 * s),
+            v(f * 0.45 * s, 1.25 * s, 0.5 * s),
         );
         let m1 = r.joint(
             Some(b),
             &format!("neck{i}_1"),
-            v(f * 1.5 * s, (1.75 * rise) * s, 0.45 * s),
+            v(f * 0.62 * s, (2.05 * rise) * s, 0.32 * s),
         );
         let m2 = r.joint(
             Some(m1),
             &format!("neck{i}_2"),
-            v(f * 1.9 * s, (2.45 * rise) * s, 0.95 * s),
+            v(f * 0.82 * s, (2.85 * rise) * s, 0.66 * s),
         );
         let head = r.joint(
             Some(m2),
             &format!("neck{i}_head"),
-            v(f * 2.05 * s, (2.75 * rise) * s, 1.6 * s),
+            v(f * 0.95 * s, (3.25 * rise) * s, 1.02 * s),
         );
         r.cone(b, m1, 0.15 * s, 0.12 * s, 2, 0.05 * s);
         r.cone(m1, m2, 0.12 * s, 0.1 * s, 2, 0.045 * s);
@@ -171,88 +175,97 @@ fn add_head_features(rig: &mut MonsterRig, head: usize, s: f32) {
 
     // cranium wedge: broad at the back (the neck-tip), tapering forward-down to
     // a snout. An explicit-radii ellipsoid gives a defined skull block.
-    let snout = add_joint(rig, head, "snout", hp + v(0.0, -0.05 * s, 0.34 * s));
+    let snout = add_joint(rig, head, "snout", hp + v(0.0, -0.06 * s, 0.36 * s));
     push_flat(
         rig,
         head,
         snout,
-        v(0.17 * s, 0.16 * s, 0.3 * s),
+        v(0.16 * s, 0.15 * s, 0.32 * s),
         3,
         0.05 * s,
         PrimTint::Body,
     );
-    // underslung lower jaw = a maw jutting forward-down under the cranium.
-    let jaw = add_joint(rig, head, "jaw", hp + v(0.0, -0.16 * s, 0.24 * s));
+    // underslung lower jaw = a maw jutting forward-down under the cranium,
+    // dropped enough to leave a defined mouth line between it and the snout.
+    let jaw = add_joint(rig, head, "jaw", hp + v(0.0, -0.19 * s, 0.3 * s));
     push_cone(
         rig,
         head,
         jaw,
-        0.13 * s,
-        0.06 * s,
+        0.12 * s,
+        0.05 * s,
         3,
-        0.04 * s,
+        0.035 * s,
         PrimTint::Body,
     );
 
-    // two glowing infernal eyes on the sides of the cranium, facing forward.
+    // two BIG glowing infernal eyes set forward on the snout — the head's most
+    // readable feature, so make them prominent (they read as the eyes against
+    // the dark hide). Own rank-4 family, crisp.
     for side in [-1.0f32, 1.0] {
         let eb = add_joint(
             rig,
             head,
             "eye",
-            hp + v(side * 0.13 * s, 0.06 * s, 0.13 * s),
+            hp + v(side * 0.12 * s, 0.05 * s, 0.18 * s),
         );
         let eo = add_joint(
             rig,
             eb,
             "eye_out",
-            hp + v(side * 0.15 * s, 0.06 * s, 0.16 * s),
+            hp + v(side * 0.14 * s, 0.05 * s, 0.21 * s),
         );
         push_cone(
             rig,
             eb,
             eo,
-            0.055 * s,
-            0.035 * s,
+            0.075 * s,
+            0.05 * s,
             4,
             0.006 * s,
             PrimTint::Eye,
         );
     }
 
-    // back-swept horns curving up and rearward off the crown.
+    // small, tight, strongly BACK-SWEPT horns hugging the crown (not tall
+    // upright rabbit-ears): low Y gain, mostly rearward Z so they streak back.
     for side in [-1.0f32, 1.0] {
-        let hb = add_joint(rig, head, "horn", hp + v(side * 0.09 * s, 0.11 * s, 0.0));
+        let hb = add_joint(
+            rig,
+            head,
+            "horn",
+            hp + v(side * 0.08 * s, 0.08 * s, -0.02 * s),
+        );
         let hm = add_joint(
             rig,
             hb,
             "horn_mid",
-            hp + v(side * 0.13 * s, 0.26 * s, -0.14 * s),
+            hp + v(side * 0.1 * s, 0.14 * s, -0.16 * s),
         );
         let ht = add_joint(
             rig,
             hm,
             "horn_tip",
-            hp + v(side * 0.14 * s, 0.36 * s, -0.3 * s),
+            hp + v(side * 0.1 * s, 0.16 * s, -0.32 * s),
         );
         push_cone(
             rig,
             hb,
             hm,
-            0.05 * s,
-            0.03 * s,
+            0.038 * s,
+            0.022 * s,
             5,
-            0.015 * s,
+            0.012 * s,
             PrimTint::Horn,
         );
         push_cone(
             rig,
             hm,
             ht,
-            0.03 * s,
-            0.008 * s,
+            0.022 * s,
+            0.006 * s,
             5,
-            0.012 * s,
+            0.01 * s,
             PrimTint::Horn,
         );
     }

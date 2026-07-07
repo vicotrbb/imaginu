@@ -25,6 +25,13 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     // Eyes must glow regardless of the emissive knob: floor the emission
     // whenever the rig carries eye primitives (same rule as monster generate),
     // so the default sentinel emissive still lights up an infernal hydra.
+    // A LOW floor (0.12) is deliberate: this value both (a) sets the fraction
+    // of body vertices painted full accent (`build_body`) and (b) scales the
+    // flat material emissive the renderer adds everywhere. A high floor washes
+    // the whole body bright accent and flattens its shading (candy/coral); a
+    // low floor keeps the body dark with sparse glowing crack accents and lets
+    // the rounded form read — dark scales + glowing lava eyes, high value
+    // contrast (matching how fire_wyrm reads dark-with-glow).
     let eye_glow = br
         .rig
         .prims
@@ -33,7 +40,7 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     let emissive = p
         .emissive
         .clamp(0.0, 1.0)
-        .max(if eye_glow { 0.3 } else { 0.0 });
+        .max(if eye_glow { 0.12 } else { 0.0 });
     let mut mesh = body::build_body(&br.rig, p.size, p.detail, p.seed, emissive, pal);
     crate::generators::monster::skin_body(&mut mesh, &br.rig);
     mesh.validate().expect("boss mesh invalid");
