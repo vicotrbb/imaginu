@@ -6,6 +6,42 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-07
+
+Premium stylized humanoids: a proportion canon, anatomical body detail, sculpted
+heads, and real hands for the `character` recipe. Determinism holds
+byte-for-byte for every non-character recipe; character GLB hashes change
+because the body/head/hand geometry changed. A draping cloth-shell garment
+system was explored but deferred - garments keep the v0.3.0 construction for
+now (see `docs/superpowers/specs/2026-07-07-premium-stylized-humanoids-design.md`).
+
+### Added
+
+- **Proportion canon.** `Proportions::derive(height, bulk, build, frame)` is
+  now the single source of truth for body measurements. New, optional
+  `CharacterParams` fields `build` (`slim | average | heavy | heroic`) and
+  `frame` (`masculine | feminine | neutral`) scale limb/torso radii and
+  hip/shoulder width ratio; both default to `average`/`neutral`, which is
+  algebraically identical to the prior hard-coded constants, so existing
+  recipes render unchanged unless they opt in.
+- **Anatomical body landmarks + higher resolution.** The body SDF field is
+  sampled at higher resolution with anatomical landmarks (clavicle, waist,
+  hip, knee, ankle) driving the silhouette, instead of a handful of coarse
+  round-cones.
+- **Sculpted SDF heads with geometry eyes.** Heads are sculpted (brow ridge,
+  cheekbones, jaw, chin) with real geometry eyes (recessed sockets, centered
+  irises), ears, and nose, replacing the earlier flat-shaded primitive head.
+- **Four-finger hands with staff grip.** Hands are built from four
+  individually posed fingers plus a thumb instead of a single mitten shape,
+  and characters holding a `staff` accessory now grip it with a closed hand.
+
+### Changed
+
+- Default-detail character triangle count is now ~2.1x the v0.3.0 baseline
+  (47,892 vs 22,180 for a representative recipe), well inside the 3x poly
+  budget for this phase.
+- `imaginu schema` cheat-sheet documents the new `build`/`frame` params.
+
 ## [0.3.0] - 2026-07-07
 
 A new first-class recipe kind - **boss** - for multi-phase encounter creatures,
@@ -105,6 +141,7 @@ landed across the project's five development phases and is available in `0.1.0`.
   `imaginu::Error`; the public boundary returns `Result` instead of panicking
   on malformed or hostile recipe JSON.
 
-[Unreleased]: https://github.com/vicotrbb/imaginu/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/vicotrbb/imaginu/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/vicotrbb/imaginu/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/vicotrbb/imaginu/compare/v0.2.0...v0.3.0
 [0.1.0]: https://github.com/vicotrbb/imaginu/releases/tag/v0.1.0

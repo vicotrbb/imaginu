@@ -67,8 +67,11 @@ different variation of the same recipe.
 ### Characters, animation, and worlds
 
 ```sh
-# A rigged character with 8 clips (idle/walk/run/attack/sit/wave/death/dance):
-imaginu generate '{"kind":"character","class":"warrior","animate":true}' -o hero.glb --preview
+# A rigged character with 8 clips (idle/walk/run/attack/sit/wave/death/dance).
+# `build` (slim/average/heavy/heroic) and `frame` (masculine/feminine/neutral)
+# are optional proportion knobs - both default to average/neutral, which is
+# identical to omitting them:
+imaginu generate '{"kind":"character","class":"warrior","build":"heavy","frame":"masculine","animate":true}' -o hero.glb --preview
 
 # Look at a specific animation pose (4 phases, or one --at time):
 imaginu render '{"kind":"character","class":"mage","animate":true}' --animation walk -o frames/

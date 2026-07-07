@@ -91,8 +91,8 @@ imaginu generate '{"kind":"tree","style":"oak"}' -o tree.glb --preview
 # The whole recipe contract, any time:
 imaginu schema
 
-# A rigged, animated character:
-imaginu generate '{"kind":"character","class":"warrior","animate":true}' -o hero.glb
+# A rigged, animated character (build: slim|average|heavy|heroic, frame: masculine|feminine|neutral):
+imaginu generate '{"kind":"character","class":"warrior","build":"heavy","animate":true}' -o hero.glb
 
 # A rigged, animated monster (8 body plans + class presets):
 imaginu generate '{"kind":"monster","body":"wyrm","class":"elemental"}' -o wyrm.glb
