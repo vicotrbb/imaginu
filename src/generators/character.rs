@@ -893,26 +893,37 @@ fn face(c: Vec3, r: f32, w: &Wardrobe, expressions: bool) -> Mesh {
     for sx in [-1.0f32, 1.0] {
         let socket_c = c + Vec3::new(sx * r * 0.34, r * 0.10, r * 0.92);
         // eyeball sits recessed inside the socket, not proud on the surface
-        let ec = socket_c - Vec3::new(0.0, 0.0, r * 0.06);
-        let mut eye = icosphere(r * 0.14, 2, white);
+        let ec = socket_c - Vec3::new(0.0, 0.0, r * 0.09);
+        let eye_r = r * 0.135;
+        let mut eye = icosphere(eye_r, 2, white);
         eye.recompute_smooth_normals();
         eye.translate(ec);
-        let mut pupil = icosphere(r * 0.06, 1, iris);
+        // iris + pupil discs centered on the eyeball's forward axis
+        // (+Z with a slight outward divergence) so they read straight-on.
+        let gaze = Vec3::new(sx * 0.10, -0.02, 1.0).normalize();
+        let mut iris_disc = icosphere(r * 0.070, 2, iris);
+        for v in iris_disc.positions.iter_mut() {
+            v.z *= 0.35;
+        }
+        iris_disc.recompute_smooth_normals();
+        iris_disc.translate(ec + gaze * (eye_r * 0.97));
+        eye.merge(&iris_disc);
+        let mut pupil = icosphere(r * 0.032, 1, srgb(18, 14, 12));
         for v in pupil.positions.iter_mut() {
-            v.z *= 0.4;
+            v.z *= 0.35;
         }
         pupil.recompute_smooth_normals();
-        pupil.translate(ec + Vec3::new(0.0, 0.0, r * 0.10));
+        pupil.translate(ec + gaze * (eye_r * 1.06));
         eye.merge(&pupil);
         // upper lid: skin-colored half-shell overhanging the eyeball,
         // clipped to keep only the upper cap (v.y > 0 in local space)
-        let mut lid = icosphere(r * 0.15, 2, w.skin);
+        let mut lid = icosphere(r * 0.16, 2, w.skin);
         for v in lid.positions.iter_mut() {
-            v.y = v.y.max(0.0) * 1.06;
-            v.z *= 0.55;
+            v.y = v.y.max(0.0) * 1.05 + 0.001;
+            v.z *= 0.72;
         }
         lid.recompute_smooth_normals();
-        lid.translate(ec + Vec3::new(0.0, r * 0.02, r * 0.02));
+        lid.translate(ec + Vec3::new(0.0, r * 0.015, r * 0.01));
         eye.merge(&lid);
         push(eye, &|m: &Mesh| {
             let blink: Vec<Vec3> = m
