@@ -40,7 +40,7 @@ pub(crate) fn eval_prim(d: &PrimitiveDesc, world: &[Vec3], p: Vec3) -> f32 {
 /// with each primitive's own `k` (soft flesh), then bands are merged into the
 /// core with a *tight* cross-band blend so limbs meet the trunk at a crisp
 /// crease instead of a stretchy membrane.
-pub(crate) fn organic_field(rig: &MonsterRig) -> impl Fn(Vec3) -> f32 {
+pub(crate) fn organic_field(rig: &MonsterRig) -> impl Fn(Vec3) -> f32 + use<> {
     let world = rig.world();
     let prims = rig.prims.clone();
     let max_rank = prims.iter().map(|d| d.fold_rank).max().unwrap_or(0);

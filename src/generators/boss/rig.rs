@@ -1196,26 +1196,32 @@ fn plan_swarm_queen(p: &BossParams) -> BossRig {
         destructible: true,
     });
 
-    // 6 legs off the thorax, planted WIDE (own rank-2 family each) — the web
-    // risk with six legs sharing one broad thorax, so bases spread wide and
-    // feet splay further still.
+    // 6 legs off the thorax (own rank-2 family each) — the web risk with six
+    // legs sharing one broad thorax, so bases spread wide and feet splay
+    // further still. STURDY and planted WIDE in a bracing, grounded stance:
+    // the three leg pairs fan front / mid / rear around the thorax (a wide
+    // spread of z anchors, not bunched at the front) and the feet plant far
+    // out to the sides so a heavy brood-mother grounds her mass, not a
+    // dangling bug.
     let mut legs = Vec::new();
     for side in [-1.0f32, 1.0] {
         for kk in 0..3 {
-            let zc = 0.55 * s - kk as f32 * 0.5 * s;
-            let root = r.joint(Some(thorax), "coxa", v(side * 0.38 * s, 0.85 * s, zc));
+            // front(+0.6) / mid(0.0) / rear(-0.7) anchors: a wide fan around
+            // the thorax so the six legs brace the body from three stations.
+            let zc = 0.6 * s - kk as f32 * 0.65 * s;
+            // splay the front pair forward and the rear pair back at the foot
+            // so the stance reads spread front-to-back, not a tight bunch.
+            let foot_z = zc + (1.0 - kk as f32) * 0.45 * s;
+            let root = r.joint(Some(thorax), "coxa", v(side * 0.42 * s, 0.9 * s, zc));
             let knee = r.joint(
                 Some(root),
                 "knee",
-                v(side * 1.0 * s, 1.05 * s, zc + 0.15 * s),
+                v(side * 1.05 * s, 1.15 * s, zc + 0.12 * s),
             );
-            let foot = r.joint(
-                Some(knee),
-                "foot",
-                v(side * 1.4 * s, 0.0, zc + 0.4 * s * (1.0 - kk as f32 * 0.3)),
-            );
-            r.cone(root, knee, 0.12 * s, 0.09 * s, 2, 0.045 * s);
-            r.cone(knee, foot, 0.09 * s, 0.05 * s, 2, 0.045 * s);
+            let foot = r.joint(Some(knee), "foot", v(side * 1.6 * s, 0.0, foot_z));
+            // thicker segments = sturdier bracing limbs, not thin sticks.
+            r.cone(root, knee, 0.17 * s, 0.13 * s, 2, 0.05 * s);
+            r.cone(knee, foot, 0.13 * s, 0.06 * s, 2, 0.05 * s);
             legs.push(vec![root, knee, foot]);
         }
     }
@@ -1237,6 +1243,7 @@ fn plan_swarm_queen(p: &BossParams) -> BossRig {
     add_brood_sacs(
         &mut rig,
         abdomen,
+        abtip,
         s,
         nsacs,
         &mut parts,
@@ -1343,18 +1350,25 @@ fn add_carapace_spikes(rig: &mut MonsterRig, thorax: usize, abdomen: usize, s: f
     }
 }
 
-/// The money detail: `n` glowing brood sacs studded around the abdomen's
-/// girth, biased toward the underside and flanks (a brood-mother's sacs hang
-/// and bulge outward, not poking up through the dorsal spike crest). Each sac
-/// is a `base -> brood_sac.i` joint pair added fresh (never sharing a joint
-/// with any other sac), so `skin_body`'s union-find gives every sac its own
-/// rank-5 skinning family — they pop as distinct glowing pustules and never
-/// fuse to the abdomen or to each other. Named `brood_sac.i` destructible
-/// parts + `weak_point.brood_sac.i` weak points (when enabled).
+/// The money detail: `n` big glowing brood sacs STUDDED across the whole
+/// bulbous abdomen — a bloated egg-sac cluster. Sacs are distributed ALONG
+/// the abdomen's long axis (front girth -> rear tip) and spiralled around
+/// its girth (top / sides / rear, spread by the golden angle so no two
+/// cluster) so several pods read from every viewing angle. Each pod is a
+/// sizable `Eye`-tinted ellipsoid whose center sits just OUTSIDE the
+/// carapace surface so it visibly PROTRUDES/bulges (not a flat embedded
+/// speckle), with a tiny blend `k` so it stays a distinct pustule. Each sac
+/// is a `sac_base -> brood_sac.i` joint pair added fresh (never sharing a
+/// joint with any other sac), fold-ranked LAST (rank 5), so `skin_body`'s
+/// union-find gives every sac its OWN family — they glow, pop, and stay
+/// web-free = the weak points. Named `brood_sac.i` destructible parts +
+/// `weak_point.brood_sac.i` weak points (when enabled). The abdomen itself
+/// stays dark (`Body` tint) so the sacs pop.
 #[allow(clippy::too_many_arguments)]
 fn add_brood_sacs(
     rig: &mut MonsterRig,
     abdomen: usize,
+    abtip: usize,
     s: f32,
     n: usize,
     parts: &mut Vec<PartMeta>,
@@ -1363,32 +1377,49 @@ fn add_brood_sacs(
 ) {
     let v = Vec3::new;
     let ap = rig.joint_world(abdomen);
-    let body_r = 0.66 * s; // approx abdomen radius; sacs bulge well outside it
+    let tp = rig.joint_world(abtip);
+    // long axis of the abdomen mass + an orthonormal girth basis around it.
+    let axis = (tp - ap).normalize_or_zero();
+    let side = axis.cross(Vec3::Y).normalize_or_zero();
+    let up = side.cross(axis).normalize_or_zero();
+    let golden = 2.399_963_2; // golden angle (rad): even, non-clustering spiral
+    // Sample the CURRENT composed field (abdomen/thorax/legs/head, no sacs yet)
+    // so each pod is planted on the ACTUAL blended carapace surface rather than
+    // a hand-estimated radius that the big smooth-min abdomen would swallow.
+    let field = crate::generators::monster::body::organic_field(rig);
     for i in 0..n {
-        let frac = i as f32 / n as f32;
-        let theta = frac * TAU;
-        // a gentle downward/outward bias (sacs hang low+wide, not poking up
-        // through the dorsal spike crest) but spread across the FULL flank
-        // (not just the underside) so several sacs are visible from any
-        // viewing angle, front/side/3-4/back alike.
-        let phi = -0.15 - 0.35 * (theta * 3.0).sin().abs();
-        let dir = v(theta.sin() * phi.cos(), phi.sin(), theta.cos() * phi.cos()).normalize();
-        let base_pos = ap + dir * body_r * 0.75;
-        let tip_pos = ap + dir * body_r * 1.55;
+        // march front->rear along the abdomen (t: 0.12..0.82 keeps sacs on the
+        // fat body, off the thorax junction and off the very tail point).
+        let t = 0.12 + 0.7 * (i as f32 / (n - 1).max(1) as f32);
+        let anchor = ap.lerp(tp, t);
+        // spiral the girth angle so sacs stud top / sides / rear evenly.
+        let theta = i as f32 * golden;
+        let dir = (side * theta.cos() + up * theta.sin()).normalize_or_zero();
+        // ray-march outward from the (interior) anchor along `dir` to find the
+        // carapace surface (field crosses 0), so the pod plants exactly on the
+        // real bulging body wherever the girth actually is.
+        let mut d_surf = 0.1 * s;
+        let step = 0.03 * s;
+        while d_surf < 2.5 * s && field(anchor + dir * d_surf) < 0.0 {
+            d_surf += step;
+        }
+        // pod size tapers slightly toward the narrower rear.
+        let r1 = (0.22 - 0.06 * t) * s;
+        // base sunk just INSIDE the surface (so it fuses, no floating gap);
+        // the ellipsoid CENTER lands ~half a radius OUTSIDE the surface so the
+        // pod clearly PROTRUDES as a bulging pustule, not an embedded speckle.
+        let base_pos = anchor + dir * (d_surf - 0.35 * r1);
+        let tip_pos = anchor + dir * (d_surf + 1.25 * r1);
         let name = format!("brood_sac.{}", i + 1);
         let base = add_joint(rig, abdomen, "sac_base", base_pos);
         let tip = add_joint(rig, base, &name, tip_pos);
-        // BIG relative to the abdomen (a third of its radius) with a small
-        // blend `k` so each sac reads as a distinct bulging pustule breaking
-        // the abdomen's silhouette, not a smoothed-in speckle.
-        let r1 = 0.24 * s;
         push_flat(
             rig,
             base,
             tip,
-            v(r1, r1, r1 * 1.2),
+            v(r1, r1, r1 * 1.15),
             5,
-            0.018 * s,
+            0.012 * s,
             PrimTint::Eye,
         );
         parts.push(PartMeta {
