@@ -1,7 +1,7 @@
 //! Animated humanoid characters: parameterized proportions, class gear,
 //! 17-joint skeleton, rigid-bound low-poly body, idle + walk clips.
 
-use glam::{Mat4, Quat, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3};
 use rand::Rng;
 
 use crate::gltf::{
@@ -679,6 +679,24 @@ fn top2(j: [u16; 4], w: [f32; 4]) -> [(u16, f32); 2] {
 /// trunk (pelvis/spine chain) vs. nearest limb, smoothly blended across the
 /// armpit/groin junction so cloth and skin move together with the rig.
 fn skin_weights(rig: &Rig, parts: &[(Fam, Vec3, Shape)], h: f32, p: Vec3) -> ([u16; 4], [f32; 4]) {
+    skin_weights_zone(rig, parts, h, p, 1.0)
+}
+
+/// Same family-restricted weight logic as `skin_weights`, but with the
+/// trunk/limb blend zone widened by `zone_mul`. Garment shells sit farther
+/// from the bones (body offset + cloth thickness/flare) than the skin they
+/// were derived from, so the tight near/tw thresholds tuned for skin-tight
+/// triangles cut a hard weight boundary across the shell's coarser
+/// triangles — a visible stretched spike mid-stride. Widening the blend
+/// zone only for cloth spreads that transition over more geometry without
+/// touching the body's own (unchanged) skinning.
+fn skin_weights_zone(
+    rig: &Rig,
+    parts: &[(Fam, Vec3, Shape)],
+    h: f32,
+    p: Vec3,
+    zone_mul: f32,
+) -> ([u16; 4], [f32; 4]) {
     let d = fam_dists(parts, p);
     // trunk weights (pelvis rigid, torso on the spine chain)
     let trunk_d = d[0].min(d[1]);
@@ -704,8 +722,8 @@ fn skin_weights(rig: &Rig, parts: &[(Fam, Vec3, Shape)], h: f32, p: Vec3) -> ([u
     // blend ONLY at true junctions (both families within reach) —
     // otherwise even 10% cross-weight smears a surface into a web the
     // moment the limb rotates far from its bind pose
-    let near = h * 0.012;
-    let tw = h * 0.020;
+    let near = h * 0.012 * zone_mul;
+    let tw = h * 0.020 * zone_mul;
     let s = ((trunk_d - limb_d) / tw * 0.5 + 0.5).clamp(0.0, 1.0);
     let s = s * s * (3.0 - 2.0 * s);
     if trunk_d <= limb_d && limb_d > near {
@@ -733,6 +751,157 @@ fn skin_weights(rig: &Rig, parts: &[(Fam, Vec3, Shape)], h: f32, p: Vec3) -> ([u
         }
         (joints, weights)
     }
+}
+
+/// Draping cloth garment: an offset shell of the body's own SDF field,
+/// inflated by `thickness` (widening toward the hem for flare) and rippled
+/// by seeded low-frequency vertical folds, meshed over `[y0, y1]` only —
+/// open top, open hem, no closed tube. Skinned with the same
+/// family-restricted weights as the body (`skin_weights`) so cloth tracks
+/// the rig through a walk stride instead of floating.
+#[allow(clippy::too_many_arguments)]
+fn cloth_shell(
+    rig: &Rig,
+    parts: &[(Fam, Vec3, Shape)],
+    h: f32,
+    bulk: f32,
+    sw: f32,
+    spine_y: f32,
+    chest_y: f32,
+    y0: f32,
+    y1: f32,
+    thickness: f32,
+    fold_n: u32,
+    flare_amt: f32,
+    color: Vec3,
+    det: f32,
+) -> Mesh {
+    let _ = (spine_y, chest_y);
+    // cloth reference surface: torso+pelvis+legs fused with a WIDE smin (not
+    // the body's own tight anatomical blend) so a below-hip hem reads as one
+    // flared skirt cone hugging both legs together, instead of the offset
+    // surface bifurcating into two separate leg tubes. Arms are excluded —
+    // sleeves are separate parts.
+    let k_cloth = h * 0.050;
+    let cloth_body = move |p: Vec3| -> f32 {
+        let mut d = f32::INFINITY;
+        for (f, _, s) in parts {
+            if matches!(f, Fam::ArmL | Fam::ArmR) {
+                continue;
+            }
+            d = crate::sdf::smin(d, s.eval(p), k_cloth);
+        }
+        d
+    };
+    let span = (y1 - y0).max(1e-4);
+    let cloth = |p: Vec3| -> f32 {
+        let t = ((y1 - p.y) / span).clamp(0.0, 1.0); // 0 at top, 1 at hem
+        let flare = h * 0.010 + h * 0.055 * t * t * flare_amt; // hem swings out
+        let ang = p.z.atan2(p.x);
+        let folds = h * 0.012 * t * (ang * fold_n as f32).sin();
+        cloth_body(p) - (thickness + flare + folds)
+    };
+    let color_fn = |_p: Vec3| color;
+
+    // coarser than the body's own mesh_field cell — cloth is a large, low-
+    // frequency surface, so a fine grid just burns poly budget without
+    // adding visible detail
+    let cell = (h * 0.0105 / det).min(h * 0.014);
+    let margin = h * 0.03;
+    let lo = Vec3::new(-sw - h * 0.11, y0 - margin, -h * 0.17 * bulk - h * 0.04);
+    let hi = Vec3::new(sw + h * 0.11, y1 + margin, h * 0.17 * bulk + h * 0.04);
+    let mut m = crate::sdf::mesh_field(lo, hi, cell, &cloth, &color_fn);
+
+    // open top and open hem: mesh_field pads the field out to the box walls,
+    // which would otherwise cap the shell into a closed blob — drop any
+    // triangle whose centroid falls outside [y0, y1] and re-index
+    // u wraps around the body (matches the loft convention below), v runs
+    // 0 at the hem -> 1 at the top so hem_band's v=0 paint layer lands on
+    // the hem edge exactly like the old lofted garments
+    let uv_tan_of = |p: Vec3| -> (Vec2, glam::Vec4) {
+        let v = ((p.y - y0) / span).clamp(0.0, 1.0);
+        let ang = p.z.atan2(p.x);
+        let u = ang / core::f32::consts::TAU + 0.5;
+        let tan = Vec3::new(-ang.sin(), 0.0, ang.cos()).normalize_or(Vec3::X);
+        (Vec2::new(u, v), glam::Vec4::new(tan.x, tan.y, tan.z, 1.0))
+    };
+    let mut new_positions = Vec::new();
+    let mut new_normals = Vec::new();
+    let mut new_colors = Vec::new();
+    let mut new_uvs = Vec::new();
+    let mut new_tangents = Vec::new();
+    let mut new_indices = Vec::new();
+    let mut remap = vec![u32::MAX; m.positions.len()];
+    let mut remap_one = |i: u32,
+                         out_positions: &mut Vec<Vec3>,
+                         out_normals: &mut Vec<Vec3>,
+                         out_colors: &mut Vec<Vec3>,
+                         out_uvs: &mut Vec<Vec2>,
+                         out_tangents: &mut Vec<glam::Vec4>|
+     -> u32 {
+        if remap[i as usize] == u32::MAX {
+            let ni = out_positions.len() as u32;
+            remap[i as usize] = ni;
+            let p = m.positions[i as usize];
+            out_positions.push(p);
+            out_normals.push(m.normals[i as usize]);
+            out_colors.push(m.colors[i as usize]);
+            let (uv, tan) = uv_tan_of(p);
+            out_uvs.push(uv);
+            out_tangents.push(tan);
+        }
+        remap[i as usize]
+    };
+    for tri in m.indices.chunks(3) {
+        let (a, b, c) = (tri[0], tri[1], tri[2]);
+        let cy =
+            (m.positions[a as usize].y + m.positions[b as usize].y + m.positions[c as usize].y)
+                / 3.0;
+        if cy < y0 || cy > y1 {
+            continue;
+        }
+        let na = remap_one(
+            a,
+            &mut new_positions,
+            &mut new_normals,
+            &mut new_colors,
+            &mut new_uvs,
+            &mut new_tangents,
+        );
+        let nb = remap_one(
+            b,
+            &mut new_positions,
+            &mut new_normals,
+            &mut new_colors,
+            &mut new_uvs,
+            &mut new_tangents,
+        );
+        let nc = remap_one(
+            c,
+            &mut new_positions,
+            &mut new_normals,
+            &mut new_colors,
+            &mut new_uvs,
+            &mut new_tangents,
+        );
+        new_indices.extend_from_slice(&[na, nb, nc]);
+    }
+    m.positions = new_positions;
+    m.normals = new_normals;
+    m.colors = new_colors;
+    m.uvs = new_uvs;
+    m.tangents = new_tangents;
+    m.indices = new_indices;
+
+    // skin with the SAME family-restricted weight logic used for the body
+    m.joints = Vec::with_capacity(m.positions.len());
+    m.weights = Vec::with_capacity(m.positions.len());
+    for &p in &m.positions.clone() {
+        let (j, wt) = skin_weights_zone(rig, parts, h, p, 3.0);
+        m.joints.push(j);
+        m.weights.push(wt);
+    }
+    m
 }
 
 /// Boot: sculpted from a shared-vertex icosphere (cuboids are flat-shaded
@@ -1842,14 +2011,27 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         head_part,
     ];
     if dressed {
+        // fold/flare randomness comes ONLY from the seeded Rand threaded
+        // through generate — never time/thread-random — so drape is
+        // fully deterministic per recipe+seed
+        let fold_n = r.gen_range(5..8u32);
+        let flare_amt = range(&mut r, 0.7, 1.3);
+        let body_parts = body_parts(&rig, h, bulk, sw, &pr, &w, forearm_col);
         let ctx = GarmentCtx {
             rig: &rig,
             h,
             bulk,
+            sw,
             w: &w,
             orn: p.ornamentation.clamp(0.0, 1.0),
             motif: p.trim_motif.clone().unwrap_or_else(|| "meander".into()),
             seed: p.seed,
+            body_parts: &body_parts,
+            spine_y: jw(SPINE).y,
+            chest_y: jw(CHEST).y,
+            det,
+            fold_n,
+            flare_amt,
         };
         parts.extend(outfit_parts(&ctx, p.outfit.as_deref().unwrap_or("robe")));
     }
@@ -1880,10 +2062,22 @@ struct GarmentCtx<'a> {
     rig: &'a Rig,
     h: f32,
     bulk: f32,
+    sw: f32,
     w: &'a Wardrobe,
     orn: f32,
     motif: String,
     seed: u64,
+    /// body SDF parts (reused so cloth shells drape over the actual body,
+    /// not a floating tube)
+    body_parts: &'a [(Fam, Vec3, Shape)],
+    spine_y: f32,
+    chest_y: f32,
+    det: f32,
+    /// seeded fold count/flare strength — drawn from the same `Rand`
+    /// threaded through `generate`, never time/thread-random, so the same
+    /// recipe+seed always drapes identically
+    fold_n: u32,
+    flare_amt: f32,
 }
 
 fn garment_tex(
@@ -1976,15 +2170,6 @@ fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
         rx: rx * bulk,
         rz: rz * bulk,
     };
-    let body_segs: &[(usize, usize)] = &[
-        (HIPS, SPINE),
-        (SPINE, CHEST),
-        (CHEST, NECK),
-        (THIGH_L, SHIN_L),
-        (THIGH_R, SHIN_R),
-        (SHIN_L, FOOT_L),
-        (SHIN_R, FOOT_R),
-    ];
     let mut parts = Vec::new();
 
     // under-robe: closed, hem -> chest; radii must clear the elliptical
@@ -1999,22 +2184,38 @@ fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
     } else {
         h * 0.165
     };
-    let under = [
-        st(hem_y, hem_rx, hem_rx * 0.85),
-        st(h * 0.33, h * 0.138, h * 0.115),
-        st(jw(HIPS).y, h * 0.128, h * 0.102),
-        st(jw(SPINE).y + h * 0.02, h * 0.120, h * 0.096),
-        st(jw(CHEST).y + h * 0.05, h * 0.138, h * 0.100),
-    ];
-    parts.push(garment(
-        ctx,
-        &under,
-        360.0,
-        body_segs,
+    let _ = hem_rx; // superseded by the offset-shell hem flare below
+    let under_top = jw(CHEST).y + h * 0.02;
+    let under = cloth_shell(
+        ctx.rig,
+        ctx.body_parts,
+        h,
+        bulk,
+        ctx.sw,
+        ctx.spine_y,
+        ctx.chest_y,
+        hem_y,
+        under_top,
+        h * 0.024, // shell thickness floor: keep clear of the body at any pose
+        ctx.fold_n,
+        ctx.flare_amt,
         ground,
-        0.7,
-        hem_band(&ctx.motif, trim, gold, ctx.orn),
-    ));
+        ctx.det,
+    );
+    parts.push(Part {
+        mesh: under,
+        material: Material {
+            roughness: 0.85,
+            double_sided: true,
+            texture: garment_tex(
+                ground,
+                ctx.seed,
+                0.7,
+                hem_band(&ctx.motif, trim, gold, ctx.orn),
+            ),
+            ..Default::default()
+        },
+    });
 
     if style == "robe" || style == "coat" {
         // open outer coat: mid-shin -> neck, front opening
@@ -2661,6 +2862,26 @@ mod tests {
         let a = crate::gltf::to_glb(&generate(&p, &pal));
         let b = crate::gltf::to_glb(&generate(&p, &pal));
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn draped_garment_deterministic_per_seed() {
+        // fold_n/flare_amt come from the seeded Rand threaded through
+        // generate — same recipe+seed must draw the same folds/flare and
+        // therefore produce a byte-identical GLB every time.
+        for (class, outfit) in [("mage", "robe"), ("villager", "tunic")] {
+            let p: CharacterParams = serde_json::from_str(&format!(
+                r#"{{"seed":11,"class":"{class}","outfit":"{outfit}"}}"#
+            ))
+            .unwrap();
+            let pal = crate::palette::by_name("verdant");
+            let a = crate::gltf::to_glb(&generate(&p, &pal));
+            let b = crate::gltf::to_glb(&generate(&p, &pal));
+            assert_eq!(
+                a, b,
+                "{class}/{outfit} draped garment must be deterministic"
+            );
+        }
     }
 
     #[test]
