@@ -243,8 +243,10 @@ impl Shape {
 }
 
 /// Build the body's SDF part list: hips/torso/limbs as a flat vec of
-/// (family, color, shape) tuples. Shared by the body mesher and by garment
-/// shells, which offset-inflate this same field so cloth follows anatomy.
+/// (family, color, shape) tuples. Kept reusable (not currently consumed by
+/// anything but the body mesher) for a future cloth-shell system that would
+/// offset-inflate this same field so garments follow anatomy — deferred,
+/// see spec section 5.
 fn body_parts(
     rig: &Rig,
     h: f32,
@@ -675,9 +677,11 @@ fn top2(j: [u16; 4], w: [f32; 4]) -> [(u16, f32); 2] {
     [v[0], v[1]]
 }
 
-/// Per-vertex skinning weights shared by the body mesh and garment shells:
-/// trunk (pelvis/spine chain) vs. nearest limb, smoothly blended across the
-/// armpit/groin junction so cloth and skin move together with the rig.
+/// Per-vertex skinning weights for the body mesh: trunk (pelvis/spine
+/// chain) vs. nearest limb, smoothly blended across the armpit/groin
+/// junction. Kept reusable for a future cloth-shell system (deferred, see
+/// spec section 5) that would need the same blend so garments move with
+/// the rig — no such shell consumer exists today.
 fn skin_weights(rig: &Rig, parts: &[(Fam, Vec3, Shape)], h: f32, p: Vec3) -> ([u16; 4], [f32; 4]) {
     let d = fam_dists(parts, p);
     // trunk weights (pelvis rigid, torso on the spine chain)
@@ -1534,7 +1538,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
 
     // arms: the surface comes from the fused body; only cloth overlays,
     // hands and gear remain as separate pieces
-    let arm_r0 = h * 0.036 * bulk;
+    let arm_r0 = pr.arm_r;
     for (aj, fj, hj) in [(ARM_L, FOREARM_L, HAND_L), (ARM_R, FOREARM_R, HAND_R)] {
         let (a, f, hd) = (jw(aj), jw(fj), jw(hj));
         let mut arm = Mesh::new();
@@ -1600,7 +1604,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     }
 
     // feet + a garter strap covering the pants/boot-shaft boundary
-    let leg_r = h * 0.052 * bulk;
+    let leg_r = pr.leg_r;
     for (sj, fj) in [(SHIN_L, FOOT_L), (SHIN_R, FOOT_R)] {
         let mut foot = boot(jw(fj), leg_r * 0.52, h, w.boots);
         foot.bind_all_to_joint(fj as u16);
