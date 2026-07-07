@@ -952,6 +952,39 @@ mod tests {
     }
 
     #[test]
+    fn dungeon_is_deterministic() {
+        for json in [
+            r#"{"kind":"dungeon","type":"cavern","seed":9}"#,
+            r#"{"kind":"dungeon","type":"crypt","size":"medium","seed":9}"#,
+        ] {
+            let a = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
+            let b = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
+            assert_eq!(a, b, "dungeon output must be byte-identical: {json}");
+        }
+    }
+
+    #[test]
+    fn dungeon_survives_hostile_input() {
+        for json in [
+            r#"{"kind":"dungeon","loops":1e9,"density":-5.0,"rooms":100000000}"#,
+            r#"{"kind":"dungeon","type":"cavern","detail":1e30,"rooms":100000000}"#,
+            r#"{"kind":"dungeon","type":"fortress","loops":-9.0,"density":50.0}"#,
+        ] {
+            Recipe::parse(json).unwrap().build().unwrap();
+        }
+    }
+
+    #[test]
+    fn every_dungeon_theme_and_size_builds() {
+        for theme in ["crypt", "cavern", "sewer", "mine", "temple", "fortress"] {
+            for size in ["small", "medium", "large"] {
+                let j = format!(r#"{{"kind":"dungeon","type":"{theme}","size":"{size}"}}"#);
+                Recipe::parse(&j).unwrap().build().unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn monster_survives_hostile_input() {
         // absurd numeric values must clamp, not panic or explode the grid
         for json in [

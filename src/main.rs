@@ -775,6 +775,25 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  //   death (+ roar when the plan has a head). Family-restricted skinning.
  // collider auto-fits the plan (capsule/box/elongated-capsule/trimesh).
 
+{"kind":"dungeon","type":"crypt","size":"medium","seed":1,
+ "rooms":null,"loops":0.3,"density":0.5,"detail":1.0}
+ // type: crypt | cavern | sewer | mine | temple | fortress - each sets the
+ //   palette, wall material, prop set, and shape bias. cavern is meshed as
+ //   ORGANIC SDF caves (blobby chambers + curved tunnels); the other five are
+ //   orthogonal rooms. Default palette per theme (crypt->necrotic,
+ //   cavern/sewer->fungal, mine/fortress->volcanic, temple->mystic); an
+ //   explicit "palette" overrides.
+ // size: small | medium | large (target room count / footprint)
+ // rooms: optional explicit room cap (overrides size). loops: 0..1 extra
+ //   corridor edges beyond the spanning tree. density: 0..1 dressing amount.
+ // Layout is a pure function of seed: BSP rooms + MST corridors (+loops),
+ //   integer-meter aligned. Dressing: pillars, torch brackets (emissive
+ //   lighting cues), doors, portcullis, sarcophagi, chests, rubble.
+ // A one-room dungeon builds a single GLB; multi-room writes a directory:
+ //   imaginu dungeon <recipe> -o out [--overview]   (per-room GLBs +
+ //   manifest.json with rooms/corridors/doors/spawn_points/colliders)
+ //   imaginu validate-dungeon <dir>                 (structural round-trip)
+
 {"kind":"custom","name":"anything","seed":1,
  "physics":{"collider":"auto|box|sphere|capsule|trimesh","mass":0,
             "friction":0.6,"restitution":0},
