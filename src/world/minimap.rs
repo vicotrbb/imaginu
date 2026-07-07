@@ -112,6 +112,7 @@ pub fn render(m: &WorldModel, px: usize) -> (usize, usize, Vec<u8>) {
             super::poi::PoiKind::Castle => ([164, 70, 224], 5.0),
             super::poi::PoiKind::Watchtower => ([245, 245, 245], 3.0),
             super::poi::PoiKind::Dungeon => ([20, 20, 24], 4.0),
+            super::poi::PoiKind::Boss => ([255, 32, 96], 6.5),
         };
         dot(&mut out, w, h, px, py, r + 1.5, [250, 250, 250]);
         dot(&mut out, w, h, px, py, r, col);

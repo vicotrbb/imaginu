@@ -25,6 +25,7 @@ pub enum PoiKind {
     Castle,
     Watchtower,
     Dungeon,
+    Boss,
 }
 
 impl PoiKind {
@@ -35,6 +36,7 @@ impl PoiKind {
             PoiKind::Castle => "castle",
             PoiKind::Watchtower => "watchtower",
             PoiKind::Dungeon => "dungeon",
+            PoiKind::Boss => "boss",
         }
     }
     /// Footprint radius (flattened ground).
@@ -45,6 +47,9 @@ impl PoiKind {
             PoiKind::Castle => 55.0,
             PoiKind::Watchtower => 14.0,
             PoiKind::Dungeon => 16.0,
+            // sized for an open arena around the boss's recommended combat
+            // radius (default ~8m), with room to roam.
+            PoiKind::Boss => 18.0,
         }
     }
     /// Minimum distance to the next POI of the same kind.
@@ -55,6 +60,8 @@ impl PoiKind {
             PoiKind::Castle => 900.0,
             PoiKind::Watchtower => 480.0,
             PoiKind::Dungeon => 380.0,
+            // world bosses stay rare and far apart
+            PoiKind::Boss => 1400.0,
         }
     }
 }
@@ -115,6 +122,7 @@ fn make_name(kind: PoiKind, r: &mut Rand) -> String {
         PoiKind::Castle => format!("Castle {base}"),
         PoiKind::Watchtower => format!("{base} Watch"),
         PoiKind::Dungeon => format!("Barrow of {base}"),
+        PoiKind::Boss => format!("Lair of {base}"),
         _ => base,
     }
 }
@@ -271,6 +279,18 @@ pub fn place(model: &WorldModel, specs: Option<&[PoiSpec]>) -> Vec<PoiSite> {
                 ((c.slope - 0.35) / 0.5).clamp(0.0, 1.0)
                     * (0.25 + zi(c, ZoneKind::Mountains) + zi(c, ZoneKind::Badlands) * 0.9)
             }
+            // opposite bias to Dungeon: a flat, open, low-mid altitude arena
+            // away from water and away from mountains/badlands roughness.
+            PoiKind::Boss => {
+                flat * low
+                    * (1.0 - zi(c, ZoneKind::Mountains) * 0.9 - zi(c, ZoneKind::Badlands) * 0.9)
+                        .max(0.0)
+                    * (1.0 - c.water * 0.6)
+                    * (zi(c, ZoneKind::Plains)
+                        + zi(c, ZoneKind::Forest) * 0.6
+                        + zi(c, ZoneKind::Desert) * 0.5
+                        + zi(c, ZoneKind::Coast) * 0.3)
+            }
         }
     };
 
@@ -350,6 +370,7 @@ pub fn build_asset(site: &PoiSite, pal: &Palette) -> Asset {
         PoiKind::Castle => castle(site, pal),
         PoiKind::Watchtower => watchtower(site, pal),
         PoiKind::Dungeon => dungeon(site, pal),
+        PoiKind::Boss => boss(site),
     }
 }
 
@@ -836,6 +857,47 @@ fn dungeon(site: &PoiSite, pal: &Palette) -> Asset {
     )
 }
 
+/// World-boss encounter: archetype + element are chosen deterministically
+/// from the site seed (not the world palette `pal` passed to sibling POI
+/// builders) so the same recipe always spawns the same boss in the same
+/// arena. Reuses the standalone `boss::generate` pipeline; the arena's flat
+/// footprint (`PoiKind::Boss::radius`) already comfortably contains the
+/// boss's own `recommended_radius` at the default size, so no extra scaling
+/// is applied.
+fn boss(site: &PoiSite) -> Asset {
+    const ARCHETYPES: [crate::recipe::BossArchetype; 5] = [
+        crate::recipe::BossArchetype::Hydra,
+        crate::recipe::BossArchetype::Colossus,
+        crate::recipe::BossArchetype::Lich,
+        crate::recipe::BossArchetype::SwarmQueen,
+        crate::recipe::BossArchetype::DragonLord,
+    ];
+    const ELEMENTS: [crate::recipe::BossElement; 9] = [
+        crate::recipe::BossElement::Infernal,
+        crate::recipe::BossElement::Necrotic,
+        crate::recipe::BossElement::Fungal,
+        crate::recipe::BossElement::Arctic,
+        crate::recipe::BossElement::Volcanic,
+        crate::recipe::BossElement::Verdant,
+        crate::recipe::BossElement::Autumn,
+        crate::recipe::BossElement::Desert,
+        crate::recipe::BossElement::Mystic,
+    ];
+    let archetype = ARCHETYPES[(site.seed % ARCHETYPES.len() as u64) as usize];
+    let element =
+        ELEMENTS[((site.seed / ARCHETYPES.len() as u64) % ELEMENTS.len() as u64) as usize];
+    let pal = crate::palette::by_name(crate::recipe::element_palette(element));
+    let params = crate::recipe::BossParams {
+        seed: site.seed,
+        archetype,
+        element,
+        ..Default::default()
+    };
+    let mut a = crate::generators::boss::generate(&params, &pal);
+    a.name = site.name.clone();
+    a
+}
+
 /// Stone arch bridge spanning a river; yaw baked into the mesh so the game
 /// only needs the manifest position. Deck at y=0.
 pub fn bridge_asset(b: &super::network::Bridge, pal: &Palette) -> Asset {
@@ -929,4 +991,29 @@ fn finish(site: &PoiSite, parts: Vec<Part>) -> Asset {
     );
     a.name = site.name.clone();
     a
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn boss_poi_kind_and_asset() {
+        assert!(PoiKind::Boss.radius() > 0.0);
+        assert_eq!(PoiKind::Boss.name(), "boss");
+        let pal = crate::palette::by_name("verdant");
+        let site = PoiSite {
+            kind: PoiKind::Boss,
+            name: "Test Boss".into(),
+            x: 0.0,
+            z: 0.0,
+            ground: 10.0,
+            radius: PoiKind::Boss.radius(),
+            seed: 77,
+        };
+        let asset = build_asset(&site, &pal);
+        assert!(asset.boss.is_some(), "boss POI asset must carry boss meta");
+        assert_eq!(asset.name, site.name);
+        asset.validate().unwrap();
+    }
 }

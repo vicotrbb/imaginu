@@ -224,6 +224,12 @@ pub fn validate_dir(dir: &Path) -> Result<String, String> {
                 return Err(format!("POI '{}' references missing file {f}", p.name));
             }
             crate::validate::validate_glb(&dir.join(f)).map_err(|e| format!("POI GLB {f}: {e}"))?;
+            if p.kind == "boss" {
+                let bytes = std::fs::read(dir.join(f))
+                    .map_err(|e| format!("cannot read POI GLB {f}: {e}"))?;
+                crate::validate::validate_boss_bytes(&bytes)
+                    .map_err(|e| format!("POI GLB {f}: {e}"))?;
+            }
         }
     }
     let mut missing = 0usize;
