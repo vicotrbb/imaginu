@@ -9,6 +9,7 @@ pub mod custom;
 pub mod dungeon;
 pub mod monster;
 pub mod prop;
+pub mod proportions;
 pub mod rock;
 pub mod terrain;
 pub mod tree;

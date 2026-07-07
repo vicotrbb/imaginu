@@ -213,6 +213,12 @@ pub struct CharacterParams {
     pub height: f32,
     #[serde(default = "d_one")]
     pub bulk: f32,
+    /// Body build: slim | average | heavy | heroic (default average).
+    #[serde(default)]
+    pub build: crate::generators::proportions::Build,
+    /// Skeletal frame: masculine | feminine | neutral (default neutral).
+    #[serde(default)]
+    pub frame: crate::generators::proportions::Frame,
     #[serde(default = "d_true")]
     pub animate: bool,
     /// short | ponytail | bun | bald | long | topknot (default: seeded pick)

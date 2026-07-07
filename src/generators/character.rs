@@ -11,6 +11,8 @@ use crate::mesh::{Mesh, cuboid, icosphere, lathe, to_flat_shaded, tube};
 use crate::palette::{Palette, lerp, srgb, vary};
 use crate::recipe::{CharacterClass, CharacterParams};
 
+use super::proportions::Proportions;
+
 use super::{Rand, range, rng};
 
 // joint indices
@@ -213,6 +215,7 @@ fn organic_body(
     h: f32,
     bulk: f32,
     sw: f32,
+    pr: &Proportions,
     w: &Wardrobe,
     forearm_col: Vec3,
     det: f32,
@@ -220,8 +223,12 @@ fn organic_body(
     use crate::sdf::{sd_ellipsoid, sd_round_cone, sd_sphere, smin};
     let jw = |i: usize| rig.world[i];
     let (hips, spine, chest, neck) = (jw(HIPS), jw(SPINE), jw(CHEST), jw(NECK));
-    let arm_r = h * 0.036 * bulk;
-    let leg_r = h * 0.052 * bulk;
+    let arm_r = pr.arm_r;
+    let leg_r = pr.leg_r;
+    // build/frame deltas relative to the Average/Neutral baseline, so the
+    // default silhouette is unchanged and only non-default combos shift it.
+    let waist_k = pr.waist / 0.82;
+    let hip_k = pr.hip_w / (h * 0.095);
 
     #[derive(Clone, Copy, PartialEq)]
     enum Fam {
@@ -257,7 +264,7 @@ fn organic_body(
         w.pants,
         Shape::Ellipsoid(
             hips + Vec3::new(0.0, -h * 0.020, 0.0),
-            Vec3::new(h * 0.106 * bulk, h * 0.068, h * 0.078 * bulk),
+            Vec3::new(h * 0.106 * bulk * hip_k, h * 0.068, h * 0.078 * bulk),
         ),
     ));
     for s in [-1.0f32, 1.0] {
@@ -276,7 +283,11 @@ fn organic_body(
         w.shirt,
         Shape::Ellipsoid(
             Vec3::new(0.0, spine.y + 0.005 * h, 0.006 * h),
-            Vec3::new(h * 0.096 * bulk, h * 0.075, h * 0.070 * bulk),
+            Vec3::new(
+                h * 0.096 * bulk * waist_k,
+                h * 0.075,
+                h * 0.070 * bulk * waist_k,
+            ),
         ),
     ));
     {
@@ -1080,7 +1091,11 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     // tessellation multiplier: 1.0 = default quality, 2.0 = hero close-ups
     let det = p.detail.clamp(0.5, 2.0);
     let seg = |n: f32| ((n * det).round() as u32).max(6);
-    let sw = h * 0.135 * bulk;
+    let pr = Proportions::derive(h, bulk, p.build, p.frame);
+    // frame's shoulder multiplier, isolated from Proportions::shoulder_w so
+    // the Average/Neutral default silhouette matches v0.3.0 exactly.
+    let shoulder_k = pr.shoulder_w / (h * 0.118 * (0.9 + 0.1 * bulk));
+    let sw = h * 0.135 * bulk * shoulder_k;
     let rig = build_rig(h, sw);
     let mut w = wardrobe(&mut r, pal, p.class, p.skin_tone);
     let jw = |i: usize| rig.world[i];
@@ -1107,7 +1122,7 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         CharacterClass::Warrior | CharacterClass::Rogue => w.boots * 1.15,
         _ => w.skin,
     };
-    body.merge(&organic_body(&rig, h, bulk, sw, &w, forearm_col, det));
+    body.merge(&organic_body(&rig, h, bulk, sw, &pr, &w, forearm_col, det));
 
     // reference profile (kept for placing surface overlays like buttons)
     let hips_y = jw(HIPS).y;
@@ -2397,5 +2412,20 @@ fn walk_clip(rig: &Rig, h: f32) -> AnimationClip {
     AnimationClip {
         name: "walk".into(),
         channels,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn character_deterministic_per_seed() {
+        let p: CharacterParams =
+            serde_json::from_str(r#"{"seed":7,"build":"heroic","frame":"masculine"}"#).unwrap();
+        let pal = crate::palette::by_name("verdant");
+        let a = crate::gltf::to_glb(&generate(&p, &pal));
+        let b = crate::gltf::to_glb(&generate(&p, &pal));
+        assert_eq!(a, b);
     }
 }
