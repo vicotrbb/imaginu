@@ -23,6 +23,11 @@ JSON recipes → deterministic, game-ready **GLB** for [Babylon.js](https://www.
     <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/tavern.png" width="240"></td>
     <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/tree_oak.png" width="240"></td>
   </tr>
+  <tr>
+    <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/fire_wyrm.png" width="240"></td>
+    <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/crypt.png" width="240"></td>
+    <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/terrain_canyon.png" width="240"></td>
+  </tr>
 </table>
 
 </div>
@@ -89,6 +94,12 @@ imaginu schema
 # A rigged, animated character:
 imaginu generate '{"kind":"character","class":"warrior","animate":true}' -o hero.glb
 
+# A rigged, animated monster (8 body plans + class presets):
+imaginu generate '{"kind":"monster","body":"wyrm","class":"elemental"}' -o wyrm.glb
+
+# A themed, navigable dungeon (per-room GLBs + manifest.json + overview.png):
+imaginu dungeon '{"kind":"dungeon","type":"crypt","size":"medium"}' -o crypt/ --overview
+
 # A seamless streaming world (manifest.json + one GLB per chunk):
 imaginu world '{"kind":"world","name":"everdale","size":2048}' -o everdale/
 
@@ -115,6 +126,8 @@ Each of these is one line of JSON. Full field reference: `imaginu schema`.
 | `{"kind":"terrain","shape":"mesa"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/terrain_mesa_strata.png" width="180"> |
 | `{"kind":"crystal","palette":"mystic"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/crystal.png" width="180"> |
 | `{"kind":"character","class":"mage"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/char_hedge_mage.png" width="180"> |
+| `{"kind":"monster","body":"wyrm","class":"elemental"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/fire_wyrm.png" width="180"> |
+| `{"kind":"dungeon","type":"crypt","size":"medium"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/crypt.png" width="180"> |
 | `{"kind":"prop","prop":"barrel"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/barrel.png" width="180"> |
 
 Whole worlds, too - Voronoi biome zones, traced rivers, A\*-routed roads, and a
