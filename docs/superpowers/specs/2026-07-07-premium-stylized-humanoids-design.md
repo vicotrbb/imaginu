@@ -52,9 +52,9 @@ Mittens become stylized 4-finger hands: palm box-ellipsoid + thumb round-cone + 
 - Raise the marching-cubes field resolution for the body, keyed off the existing `det` detail factor, then run the existing subdivision pass for smooth silhouettes.
 - Keep the existing hierarchical soft/tight family blending (deep armpit/groin creases, soft flesh fillets within a mass).
 
-### 5. Cloth that drapes
+### 5. Cloth that drapes — DEFERRED (2026-07-07)
 
-Garments become **offset shells of the body field**: sample the body SDF, inflate by cloth thickness, add hem flare and low-frequency fold noise (`noise.rs`). Robes/tunics follow the anatomy and flare at the hem instead of being straight extruded tubes. Trim/motif painting (`garment_tex`, `hem_band`) is unchanged.
+The offset-shell approach (body SDF inflated by cloth thickness + hem flare + fold noise) failed its visual gate in three implementation rounds (full-torso shell, hugging shell, and hybrid bodice+skirt-shell all rendered as sacks/bells with walk-animation tearing). The feature is deferred to a future spec with a different technique (e.g. a parametric skirt cage/lattice mesh). Garments ship with the v0.3.0 lathe construction. The reusable `body_parts`/`body_sdf` extraction from this work is kept.
 
 ### 6. Performance, determinism, compatibility
 
