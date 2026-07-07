@@ -15,3 +15,5 @@ BIN=${BIN:-target/release/imaginu}
 "$BIN" showcase gallery/recipes/cave_spider.json --animation crawl -o gallery/showcase_cave_spider.mp4 --duration 4
 "$BIN" showcase gallery/recipes/ogre_brute.json --animation attack -o gallery/showcase_ogre_brute.mp4 --duration 4
 "$BIN" showcase gallery/recipes/void_horror.json --animation pulse -o gallery/showcase_void_horror.mp4 --duration 4
+"$BIN" showcase gallery/recipes/infernal_hydra.json -o gallery/showcase_infernal_hydra.mp4 --duration 5
+"$BIN" showcase gallery/recipes/necrotic_lich.json -o gallery/showcase_necrotic_lich.mp4 --duration 5
