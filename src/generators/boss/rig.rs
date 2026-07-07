@@ -1520,51 +1520,57 @@ fn plan_dragon_lord(p: &BossParams) -> BossRig {
         legs.push(vec![up, ft]);
     }
 
-    // wings: TWO massive flat membrane sheets off the shoulders, spread wide,
-    // UP, and swept back — the money silhouette. Each wing is TWO tapered
-    // panels (root->wrist wide, wrist->tip narrow, pointed) so it reads as an
-    // actual wing profile rather than a round fan/disk, arcing up from the
-    // shoulder to a raised "wrist" before sweeping back down to a pointed
-    // tip. Each wing is its OWN rank-4 family (LOW k, fold-ranked LAST,
-    // exactly `plan_winged_flyer`'s wing pattern scaled up + tapered) so it
-    // stays a genuine thin sheet instead of inflating into a lobe, plus a
-    // leading-edge spar bone continuing root->wrist->tip. Named
-    // `wing.l`/`wing.r`, destructible.
+    // wings: TWO HUGE membrane sheets DEPLOYED WIDE to the sides in a threat
+    // display — the money silhouette. The membranes are thin on the DEPTH (Z)
+    // axis (NOT the vertical Y axis) so each wing is an upright sheet FACING
+    // the viewer, spread far out to the side and up — a spread bat/dragon
+    // wing, not a horizontal fin folded flat along the back. Each wing spans
+    // ~2.4*s to each side (a full wingspan wider than the body is long) and
+    // rises ~1.3*s tall, dominating the silhouette. Built from TWO panels
+    // (inner root->wrist, outer wrist->tip) each an explicit-radii flat
+    // ellipsoid (wide X, tall Y, THIN Z), fold-ranked LAST (rank 4) at LOW k
+    // so smooth-min keeps them genuine thin sheets, plus a leading-edge spar
+    // bone (root->wrist->tip along the TOP edge) and finger-rib spars fanning
+    // down to the trailing edge for a scalloped bat-wing read. Each wing is
+    // its OWN rank-4 skin family (its joints are never touched by a rank<=1
+    // trunk primitive), so `skin_body`'s union-find never webs a wing to the
+    // torso or to the other wing. Named `wing.l`/`wing.r`, destructible.
     let mut wings = Vec::new();
     for (side, name) in [(-1.0f32, "wing.l"), (1.0f32, "wing.r")] {
+        // root at the shoulder; wrist is the leading-edge apex thrust far OUT
+        // and UP (the wing's "elbow/wrist" high on the outer sweep); tip
+        // reaches even further out and slightly forward at mid height.
         let root = r.joint(
             Some(shoulders),
             &format!("{name}_root"),
-            v(side * 0.3 * s, 1.25 * s, 0.85 * s),
+            v(side * 0.35 * s, 1.3 * s, 0.7 * s),
         );
-        // wrist: out and moderately up from the root — a gentle arc, not a
-        // tall spike — so the wing reads as a swept membrane rather than a
-        // second hump.
         let wrist = r.joint(
             Some(root),
             &format!("{name}_wrist"),
-            v(side * 1.7 * s, 1.8 * s, 0.55 * s),
+            v(side * 1.7 * s, 2.35 * s, 0.55 * s),
         );
-        // tip: far out and swept back/down, tapering to a point below the
-        // wrist.
-        let tip = r.joint(Some(wrist), name, v(side * 3.1 * s, 1.55 * s, -0.25 * s));
-        // inner panel: wide-SPAN, NARROW-chord (span:chord ~3:1, not a
-        // round disk) so it reads as a blade, tapering toward the wrist.
-        r.flat(root, wrist, v(0.82 * s, 0.045 * s, 0.28 * s), 4, 0.02 * s);
-        r.cone(root, wrist, 0.13 * s, 0.07 * s, 4, 0.03 * s);
-        // outer panel: narrower still, tapering to a pointed tip.
-        r.flat(wrist, tip, v(0.78 * s, 0.032 * s, 0.15 * s), 4, 0.015 * s);
-        r.cone(wrist, tip, 0.07 * s, 0.018 * s, 4, 0.025 * s);
-        // two thin "finger" ribs fanning from the wrist toward the trailing
-        // edge (same rank-4 family, RigBuilder-level so they're built before
-        // `finish`), breaking the smooth blade into a bat-wing scallop read.
-        for (fdx, fdz) in [(1.15f32, -0.4f32), (0.35f32, -0.55f32)] {
+        let tip = r.joint(Some(wrist), name, v(side * 3.0 * s, 1.9 * s, 0.4 * s));
+        // ONE big continuous membrane spanning the whole wing (root corner to
+        // tip corner). Wide in X, TALL in Y, THIN in Z (an upright sheet
+        // facing +Z, the viewer) — a single spread wing, NOT two overlapping
+        // discs. Explicit radii + LOW k so smooth-min keeps it a thin sheet.
+        r.flat(root, tip, v(1.5 * s, 0.9 * s, 0.05 * s), 4, 0.02 * s);
+        // leading-edge spar bone along the TOP edge (root->wrist->tip): a
+        // thickened arm+finger bone framing the membrane's upper margin.
+        r.cone(root, wrist, 0.12 * s, 0.07 * s, 4, 0.03 * s);
+        r.cone(wrist, tip, 0.07 * s, 0.025 * s, 4, 0.025 * s);
+        // finger-rib veins fanning from the wrist DOWN across the membrane to
+        // the trailing edge — endpoints kept INSIDE the membrane's Y/X extent
+        // so they read as internal wing veins, not spikes poking out. Own
+        // rank-4 family (children of the wing joints).
+        for (fdx, fdy) in [(2.35f32, 1.15f32), (1.75f32, 0.95f32), (1.05f32, 1.0f32)] {
             let ftip = r.joint(
                 Some(wrist),
                 &format!("{name}_finger"),
-                v(side * fdx * s, 1.55 * s, fdz * s),
+                v(side * fdx * s, fdy * s, 0.45 * s),
             );
-            r.cone(wrist, ftip, 0.03 * s, 0.006 * s, 4, 0.02 * s);
+            r.cone(wrist, ftip, 0.04 * s, 0.012 * s, 4, 0.02 * s);
         }
         wings.push(root);
         parts.push(PartMeta {
@@ -1585,6 +1591,16 @@ fn plan_dragon_lord(p: &BossParams) -> BossRig {
     let mut rig = r.finish(gait);
 
     add_dragon_head_features(&mut rig, head, s, horns_k);
+    // a crest of bony dorsal spikes marching down the neck, spine, and tail
+    // for menace (own rank-5 Horn family each, rooted on the trunk joint they
+    // grow from — a child->tip 2-joint chain, exactly the hydra's convention).
+    add_dragon_dorsal_spikes(
+        &mut rig,
+        s,
+        &[
+            neck1, neck0, shoulders, chest, waist, hips, tail1, tail2, tail3,
+        ],
+    );
 
     // glowing exposed heart (own rank-3 family, Eye tint = full accent glow):
     // a large orb set into the chest, popping against the body — the weak
@@ -1598,9 +1614,9 @@ fn plan_dragon_lord(p: &BossParams) -> BossRig {
         &mut rig,
         chest,
         "heart",
-        chest_wp + v(0.0, -0.04 * s, 0.46 * s),
+        chest_wp + v(0.0, -0.02 * s, 0.5 * s),
     );
-    let heart_r = (0.2 + 0.06 * menace) * s;
+    let heart_r = (0.26 + 0.06 * menace) * s;
     push_flat(
         &mut rig,
         heart,
@@ -1645,26 +1661,51 @@ fn add_dragon_head_features(rig: &mut MonsterRig, head: usize, s: f32, horns: f3
     let v = Vec3::new;
     let hp = rig.joint_world(head);
 
-    // broad blunt cranium + underslung fanged jaw (serpent-style maw)
-    let snout = add_joint(rig, head, "snout", hp + v(0.0, -0.05 * s, 0.34 * s));
+    // draconic head: a blockier cranium behind a long tapering SNOUT thrust
+    // forward-down (an elongated muzzle, not a round plesiosaur ball), plus a
+    // heavy underslung fanged jaw. All rank-1 trunk band so they ride rigidly
+    // with the neck.
     push_flat(
         rig,
         head,
-        snout,
-        v(0.22 * s, 0.2 * s, 0.3 * s),
+        head,
+        v(0.2 * s, 0.19 * s, 0.22 * s),
         1,
-        0.05 * s,
+        0.045 * s,
         PrimTint::Body,
     );
-    let jaw = add_joint(rig, head, "jaw", hp + v(0.0, -0.22 * s, 0.26 * s));
+    let snout = add_joint(rig, head, "snout", hp + v(0.0, -0.08 * s, 0.46 * s));
+    push_cone(
+        rig,
+        head,
+        snout,
+        0.17 * s,
+        0.07 * s,
+        1,
+        0.04 * s,
+        PrimTint::Body,
+    );
+    // brow ridge overhanging the eyes (a scowling draconic brow)
+    let brow = add_joint(rig, head, "brow", hp + v(0.0, 0.09 * s, 0.16 * s));
+    push_flat(
+        rig,
+        brow,
+        brow,
+        v(0.19 * s, 0.06 * s, 0.11 * s),
+        1,
+        0.02 * s,
+        PrimTint::Body,
+    );
+    // heavy underslung lower jaw jutting forward-down = a maw.
+    let jaw = add_joint(rig, head, "jaw", hp + v(0.0, -0.24 * s, 0.34 * s));
     push_cone(
         rig,
         head,
         jaw,
-        0.16 * s,
-        0.07 * s,
+        0.15 * s,
+        0.06 * s,
         1,
-        0.045 * s,
+        0.04 * s,
         PrimTint::Body,
     );
 
@@ -1694,46 +1735,49 @@ fn add_dragon_head_features(rig: &mut MonsterRig, head: usize, s: f32, horns: f3
         );
     }
 
-    // two long back-swept horns crowning the brow — always present (a core
-    // silhouette feature per the brief), `horns` (0..1) scales their length.
-    let hlen = (0.22 + 0.3 * horns) * s;
+    // a pair of BIG, THICK, strongly BACK-SWEPT horns crowning the skull —
+    // proper dragon horns, not thin antennae: a fat base tapering over a long
+    // rearward sweep (low Y gain, strong -Z) so they streak back off the
+    // crown. Always present (a core silhouette feature per the brief);
+    // `horns` (0..1) scales their length. Own rank-5 `Horn` family.
+    let hlen = (0.45 + 0.4 * horns) * s;
     for side in [-1.0f32, 1.0] {
         let hb = add_joint(
             rig,
             head,
             "horn",
-            hp + v(side * 0.1 * s, 0.1 * s, -0.02 * s),
+            hp + v(side * 0.13 * s, 0.14 * s, -0.02 * s),
         );
         let hm = add_joint(
             rig,
             hb,
             "horn_mid",
-            hp + v(side * 0.14 * s, 0.14 * s + 0.5 * hlen, -0.16 * s),
+            hp + v(side * 0.19 * s, 0.22 * s + 0.35 * hlen, -0.5 * hlen),
         );
         let ht = add_joint(
             rig,
             hm,
             "horn_tip",
-            hp + v(side * 0.16 * s, 0.16 * s + hlen, -0.4 * s),
+            hp + v(side * 0.22 * s, 0.24 * s + 0.5 * hlen, -1.05 * hlen),
         );
         push_cone(
             rig,
             hb,
             hm,
-            0.05 * s,
-            0.03 * s,
+            0.09 * s,
+            0.055 * s,
             5,
-            0.014 * s,
+            0.016 * s,
             PrimTint::Horn,
         );
         push_cone(
             rig,
             hm,
             ht,
-            0.03 * s,
-            0.008 * s,
-            5,
+            0.055 * s,
             0.012 * s,
+            5,
+            0.014 * s,
             PrimTint::Horn,
         );
     }
@@ -1760,6 +1804,35 @@ fn add_dragon_head_features(rig: &mut MonsterRig, head: usize, s: f32, horns: f3
             0.004 * s,
             6,
             0.01 * s,
+            PrimTint::Horn,
+        );
+    }
+}
+
+/// A crest of bony dorsal spikes marching down the neck, spine, and tail —
+/// menace detail. Each spike is a tiny rank-5 `Horn` family (a `spike ->
+/// spike_tip` 2-joint chain) rooted on the trunk joint it grows from, so it
+/// rides that joint rigidly and never webs (the hydra's dorsal-spike
+/// convention). Spikes taper down the chain from a tall crest over the
+/// shoulders to small nubs on the tail.
+fn add_dragon_dorsal_spikes(rig: &mut MonsterRig, s: f32, chain: &[usize]) {
+    let v = Vec3::new;
+    let n = chain.len();
+    for (i, &j) in chain.iter().enumerate() {
+        let jp = rig.joint_world(j);
+        // tall over the shoulders (mid-chain), shrinking toward neck and tail.
+        let t = i as f32 / (n - 1).max(1) as f32;
+        let h = (0.28 - 0.14 * (t - 0.35).abs()) * s;
+        let b0 = add_joint(rig, j, "spike", jp + v(0.0, 0.2 * s, 0.0));
+        let b1 = add_joint(rig, b0, "spike_tip", jp + v(0.0, 0.2 * s + h, -0.1 * s));
+        push_cone(
+            rig,
+            b0,
+            b1,
+            0.055 * s,
+            0.006 * s,
+            5,
+            0.012 * s,
             PrimTint::Horn,
         );
     }
