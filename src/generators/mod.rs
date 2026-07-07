@@ -1,6 +1,7 @@
 //! Procedural asset generators. Each takes recipe params + seed and returns
 //! a fully-formed [`crate::gltf::Asset`].
 
+pub mod boss;
 pub mod building;
 pub mod character;
 pub mod crystal;

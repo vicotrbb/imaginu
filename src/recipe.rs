@@ -362,6 +362,120 @@ impl Default for MonsterParams {
     }
 }
 
+/// Boss archetype — the encounter template driving multi-part, multi-phase
+/// geometry (built in Task 4+).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BossArchetype {
+    #[default]
+    Hydra,
+    Colossus,
+    Lich,
+    SwarmQueen,
+    DragonLord,
+}
+
+/// Boss elemental theme — each arm maps to one of the nine real palettes via
+/// `element_palette`.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BossElement {
+    #[default]
+    Infernal,
+    Necrotic,
+    Fungal,
+    Arctic,
+    Volcanic,
+    Verdant,
+    Autumn,
+    Desert,
+    Mystic,
+}
+
+/// Palette an element maps to (used only when the recipe left the default
+/// palette). Every arm MUST be a name in `palette::PALETTES`
+/// (verdant, autumn, arctic, volcanic, desert, mystic, necrotic, infernal, fungal).
+fn element_palette(e: BossElement) -> &'static str {
+    match e {
+        BossElement::Infernal => "infernal",
+        BossElement::Necrotic => "necrotic",
+        BossElement::Fungal => "fungal",
+        BossElement::Arctic => "arctic",
+        BossElement::Volcanic => "volcanic",
+        BossElement::Verdant => "verdant",
+        BossElement::Autumn => "autumn",
+        BossElement::Desert => "desert",
+        BossElement::Mystic => "mystic",
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct BossParams {
+    #[serde(default = "d_seed")]
+    pub seed: u64,
+    #[serde(default)]
+    pub archetype: BossArchetype,
+    #[serde(default)]
+    pub element: BossElement,
+    /// Overall scale (default LARGE, per-archetype). Alias `bulk`.
+    #[serde(default = "d_boss_size", alias = "bulk")]
+    pub size: f32,
+    /// Number of baked phase metadata blocks (clamp 1..=4).
+    #[serde(default = "d_two_u32")]
+    pub phases: u32,
+    /// Optional single-phase geometry selector.
+    #[serde(default)]
+    pub phase: Option<u32>,
+    #[serde(default = "d_true")]
+    pub weak_points: bool,
+    /// 0..1 armor escalation; `-1` = archetype default.
+    #[serde(default = "d_neg1")]
+    pub armor: f32,
+    #[serde(default = "d_neg1")]
+    pub plates: f32,
+    #[serde(default = "d_neg1")]
+    pub crown: f32,
+    #[serde(default = "d_neg1")]
+    pub regalia: f32,
+    #[serde(default = "d_neg1")]
+    pub horns: f32,
+    #[serde(default = "d_neg1")]
+    pub spikes: f32,
+    #[serde(default = "d_neg1_i32")]
+    pub eyes: i32,
+    #[serde(default = "d_neg1")]
+    pub maw: f32,
+    #[serde(default = "d_neg1")]
+    pub wings: f32,
+    #[serde(default = "d_neg1")]
+    pub tail: f32,
+    #[serde(default = "d_neg1")]
+    pub menace: f32,
+    #[serde(default = "d_neg1")]
+    pub emissive: f32,
+    /// Hero tessellation default.
+    #[serde(default = "d_hero_detail")]
+    pub detail: f32,
+    #[serde(default = "d_true")]
+    pub animate: bool,
+}
+
+fn d_boss_size() -> f32 {
+    3.0
+}
+fn d_two_u32() -> u32 {
+    2
+}
+fn d_hero_detail() -> f32 {
+    1.3
+}
+
+impl Default for BossParams {
+    fn default() -> Self {
+        serde_json::from_str("{}").expect("boss defaults deserialize")
+    }
+}
+
 /// Dungeon theme — palette + wall material + prop set + shape bias
 /// (orthogonal rooms vs. organic caves).
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -478,6 +592,12 @@ pub enum Recipe {
         #[serde(flatten)]
         params: DungeonParams,
     },
+    Boss {
+        #[serde(default = "d_palette")]
+        palette: String,
+        #[serde(flatten)]
+        params: BossParams,
+    },
     /// Fully generic declarative geometry DSL — build anything.
     Custom {
         #[serde(flatten)]
@@ -525,7 +645,8 @@ impl Recipe {
             | Recipe::Prop { palette, .. }
             | Recipe::Character { palette, .. }
             | Recipe::Monster { palette, .. }
-            | Recipe::Dungeon { palette, .. } => palette,
+            | Recipe::Dungeon { palette, .. }
+            | Recipe::Boss { palette, .. } => palette,
             Recipe::Custom { .. } => "verdant",
         }
     }
@@ -545,6 +666,9 @@ impl Recipe {
             }
             Recipe::Dungeon { palette, params } if *palette == d_palette() => {
                 theme_palette(params.theme)
+            }
+            Recipe::Boss { palette, params } if *palette == d_palette() => {
+                element_palette(params.element)
             }
             _ => self.palette_name(),
         }
@@ -573,6 +697,7 @@ impl Recipe {
             }
             Recipe::Monster { params, .. } => crate::generators::monster::generate(params, &pal),
             Recipe::Dungeon { params, .. } => crate::generators::dungeon::generate(params, &pal)?,
+            Recipe::Boss { params, .. } => crate::generators::boss::generate(params, &pal),
             Recipe::Custom { params } => crate::generators::custom::generate(params)?,
         };
         asset.validate()?;
@@ -603,6 +728,26 @@ mod tests {
     fn bad_palette_rejected() {
         let r = Recipe::parse(r#"{"kind": "tree", "palette": "nope"}"#).unwrap();
         assert!(r.build().is_err());
+    }
+
+    #[test]
+    fn boss_minimal_parses_and_builds() {
+        let r =
+            Recipe::parse(r#"{"kind":"boss","archetype":"hydra","element":"infernal"}"#).unwrap();
+        assert_eq!(r.resolved_palette(), "infernal");
+        let asset = r.build().unwrap();
+        assert!(!asset.parts.is_empty());
+    }
+
+    #[test]
+    fn boss_element_drives_palette_only_when_default() {
+        // explicit palette wins
+        let r =
+            Recipe::parse(r#"{"kind":"boss","element":"infernal","palette":"arctic"}"#).unwrap();
+        assert_eq!(r.resolved_palette(), "arctic");
+        // element substitutes when palette left default
+        let r = Recipe::parse(r#"{"kind":"boss","element":"necrotic"}"#).unwrap();
+        assert_eq!(r.resolved_palette(), "necrotic");
     }
 
     #[test]
