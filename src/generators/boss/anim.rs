@@ -10,51 +10,19 @@ use core::f32::consts::TAU;
 
 use glam::{Quat, Vec3};
 
-use crate::generators::monster::anim::{death_clip, hurt_clip, idle_clip, locomotion_clip};
+// Reuse the monster clip machinery wholesale — both the clip-level
+// constructors AND the low-level keyframe helpers (`keys`/`rot_channel`/etc.)
+// are promoted `pub(crate)` in `monster::anim`, so the boss driver shares one
+// canonical keyframe implementation instead of forking a parallel one.
+use crate::generators::monster::anim::{
+    bind_of, body_scale, death_clip, env, hurt_clip, idle_clip, keys, locomotion_clip, rot_channel,
+    trans_channel,
+};
 use crate::generators::monster::rig::MonsterRig;
-use crate::gltf::{AnimationClip, Channel, ChannelData};
+use crate::gltf::AnimationClip;
 use crate::recipe::{BossArchetype, BossParams};
 
 use super::meta::{AbilityMeta, PhaseMeta, WeakPointMeta};
-
-/// Evenly spaced key times over [0, dur].
-fn keys(n: usize, dur: f32) -> Vec<f32> {
-    (0..=n).map(|i| i as f32 / n as f32 * dur).collect()
-}
-
-/// Rotation channel driven by a normalized-phase function.
-fn rot_channel(joint: usize, times: &[f32], f: impl Fn(f32) -> Quat) -> Channel {
-    let dur = *times.last().unwrap();
-    Channel {
-        joint,
-        times: times.to_vec(),
-        data: ChannelData::Rotation(times.iter().map(|&t| f(t / dur)).collect()),
-    }
-}
-
-/// Translation channel offset from a bind position by a phase function.
-fn trans_channel(joint: usize, times: &[f32], bind: Vec3, f: impl Fn(f32) -> Vec3) -> Channel {
-    let dur = *times.last().unwrap();
-    Channel {
-        joint,
-        times: times.to_vec(),
-        data: ChannelData::Translation(times.iter().map(|&t| bind + f(t / dur)).collect()),
-    }
-}
-
-/// Smooth one-shot envelope: eases 0->1 over [a, b] and holds.
-fn env(p: f32, a: f32, b: f32) -> f32 {
-    let t = ((p - a) / (b - a).max(1e-4)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
-fn bind_of(rig: &MonsterRig, joint: usize) -> Vec3 {
-    rig.skeleton.joints[joint].translation
-}
-
-fn body_scale(rig: &MonsterRig) -> f32 {
-    (rig.bounds.1 - rig.bounds.0).length().max(1.0)
-}
 
 /// Joints named `neck{i}_1` (the neck mid-joint), in ascending skeleton
 /// index order — deterministic (skeleton joints are a `Vec`, never a map).
@@ -95,6 +63,11 @@ pub fn build_boss_clips(rig: &MonsterRig, p: &BossParams) -> Vec<AnimationClip> 
     let mut stagger = hurt_clip(rig);
     stagger.name = "stagger".into();
 
+    // NOTE: the `enrage` clip is an AMBIENT stance the game loops whenever
+    // `PhaseMeta.enrage == true` (see `build_phase_meta`), NOT an ability with
+    // its own telegraph/active/recover window — so it is intentionally not
+    // referenced by any `AbilityMeta.clip`. It is emitted here so the game has
+    // the pose available; it is not a dangling/forgotten clip.
     let mut clips = vec![
         idle_clip(rig),
         locomotion_clip(rig),
@@ -456,7 +429,15 @@ mod tests {
         let br = build_boss_rig(&p);
         let clips = build_boss_clips(&br.rig, &p);
         let names: Vec<_> = clips.iter().map(|c| c.name.as_str()).collect();
-        for want in ["idle", "telegraph", "phase_transition", "enrage", "death"] {
+        for want in [
+            "idle",
+            "slither", // hydra locomotion (gait style = Slither)
+            "telegraph",
+            "phase_transition",
+            "enrage",
+            "stagger",
+            "death",
+        ] {
             assert!(names.contains(&want), "missing clip {want}: {names:?}");
         }
         assert!(

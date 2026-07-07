@@ -13,12 +13,12 @@ use crate::recipe::MonsterParams;
 use super::rig::{Gait, MonsterRig};
 
 /// Evenly spaced key times over [0, dur].
-fn keys(n: usize, dur: f32) -> Vec<f32> {
+pub(crate) fn keys(n: usize, dur: f32) -> Vec<f32> {
     (0..=n).map(|i| i as f32 / n as f32 * dur).collect()
 }
 
 /// Rotation channel driven by a normalized-phase function.
-fn rot_channel(joint: usize, times: &[f32], f: impl Fn(f32) -> Quat) -> Channel {
+pub(crate) fn rot_channel(joint: usize, times: &[f32], f: impl Fn(f32) -> Quat) -> Channel {
     let dur = *times.last().unwrap();
     Channel {
         joint,
@@ -28,7 +28,12 @@ fn rot_channel(joint: usize, times: &[f32], f: impl Fn(f32) -> Quat) -> Channel 
 }
 
 /// Translation channel offset from a bind position by a phase function.
-fn trans_channel(joint: usize, times: &[f32], bind: Vec3, f: impl Fn(f32) -> Vec3) -> Channel {
+pub(crate) fn trans_channel(
+    joint: usize,
+    times: &[f32],
+    bind: Vec3,
+    f: impl Fn(f32) -> Vec3,
+) -> Channel {
     let dur = *times.last().unwrap();
     Channel {
         joint,
@@ -38,12 +43,12 @@ fn trans_channel(joint: usize, times: &[f32], bind: Vec3, f: impl Fn(f32) -> Vec
 }
 
 /// Smooth one-shot envelope: eases 0→1 over [a, b] and holds.
-fn env(p: f32, a: f32, b: f32) -> f32 {
+pub(crate) fn env(p: f32, a: f32, b: f32) -> f32 {
     let t = ((p - a) / (b - a).max(1e-4)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
-fn bind_of(rig: &MonsterRig, joint: usize) -> Vec3 {
+pub(crate) fn bind_of(rig: &MonsterRig, joint: usize) -> Vec3 {
     rig.skeleton.joints[joint].translation
 }
 
@@ -102,7 +107,7 @@ pub(crate) fn idle_clip(rig: &MonsterRig) -> AnimationClip {
 }
 
 /// Characteristic body length for scaling translational motion.
-fn body_scale(rig: &MonsterRig) -> f32 {
+pub(crate) fn body_scale(rig: &MonsterRig) -> f32 {
     (rig.bounds.1 - rig.bounds.0).length().max(1.0)
 }
 
