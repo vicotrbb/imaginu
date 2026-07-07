@@ -735,37 +735,58 @@ fn boot(ankle: Vec3, shin_r: f32, h: f32, color: Vec3) -> Mesh {
     m
 }
 
-/// Mitten hand: squashed palm sphere + thumb blob.
-fn mitten(at: Vec3, r: f32, side: f32, skin: Vec3, subdiv: u32) -> Mesh {
-    let mut palm = icosphere(r, subdiv, skin);
-    for v in palm.positions.iter_mut() {
-        v.x *= 0.70;
-        v.y *= 1.18;
-        v.z *= 0.88;
-    }
-    palm.recompute_smooth_normals();
-    // three chunky fingers hanging from the palm + a thumb: reads as a real
-    // hand at game distance without per-finger rigging
-    for (fx, s) in [(-0.40f32, 0.29f32), (0.0, 0.33), (0.40, 0.27)] {
-        let mut f = icosphere(r * s, 1, skin);
-        for v in f.positions.iter_mut() {
-            v.y *= 1.85;
+/// Four-finger SDF hand: palm ellipsoid + thumb + three fingers, blended
+/// with a tight `smin` so fingers read as separate digits but stay webbed
+/// at the base (matches the game's stylized 4-finger hand convention).
+/// `grip` curls the fingers/thumb inward (by moving the SDF segment
+/// endpoints, not a post-transform) so they wrap around a held object like
+/// a staff shaft.
+fn hand(at: Vec3, r: f32, side: f32, skin: Vec3, grip: bool, det: f32) -> Mesh {
+    use crate::sdf::{sd_ellipsoid, sd_round_cone, smin};
+    let field = |p: Vec3| -> f32 {
+        // palm
+        let mut d = sd_ellipsoid(p, Vec3::ZERO, Vec3::new(r * 0.72, r * 0.95, r * 0.55));
+        // three fingers, evenly spaced across the palm width
+        for (fx, len) in [(-0.40f32, 0.92f32), (0.0, 1.0), (0.40, 0.88)] {
+            let base = Vec3::new(fx * r * 0.55, -r * 0.75, r * 0.10);
+            let tip = if grip {
+                // curl ~70deg about x toward the palm (forward + up)
+                let straight = Vec3::new(fx * r * 0.60, -r * 1.9 * len, r * 0.15);
+                let rel = straight - base;
+                let ang = 1.22f32; // ~70deg
+                let curled = Vec3::new(
+                    rel.x,
+                    base.y + rel.y * ang.cos() - rel.z * ang.sin(),
+                    base.z + rel.y * ang.sin() + rel.z * ang.cos(),
+                );
+                Vec3::new(base.x + curled.x, curled.y, curled.z)
+            } else {
+                Vec3::new(fx * r * 0.60, -r * 1.9 * len, r * 0.15)
+            };
+            d = smin(d, sd_round_cone(p, base, tip, r * 0.16, r * 0.12), r * 0.05);
         }
-        f.recompute_smooth_normals();
-        f.translate(Vec3::new(fx * r * 0.68, -r * 1.02, r * 0.12));
-        palm.merge(&f);
-    }
-    let mut thumb = icosphere(r * 0.30, 1, skin);
-    for v in thumb.positions.iter_mut() {
-        v.y *= 1.5;
-    }
-    thumb.recompute_smooth_normals();
-    thumb.translate(Vec3::new(side * r * 0.60, -r * 0.30, r * 0.45));
-    palm.merge(&thumb);
+        // thumb, angled forward-inward from the palm edge
+        let thumb_base = Vec3::new(side * r * 0.55, -r * 0.15, r * 0.35);
+        let thumb_tip = if grip {
+            // pull the thumb across the palm to close the grip
+            Vec3::new(side * r * 0.15, -r * 0.45, r * 0.70)
+        } else {
+            Vec3::new(side * r * 0.85, -r * 0.75, r * 0.75)
+        };
+        d = smin(
+            d,
+            sd_round_cone(p, thumb_base, thumb_tip, r * 0.17, r * 0.12),
+            r * 0.05,
+        );
+        d
+    };
+    let lo = Vec3::new(-r * 1.3, -r * 2.2, -r * 0.8);
+    let hi = Vec3::new(r * 1.3, r * 1.3, r * 1.3);
+    let mut m = crate::sdf::mesh_field(lo, hi, r * 0.09 / det, &field, &|_| skin);
     // relaxed curl: fingertips drift in toward the leg, palm faces the thigh
-    palm.transform(Mat4::from_rotation_x(0.16) * Mat4::from_rotation_z(-side * 0.10));
-    palm.translate(at);
-    palm
+    m.transform(Mat4::from_rotation_x(0.16) * Mat4::from_rotation_z(-side * 0.10));
+    m.translate(at);
+    m
 }
 
 /// SDF-sculpted head: cranium + jaw/chin + cheeks + brow ridge + nose +
@@ -1496,12 +1517,14 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
         }
         crate::skinning::smooth_bind(&mut arm, &segs(&rig, &[(aj, fj), (fj, hj)]), 4.0);
         body.merge(&arm);
-        let mut hand = mitten(
+        let grip = hj == HAND_R && p.accessories.iter().any(|a| a == "staff");
+        let mut hand = hand(
             jw(hj) - Vec3::Y * arm_r0 * 0.25,
-            arm_r0 * 0.95,
+            pr.hand_r,
             jw(aj).x.signum(),
             w.skin,
-            if det >= 1.4 { 3 } else { 2 },
+            grip,
+            det,
         );
         hand.bind_all_to_joint(hj as u16);
         body.merge(&hand);
@@ -2586,6 +2609,42 @@ mod tests {
         let a = crate::gltf::to_glb(&generate(&p, &pal));
         let b = crate::gltf::to_glb(&generate(&p, &pal));
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn hand_has_separated_fingers() {
+        let m = hand(glam::Vec3::ZERO, 0.05, 1.0, glam::Vec3::ONE, false, 1.0);
+        // fingers extend below the palm noticeably further than a mitten blob
+        let min_y = m
+            .positions
+            .iter()
+            .map(|v| v.y)
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            min_y < -0.05 * 1.6,
+            "fingers should extend below palm: {min_y}"
+        );
+    }
+
+    #[test]
+    fn hand_deterministic() {
+        let a = hand(
+            glam::Vec3::new(0.1, 0.2, 0.3),
+            0.05,
+            -1.0,
+            glam::Vec3::ONE,
+            true,
+            1.0,
+        );
+        let b = hand(
+            glam::Vec3::new(0.1, 0.2, 0.3),
+            0.05,
+            -1.0,
+            glam::Vec3::ONE,
+            true,
+            1.0,
+        );
+        assert_eq!(a.positions, b.positions);
     }
 
     #[test]
