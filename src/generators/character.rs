@@ -768,23 +768,97 @@ fn mitten(at: Vec3, r: f32, side: f32, skin: Vec3, subdiv: u32) -> Mesh {
     palm
 }
 
-/// Shaped head: tapered-jaw ellipsoid, smooth-shaded.
-fn head_shape(r: f32, skin: Vec3, subdiv: u32) -> Mesh {
-    let mut head = icosphere(r, subdiv, skin);
-    for v in head.positions.iter_mut() {
-        // ellipsoid base
-        v.x *= 0.88;
-        v.y *= 1.08;
-        v.z *= 0.95;
-        // jaw taper below the midline, chin stays forward
-        if v.y < 0.0 {
-            let t = (-v.y / r).min(1.0);
-            v.x *= 1.0 - 0.32 * t;
-            v.z *= 1.0 - 0.18 * t;
+/// SDF-sculpted head: cranium + jaw/chin + cheeks + brow ridge + nose +
+/// ears + eye sockets, meshed with the same field mesher as the body.
+/// Centered at the origin like the old `head_shape` so the translate/
+/// skin/texture pipeline at the call site keeps working unchanged.
+fn sculpted_head(
+    pr: &super::proportions::Proportions,
+    frame: super::proportions::Frame,
+    skin: Vec3,
+    det: f32,
+) -> Mesh {
+    use super::proportions::Frame;
+    use crate::sdf::{sd_ellipsoid, sd_round_cone, sd_sphere, smin};
+    let r = pr.head_r;
+    let (jaw_w, brow) = match frame {
+        Frame::Masculine => (0.80, 0.115),
+        Frame::Feminine => (0.62, 0.045),
+        Frame::Neutral => (0.72, 0.075),
+    };
+    let field = |p: Vec3| -> f32 {
+        // cranium
+        let mut d = sd_ellipsoid(
+            p,
+            Vec3::new(0.0, r * 0.12, -r * 0.05),
+            Vec3::new(r * 0.86, r * 0.92, r * 0.90),
+        );
+        // jaw wedge -> chin
+        d = smin(
+            d,
+            sd_round_cone(
+                p,
+                Vec3::new(0.0, -r * 0.05, r * 0.15),
+                Vec3::new(0.0, -r * 0.62, r * 0.30),
+                r * jaw_w,
+                r * 0.28,
+            ),
+            r * 0.18,
+        );
+        // cheeks
+        for s in [-1.0f32, 1.0] {
+            d = smin(
+                d,
+                sd_sphere(p, Vec3::new(s * r * 0.42, -r * 0.08, r * 0.52), r * 0.24),
+                r * 0.14,
+            );
         }
-    }
-    head.recompute_smooth_normals();
-    head
+        // brow ridge
+        d = smin(
+            d,
+            sd_round_cone(
+                p,
+                Vec3::new(-r * 0.42, r * 0.28, r * 0.72),
+                Vec3::new(r * 0.42, r * 0.28, r * 0.72),
+                r * brow,
+                r * brow,
+            ),
+            r * 0.10,
+        );
+        // nose: bridge + protruding tip
+        d = smin(
+            d,
+            sd_round_cone(
+                p,
+                Vec3::new(0.0, r * 0.18, r * 0.80),
+                Vec3::new(0.0, -r * 0.16, r * 1.08),
+                r * 0.10,
+                r * 0.14,
+            ),
+            r * 0.08,
+        );
+        // ears
+        for s in [-1.0f32, 1.0] {
+            d = smin(
+                d,
+                sd_ellipsoid(
+                    p,
+                    Vec3::new(s * r * 0.92, 0.0, -r * 0.05),
+                    Vec3::new(r * 0.10, r * 0.26, r * 0.20),
+                ),
+                r * 0.06,
+            );
+        }
+        // shallow eye sockets (smooth subtraction)
+        for s in [-1.0f32, 1.0] {
+            let socket = sd_sphere(p, Vec3::new(s * r * 0.34, r * 0.10, r * 0.92), r * 0.17);
+            d = -smin(-d, socket, r * 0.05);
+        }
+        d
+    };
+    let lo = Vec3::splat(-r * 1.3);
+    let hi = Vec3::new(r * 1.3, r * 1.35, r * 1.35);
+    crate::sdf::mesh_field(lo, hi, r * 0.055 / det, &field, &|_| skin)
 }
 
 /// Face features around head center `c` with per-feature morph deltas
@@ -811,30 +885,42 @@ fn face(c: Vec3, r: f32, w: &Wardrobe, expressions: bool) -> Mesh {
         out.merge(&m);
     };
 
-    // eyes: white + pupil, blink flattens, surprised widens
+    // eyes: geometry set INTO the sculpted sockets (socket centers match
+    // `sculpted_head`'s eye-socket subtraction: s*r*0.34, r*0.10, r*0.92),
+    // with an inset eyeball, a proud iris disc, and a skin-colored upper
+    // lid overhang. Blink still flattens the whole eye assembly; surprised
+    // still widens it.
     for sx in [-1.0f32, 1.0] {
-        let ec = c + Vec3::new(sx * r * 0.30, r * 0.10, r * 0.83);
-        let mut white_m = icosphere(r * 0.16, 2, white);
-        for v in white_m.positions.iter_mut() {
-            v.y *= 0.8;
-            v.z *= 0.5;
-        }
-        white_m.recompute_smooth_normals();
-        white_m.translate(ec);
-        let mut pupil = icosphere(r * 0.07, 1, iris);
+        let socket_c = c + Vec3::new(sx * r * 0.34, r * 0.10, r * 0.92);
+        // eyeball sits recessed inside the socket, not proud on the surface
+        let ec = socket_c - Vec3::new(0.0, 0.0, r * 0.06);
+        let mut eye = icosphere(r * 0.14, 2, white);
+        eye.recompute_smooth_normals();
+        eye.translate(ec);
+        let mut pupil = icosphere(r * 0.06, 1, iris);
         for v in pupil.positions.iter_mut() {
-            v.z *= 0.5;
+            v.z *= 0.4;
         }
         pupil.recompute_smooth_normals();
-        pupil.translate(ec + Vec3::new(0.0, 0.0, r * 0.085));
-        white_m.merge(&pupil);
-        push(white_m, &|m: &Mesh| {
+        pupil.translate(ec + Vec3::new(0.0, 0.0, r * 0.10));
+        eye.merge(&pupil);
+        // upper lid: skin-colored half-shell overhanging the eyeball,
+        // clipped to keep only the upper cap (v.y > 0 in local space)
+        let mut lid = icosphere(r * 0.15, 2, w.skin);
+        for v in lid.positions.iter_mut() {
+            v.y = v.y.max(0.0) * 1.06;
+            v.z *= 0.55;
+        }
+        lid.recompute_smooth_normals();
+        lid.translate(ec + Vec3::new(0.0, r * 0.02, r * 0.02));
+        eye.merge(&lid);
+        push(eye, &|m: &Mesh| {
             let blink: Vec<Vec3> = m
                 .positions
                 .iter()
                 .map(|p| Vec3::new(0.0, (ec.y - p.y) * 0.85, -0.001))
                 .collect();
-            let surprised: Vec<Vec3> = m.positions.iter().map(|p| (*p - ec) * 0.22).collect();
+            let surprised: Vec<Vec3> = m.positions.iter().map(|p| (*p - ec) * 0.18).collect();
             vec![("blink", blink), ("surprised", surprised)]
         });
     }
@@ -1295,9 +1381,11 @@ pub fn generate(p: &CharacterParams, pal: &Palette) -> Asset {
     // head: shaped skull as its own part with a painted face texture
     // (skin mottling, blush, socket shading, age wrinkles); geometry
     // eyes/brows/mouth stay in the body part so morphs keep working
-    let head_r = h * 0.075;
+    // use Proportions::head_r so the sculpted skull, geometry face features,
+    // hair, beard and hats all share one consistent head scale
+    let head_r = pr.head_r;
     let head_c = jw(HEAD) + Vec3::new(0.0, head_r * 0.9, 0.0);
-    let mut head = head_shape(head_r, Vec3::ONE, if det >= 1.5 { 4 } else { 3 }); // texture carries the skin
+    let mut head = sculpted_head(&pr, p.frame, Vec3::ONE, det); // texture carries the skin
     head.translate(head_c);
     // spherical unwrap: u = azimuth (face at 0.5), v = crown(0) -> chin(1)
     head.uvs = head
@@ -2487,5 +2575,22 @@ mod tests {
         let a = crate::gltf::to_glb(&generate(&p, &pal));
         let b = crate::gltf::to_glb(&generate(&p, &pal));
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn sculpted_head_has_nose_and_ears() {
+        use super::super::proportions::{Build, Frame, Proportions};
+        let pr = Proportions::derive(1.7, 1.0, Build::Average, Frame::Neutral);
+        let m = sculpted_head(&pr, Frame::Neutral, glam::Vec3::ONE, 1.0);
+        let r = pr.head_r;
+        // nose: at least one vertex protrudes forward of the face plane at eye-nose height
+        assert!(
+            m.positions
+                .iter()
+                .any(|v| v.z > r * 0.98 && v.y.abs() < r * 0.35)
+        );
+        // ears: vertices wider than the cranium ellipsoid on both sides
+        assert!(m.positions.iter().any(|v| v.x > r * 0.90));
+        assert!(m.positions.iter().any(|v| v.x < -r * 0.90));
     }
 }
