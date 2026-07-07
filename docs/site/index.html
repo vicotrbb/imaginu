@@ -400,7 +400,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 60px}
 
 <footer>
   <div class="wrap foot">
-    <div class="lic">MIT © 2026 Victor Bona · imaginu v0.1.0</div>
+    <div class="lic">MIT © 2026 Victor Bona · imaginu v0.3.0</div>
     <div class="links">
       <a href="https://github.com/vicotrbb/imaginu" target="_blank" rel="noopener">Repository</a>
       <a href="https://docs.rs/imaginu" target="_blank" rel="noopener">Docs</a>
@@ -457,6 +457,8 @@ const RECIPES=[
   {name:'oak tree',img:'tree_oak',recipe:{kind:'tree',style:'oak',seed:9},cap:'canopy + trunk + capsule collider · 444 KiB'},
   {name:'hedge mage',img:'char_hedge_mage',recipe:{kind:'character',class:'mage',palette:'mystic',seed:31,detail:2.0,hair:'long',beard:'long',outfit:'robe',trim_motif:'runes',accessories:['staff','necklace']},cap:'rigged, 8 clips, painted robe with rune trim'},
   {name:'fire wyrm',img:'fire_wyrm',recipe:{kind:'monster',body:'wyrm',class:'elemental',horns:0.7,spikes:0.5,eyes:2},cap:'rigged serpent, molten hide, slither/attack/hurt/death clips'},
+  {name:'infernal hydra',img:'infernal_hydra',recipe:{kind:'boss',archetype:'hydra',element:'infernal',size:3.2,seed:3},cap:'multi-head boss, 2 baked phases, telegraph/signature/enrage clips + weak-point metadata'},
+  {name:'necrotic lich',img:'necrotic_lich',recipe:{kind:'boss',archetype:'lich',element:'necrotic',size:2.8,seed:5},cap:'undead spellcaster boss, phase transition + stagger clips, weak-point extras'},
   {name:'void horror',img:'void_horror',recipe:{kind:'monster',body:'aberration',class:'aberration',size:1.3},cap:'tentacled aberration, bioluminescent fungal hide, pulse clips'},
   {name:'crypt',img:'crypt',recipe:{kind:'dungeon',type:'crypt',size:'medium',density:0.6},cap:'9 rooms, corridors, doors, spawn points + manifest.json'},
   {name:'cavern',img:'cavern',recipe:{kind:'dungeon',type:'cavern',size:'medium',density:0.6},cap:'organic SDF caves, blobby chambers + curved tunnels'},
@@ -495,6 +497,8 @@ const CLIPS=[
   {f:'fire_wyrm',t:'Fire wyrm · slither',k:'monster'},
   {f:'cave_spider',t:'Cave spider · crawl',k:'monster'},
   {f:'void_horror',t:'Void horror · pulse',k:'monster'},
+  {f:'infernal_hydra',t:'Infernal hydra · turntable',k:'boss'},
+  {f:'necrotic_lich',t:'Necrotic lich · turntable',k:'boss'},
   {f:'island',t:'Island terrain',k:'terrain'},
   {f:'everdale_city',t:'Everdale city',k:'world'},
 ];
@@ -525,6 +529,8 @@ const MODELS=[
   {id:'warrior',label:'character',file:'char_warrior.glb'},
   {id:'wyrm',label:'monster',file:'fire_wyrm.glb'},
   {id:'spider',label:'arachnid',file:'cave_spider.glb'},
+  {id:'hydra',label:'boss',file:'infernal_hydra.glb'},
+  {id:'lich',label:'boss lich',file:'necrotic_lich.glb'},
   {id:'terrain',label:'terrain',file:'terrain_island.glb'},
   {id:'rock',label:'rock',file:'rock.glb'},
   {id:'barrel',label:'prop',file:'barrel.glb'},

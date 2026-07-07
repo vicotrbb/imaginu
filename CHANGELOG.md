@@ -6,6 +6,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-07
+
+A new first-class recipe kind - **boss** - for multi-phase encounter creatures,
+plus the dungeon and world plumbing to place them. Determinism holds
+byte-for-byte and every prior kind is unchanged.
+
+### Added
+
+- **`boss` recipe.** A multi-part, multi-phase encounter creature. Five
+  archetypes: `hydra`, `colossus`, `lich`, `swarm_queen`, `dragon_lord`. Each
+  boss bakes two distinct phases and a telegraphed clip set - `telegraph`,
+  `signature`, `phase_transition`, `enrage`, `stagger` - on top of the usual
+  idle/locomotion/attack/hurt/death clips.
+- **`extras.imaginu_boss` metadata.** Weak-point tags and phase/ability
+  metadata ride along in the GLB extras, so a game can drive hit-reactions,
+  phase-gated mechanics, and telegraph timing without re-deriving them from
+  the mesh.
+- **`validate-boss` subcommand.** `imaginu validate-boss <glb>` structurally
+  round-trips a boss GLB, including its phase and weak-point extras.
+- **Dungeon inline boss placement.** Dungeon recipes can place a `boss` inline
+  into a boss room, wired through the existing spawn-point system.
+- **World-boss POI.** The world POI solver can place a boss encounter as a
+  world point of interest alongside cities/villages/castles/dungeons.
+- **Five gallery bosses.** `infernal_hydra`, `necrotic_lich`,
+  `volcanic_colossus`, `fungal_broodmother`, `frost_dragon_lord` - five
+  palettes across the gallery, each a dark body with glowing accents.
+
 ## [0.2.0] - 2026-07-06
 
 Two new first-class recipe kinds - **monster** and **dungeon** - plus three new
@@ -78,5 +105,6 @@ landed across the project's five development phases and is available in `0.1.0`.
   `imaginu::Error`; the public boundary returns `Result` instead of panicking
   on malformed or hostile recipe JSON.
 
-[Unreleased]: https://github.com/vicotrbb/imaginu/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/vicotrbb/imaginu/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/vicotrbb/imaginu/compare/v0.2.0...v0.3.0
 [0.1.0]: https://github.com/vicotrbb/imaginu/releases/tag/v0.1.0

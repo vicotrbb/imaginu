@@ -37,9 +37,14 @@ imaginu schema
 ```
 
 It prints every `kind` (`terrain`, `tree`, `rock`, `crystal`, `building`,
-`prop`, `character`, `monster`, `dungeon`, `custom`, `world`), all fields (all
-optional except `kind`), the palettes, animation clips, and the physics/extras
-contract. Treat its output as ground truth for this version.
+`prop`, `character`, `monster`, `dungeon`, `boss`, `custom`, `world`), all
+fields (all optional except `kind`), the palettes, animation clips, and the
+physics/extras contract. Treat its output as ground truth for this version.
+
+`boss` is a multi-part, multi-phase, weak-point-tagged encounter creature (5
+archetypes: hydra/colossus/lich/swarm_queen/dragon_lord) that places into
+dungeon boss rooms and world POIs. `imaginu schema` stays the field reference
+for its full contract.
 
 ## 3. The core loop
 

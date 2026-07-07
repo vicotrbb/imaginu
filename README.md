@@ -24,7 +24,7 @@ JSON recipes → deterministic, game-ready **GLB** for [Babylon.js](https://www.
     <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/tree_oak.png" width="240"></td>
   </tr>
   <tr>
-    <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/fire_wyrm.png" width="240"></td>
+    <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/infernal_hydra.png" width="240"></td>
     <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/crypt.png" width="240"></td>
     <td><img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/terrain_canyon.png" width="240"></td>
   </tr>
@@ -100,6 +100,9 @@ imaginu generate '{"kind":"monster","body":"wyrm","class":"elemental"}' -o wyrm.
 # A themed, navigable dungeon (per-room GLBs + manifest.json + overview.png):
 imaginu dungeon '{"kind":"dungeon","type":"crypt","size":"medium"}' -o crypt/ --overview
 
+# A multi-phase boss encounter creature (5 archetypes, weak-point metadata):
+imaginu generate '{"kind":"boss","archetype":"hydra","element":"infernal"}' -o hydra.glb --preview
+
 # A seamless streaming world (manifest.json + one GLB per chunk):
 imaginu world '{"kind":"world","name":"everdale","size":2048}' -o everdale/
 
@@ -117,7 +120,10 @@ const physics = meshes[0].metadata?.gltf?.extras?.imaginu_physics;
 
 ## Recipe gallery
 
-Each of these is one line of JSON. Full field reference: `imaginu schema`.
+Each of these is one line of JSON. Full field reference: `imaginu schema`. A
+`boss` is a multi-part, multi-phase, weak-point-tagged encounter creature (5
+archetypes: hydra/colossus/lich/swarm_queen/dragon_lord) that places into
+dungeon boss rooms and world POIs.
 
 | Recipe | Result |
 | --- | --- |
@@ -131,6 +137,11 @@ Each of these is one line of JSON. Full field reference: `imaginu schema`.
 | `{"kind":"monster","body":"aberration","class":"aberration"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/void_horror.png" width="180"> |
 | `{"kind":"dungeon","type":"crypt","size":"medium"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/crypt.png" width="180"> |
 | `{"kind":"dungeon","type":"cavern","size":"medium"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/cavern.png" width="180"> |
+| `{"kind":"boss","archetype":"hydra","element":"infernal"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/infernal_hydra.png" width="180"> |
+| `{"kind":"boss","archetype":"lich","element":"necrotic"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/necrotic_lich.png" width="180"> |
+| `{"kind":"boss","archetype":"colossus","element":"volcanic"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/volcanic_colossus.png" width="180"> |
+| `{"kind":"boss","archetype":"swarm_queen","element":"fungal"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/fungal_broodmother.png" width="180"> |
+| `{"kind":"boss","archetype":"dragon_lord","element":"arctic"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/frost_dragon_lord.png" width="180"> |
 | `{"kind":"prop","prop":"barrel"}` | <img src="https://raw.githubusercontent.com/vicotrbb/imaginu/main/gallery/barrel.png" width="180"> |
 
 Whole worlds, too - Voronoi biome zones, traced rivers, A\*-routed roads, and a
