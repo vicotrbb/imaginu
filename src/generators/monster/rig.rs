@@ -120,14 +120,14 @@ pub fn build_rig(p: &MonsterParams) -> MonsterRig {
 /// parent-relative local translations, valid because all bind rotations are
 /// identity) and primitives reference joint indices. Keeps the data-driven
 /// plans terse and readable.
-struct RigBuilder {
+pub(crate) struct RigBuilder {
     joints: Vec<(Option<usize>, String, Vec3)>,
     world: Vec<Vec3>,
     prims: Vec<PrimitiveDesc>,
 }
 
 impl RigBuilder {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             joints: Vec::new(),
             world: Vec::new(),
@@ -136,7 +136,7 @@ impl RigBuilder {
     }
 
     /// Add a joint at `world_pos`; returns its index.
-    fn joint(&mut self, parent: Option<usize>, name: &str, world_pos: Vec3) -> usize {
+    pub(crate) fn joint(&mut self, parent: Option<usize>, name: &str, world_pos: Vec3) -> usize {
         let local = match parent {
             Some(p) => world_pos - self.world[p],
             None => world_pos,
@@ -148,11 +148,11 @@ impl RigBuilder {
     }
 
     /// World position of an already-added joint.
-    fn wpos(&self, i: usize) -> Vec3 {
+    pub(crate) fn wpos(&self, i: usize) -> Vec3 {
         self.world[i]
     }
 
-    fn cone(&mut self, a: usize, b: usize, r1: f32, r2: f32, fold_rank: u8, k: f32) {
+    pub(crate) fn cone(&mut self, a: usize, b: usize, r1: f32, r2: f32, fold_rank: u8, k: f32) {
         self.prims.push(PrimitiveDesc {
             kind: PrimKind::RoundCone,
             joint_a: a,
@@ -166,7 +166,7 @@ impl RigBuilder {
         });
     }
 
-    fn ellip(&mut self, a: usize, b: usize, r1: f32, r2: f32, fold_rank: u8, k: f32) {
+    pub(crate) fn ellip(&mut self, a: usize, b: usize, r1: f32, r2: f32, fold_rank: u8, k: f32) {
         self.prims.push(PrimitiveDesc {
             kind: PrimKind::Ellipsoid,
             joint_a: a,
@@ -182,7 +182,7 @@ impl RigBuilder {
 
     /// A flat/anisotropic ellipsoid centered between `a` and `b` with explicit
     /// per-axis half-radii (thin on one axis = a sheet, e.g. a wing membrane).
-    fn flat(&mut self, a: usize, b: usize, radii: Vec3, fold_rank: u8, k: f32) {
+    pub(crate) fn flat(&mut self, a: usize, b: usize, radii: Vec3, fold_rank: u8, k: f32) {
         self.prims.push(PrimitiveDesc {
             kind: PrimKind::Ellipsoid,
             joint_a: a,
@@ -197,7 +197,7 @@ impl RigBuilder {
     }
 
     /// Finalize into a bounds-computed [`MonsterRig`].
-    fn finish(self, gait: GaitDesc) -> MonsterRig {
+    pub(crate) fn finish(self, gait: GaitDesc) -> MonsterRig {
         let skeleton = Skeleton {
             joints: self
                 .joints
@@ -389,7 +389,7 @@ pub fn plan_quadruped_beast(p: &MonsterParams) -> MonsterRig {
 }
 
 /// Padded world-space AABB enclosing every primitive.
-fn compute_bounds(rig: &MonsterRig) -> (Vec3, Vec3) {
+pub(crate) fn compute_bounds(rig: &MonsterRig) -> (Vec3, Vec3) {
     let world = rig.world();
     let mut lo = Vec3::splat(f32::INFINITY);
     let mut hi = Vec3::splat(f32::NEG_INFINITY);
@@ -798,7 +798,7 @@ fn resolve_knobs(rig: &MonsterRig, p: &MonsterParams) -> Knobs {
 }
 
 /// Append a leaf joint at `world_pos` under `parent`, returning its index.
-fn add_joint(rig: &mut MonsterRig, parent: usize, name: &str, world_pos: Vec3) -> usize {
+pub(crate) fn add_joint(rig: &mut MonsterRig, parent: usize, name: &str, world_pos: Vec3) -> usize {
     let pw = rig.joint_world(parent);
     let i = rig.skeleton.joints.len();
     rig.skeleton.joints.push(Joint {
@@ -811,7 +811,7 @@ fn add_joint(rig: &mut MonsterRig, parent: usize, name: &str, world_pos: Vec3) -
 }
 
 #[allow(clippy::too_many_arguments)]
-fn push_cone(
+pub(crate) fn push_cone(
     rig: &mut MonsterRig,
     a: usize,
     b: usize,
@@ -834,7 +834,7 @@ fn push_cone(
     });
 }
 
-fn push_flat(
+pub(crate) fn push_flat(
     rig: &mut MonsterRig,
     a: usize,
     b: usize,
@@ -858,7 +858,7 @@ fn push_flat(
 
 /// Sample a world point + its proximal spine joint at parameter `t` (0..1)
 /// along the spine polyline. Returns `(point, proximal_joint)`.
-fn spine_sample(rig: &MonsterRig, t: f32) -> (Vec3, usize) {
+pub(crate) fn spine_sample(rig: &MonsterRig, t: f32) -> (Vec3, usize) {
     let spine = &rig.gait.spine;
     if spine.len() < 2 {
         let j = *spine.first().unwrap_or(&0);

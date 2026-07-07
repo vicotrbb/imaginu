@@ -66,7 +66,7 @@ pub fn build_clips(rig: &MonsterRig, _p: &MonsterParams) -> Vec<AnimationClip> {
 }
 
 /// Subtle breathing: spine bob + head sway.
-fn idle_clip(rig: &MonsterRig) -> AnimationClip {
+pub(crate) fn idle_clip(rig: &MonsterRig) -> AnimationClip {
     let g = &rig.gait;
     let dur = 2.6;
     let t = keys(16, dur);
@@ -108,7 +108,7 @@ fn body_scale(rig: &MonsterRig) -> f32 {
 
 /// Dispatch the locomotion clip on the gait style. All share the generic
 /// phase-offset leg swing; the name follows the style.
-fn locomotion_clip(rig: &MonsterRig) -> AnimationClip {
+pub(crate) fn locomotion_clip(rig: &MonsterRig) -> AnimationClip {
     let name = match rig.gait.style {
         Gait::Walk => "walk",
         Gait::Slither => "slither",
@@ -267,7 +267,7 @@ fn pulse_clip(rig: &MonsterRig, name: &str) -> AnimationClip {
 }
 
 /// Lunge forward + head/maw snap.
-fn attack_clip(rig: &MonsterRig) -> AnimationClip {
+pub(crate) fn attack_clip(rig: &MonsterRig) -> AnimationClip {
     let g = &rig.gait;
     let dur = 0.85;
     let t = keys(20, dur);
@@ -307,7 +307,7 @@ fn attack_clip(rig: &MonsterRig) -> AnimationClip {
 }
 
 /// Sharp recoil then settle.
-fn hurt_clip(rig: &MonsterRig) -> AnimationClip {
+pub(crate) fn hurt_clip(rig: &MonsterRig) -> AnimationClip {
     let g = &rig.gait;
     let dur = 0.5;
     let t = keys(14, dur);
@@ -336,7 +336,7 @@ fn hurt_clip(rig: &MonsterRig) -> AnimationClip {
 }
 
 /// Buckle and topple to the side, then settle.
-fn death_clip(rig: &MonsterRig) -> AnimationClip {
+pub(crate) fn death_clip(rig: &MonsterRig) -> AnimationClip {
     let g = &rig.gait;
     let dur = 1.4;
     let t = keys(22, dur);
@@ -392,7 +392,7 @@ fn death_clip(rig: &MonsterRig) -> AnimationClip {
 }
 
 /// Head raise + jaw/maw open, chest swell.
-fn roar_clip(rig: &MonsterRig) -> AnimationClip {
+pub(crate) fn roar_clip(rig: &MonsterRig) -> AnimationClip {
     let g = &rig.gait;
     let dur = 1.5;
     let t = keys(20, dur);

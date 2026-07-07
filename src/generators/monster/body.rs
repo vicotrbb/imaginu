@@ -10,13 +10,13 @@ use glam::Vec3;
 use crate::gltf::{Collider, Physics};
 use crate::mesh::Mesh;
 use crate::palette::Palette;
-use crate::recipe::MonsterParams;
+use crate::recipe::BodyPlan;
 use crate::sdf::{mesh_field, sd_ellipsoid, sd_round_cone, smin};
 
 use super::rig::{MonsterRig, PrimKind, PrimTint, PrimitiveDesc};
 
 /// Evaluate one primitive at world point `p` given the joint world positions.
-pub(super) fn eval_prim(d: &PrimitiveDesc, world: &[Vec3], p: Vec3) -> f32 {
+pub(crate) fn eval_prim(d: &PrimitiveDesc, world: &[Vec3], p: Vec3) -> f32 {
     let a = world[d.joint_a];
     let b = world[d.joint_b];
     match d.kind {
@@ -40,7 +40,7 @@ pub(super) fn eval_prim(d: &PrimitiveDesc, world: &[Vec3], p: Vec3) -> f32 {
 /// with each primitive's own `k` (soft flesh), then bands are merged into the
 /// core with a *tight* cross-band blend so limbs meet the trunk at a crisp
 /// crease instead of a stretchy membrane.
-pub fn organic_field(rig: &MonsterRig) -> impl Fn(Vec3) -> f32 {
+pub(crate) fn organic_field(rig: &MonsterRig) -> impl Fn(Vec3) -> f32 {
     let world = rig.world();
     let prims = rig.prims.clone();
     let max_rank = prims.iter().map(|d| d.fold_rank).max().unwrap_or(0);
@@ -92,12 +92,19 @@ fn region_of(rig: &MonsterRig, world: &[Vec3], p: Vec3) -> (u8, PrimTint) {
 
 /// Mesh the body from the composed field, colored by region from the palette.
 /// `emissive > 0` tints a deterministic fraction of vertices with the accent.
-pub fn build_body(rig: &MonsterRig, p: &MonsterParams, pal: &Palette) -> Mesh {
+pub(crate) fn build_body(
+    rig: &MonsterRig,
+    size: f32,
+    detail: f32,
+    seed: u64,
+    emissive: f32,
+    pal: &Palette,
+) -> Mesh {
     let world = rig.world();
     let field = organic_field(rig);
     let (lo, hi) = rig.bounds;
-    let s = p.size.clamp(0.2, 4.0);
-    let detail = p.detail.clamp(0.5, 2.0);
+    let s = size.clamp(0.2, 4.0);
+    let detail = detail.clamp(0.5, 2.0);
     // cell scaled by detail; clamp so huge/tiny creatures stay affordable.
     let cell = (0.028 * s / detail).clamp(0.012, 0.12);
 
@@ -112,9 +119,8 @@ pub fn build_body(rig: &MonsterRig, p: &MonsterParams, pal: &Palette) -> Mesh {
     // shaded toward the hide so armor still reads as part of the same animal.
     let bone = crate::palette::lerp(crate::palette::srgb(206, 196, 172), dark, 0.25);
     let mid_y = (lo.y + hi.y) * 0.5;
-    let seed = p.seed;
     // clamp already yields 0.0 for the negative sentinel/class-default
-    let emissive_frac = p.emissive.clamp(0.0, 1.0);
+    let emissive_frac = emissive.clamp(0.0, 1.0);
 
     // deterministic 0..1 hash of a quantized world point (+ seed).
     let hash01 = |q: Vec3| -> f32 {
@@ -159,13 +165,12 @@ pub fn build_body(rig: &MonsterRig, p: &MonsterParams, pal: &Palette) -> Mesh {
 
 /// Fit a physics collider around the rig, shaped per body plan. Mass scales
 /// with the cube of size.
-pub fn fit_collider(rig: &MonsterRig, p: &MonsterParams) -> Physics {
-    use crate::recipe::BodyPlan;
-    let s = p.size.clamp(0.2, 4.0);
+pub(crate) fn fit_collider(rig: &MonsterRig, size: f32, plan: BodyPlan) -> Physics {
+    let s = size.clamp(0.2, 4.0);
     let (lo, hi) = rig.bounds;
     let ext = hi - lo;
     let half = ext * 0.5;
-    let collider = match p.body {
+    let collider = match plan {
         // sprawling / spindly plans: use the render mesh as a static collider
         BodyPlan::Arachnid | BodyPlan::Aberration => Collider::TriMesh,
         // low squat blob / bug: an axis-aligned box hugs the silhouette
@@ -191,13 +196,14 @@ pub fn fit_collider(rig: &MonsterRig, p: &MonsterParams) -> Physics {
 mod tests {
     use super::super::rig::build_rig;
     use super::*;
+    use crate::recipe::MonsterParams;
 
     #[test]
     fn quadruped_body_meshes_and_is_watertight_ish() {
         let p = MonsterParams::default();
         let pal = crate::palette::by_name("verdant");
         let rig = build_rig(&p);
-        let mesh = build_body(&rig, &p, &pal);
+        let mesh = build_body(&rig, p.size, p.detail, p.seed, p.emissive, &pal);
         assert!(mesh.positions.len() > 500, "non-trivial mesh");
         assert!(mesh.indices.len().is_multiple_of(3), "triangulated");
         // bounds sanity: mesh sits within padded rig bounds

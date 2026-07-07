@@ -4,10 +4,10 @@
 //! organic pass (smooth-min compose -> surface-net mesh -> family-restricted
 //! skin -> procedural clips).
 
-mod anim;
-mod body;
+pub(crate) mod anim;
+pub(crate) mod body;
 mod preset;
-mod rig;
+pub(crate) mod rig;
 
 use glam::Vec3;
 
@@ -26,9 +26,9 @@ pub fn generate(p: &MonsterParams, pal: &Palette) -> Asset {
     let p = &owned;
 
     let r = rig::build_rig(p);
-    let mut mesh = body::build_body(&r, p, pal);
+    let mut mesh = body::build_body(&r, p.size, p.detail, p.seed, p.emissive, pal);
     skin_body(&mut mesh, &r);
-    let phys = body::fit_collider(&r, p);
+    let phys = body::fit_collider(&r, p.size, p.body);
     let animations = if p.animate {
         anim::build_clips(&r, p)
     } else {
@@ -152,7 +152,7 @@ fn trunk_weight(
 /// mid-stride), then each vertex binds to its family's own bone segments with
 /// a smoothstep junction blend to the trunk. A trunk vertex can never grab a
 /// limb bone. Does NOT use the global `skeleton_segments`.
-fn skin_body(mesh: &mut Mesh, rig: &MonsterRig) {
+pub(crate) fn skin_body(mesh: &mut Mesh, rig: &MonsterRig) {
     use std::collections::{HashMap, HashSet};
     let world = rig.world();
     let g = &rig.gait;
