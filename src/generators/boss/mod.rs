@@ -14,6 +14,16 @@ mod rig;
 
 use meta::BossMeta;
 
+/// Approximate collider shape per archetype: the colossus is a stout biped,
+/// so it fits `BipedBrute` (a tighter capsule); the rest still fall back to
+/// `Serpent` (a low sprawling capsule) until Tasks 8-10 pick their own plans.
+fn collider_plan(a: crate::recipe::BossArchetype) -> crate::recipe::BodyPlan {
+    match a {
+        crate::recipe::BossArchetype::Colossus => crate::recipe::BodyPlan::BipedBrute,
+        _ => crate::recipe::BodyPlan::Serpent,
+    }
+}
+
 /// Real boss pipeline: archetype preset -> rig plan -> shared organic
 /// body/skin pass -> collider fit -> (clips in Task 6) -> `BossMeta`
 /// assembly (weak points, destructible parts, arena sizing).
@@ -48,8 +58,10 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
     // Whole-body collider reuses the monster fit; boss body plan approximated
     // by the closest monster BodyPlan for the collider shape. Serpent (a
     // capsule along the long axis) is the right approximation for the hydra's
-    // low sprawling torso + reared necks; Tasks 7-10 pick per-archetype plans.
-    let phys = body::fit_collider(&br.rig, p.size, crate::recipe::BodyPlan::Serpent);
+    // low sprawling torso + reared necks; the colossus is a biped, so it maps
+    // to BipedBrute. Tasks 8-10 pick plans for the remaining archetypes.
+    let plan = collider_plan(p.archetype);
+    let phys = body::fit_collider(&br.rig, p.size, plan);
 
     let animations = if p.animate {
         anim::build_boss_clips(&br.rig, p)

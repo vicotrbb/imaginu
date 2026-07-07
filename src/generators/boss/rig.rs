@@ -21,12 +21,13 @@ pub struct BossRig {
     pub parts: Vec<PartMeta>,
 }
 
-/// Dispatch on archetype. Only `Hydra` has a dedicated plan so far; the
-/// others fall back to it so dispatch stays total until Tasks 7-10 land.
+/// Dispatch on archetype. `Hydra` and `Colossus` have dedicated plans; the
+/// remaining archetypes fall back to `plan_hydra` so dispatch stays total
+/// until Tasks 8-10 land.
 pub fn build_boss_rig(p: &BossParams) -> BossRig {
     match p.archetype {
         BossArchetype::Hydra => plan_hydra(p),
-        BossArchetype::Colossus => plan_hydra(p),
+        BossArchetype::Colossus => plan_colossus(p),
         BossArchetype::Lich => plan_hydra(p),
         BossArchetype::SwarmQueen => plan_hydra(p),
         BossArchetype::DragonLord => plan_hydra(p),
@@ -311,6 +312,284 @@ fn add_dorsal_spikes(rig: &mut MonsterRig, s: f32, back: &[usize], heads: &[usiz
     }
 }
 
+/// Colossus: a massive humanoid stone golem built on the `biped_brute`
+/// layout scaled large — a heavy hunched trunk (hips/spine/chest/neck/head)
+/// with thick pillar legs, two destructible `arm.l`/`arm.r` limbs, and a
+/// glowing exposed `core` set into the chest cavity. Trunk is rank 0/1, legs
+/// and arms are rank-2 families (arms never fuse to each other or the torso
+/// since union-find only merges joints sharing a rank>=2 primitive), and the
+/// core + shoulder/chest armor plates fold LAST as their own high-rank
+/// families so they read crisp against the stone body (mirrors the hydra's
+/// neck-rank-2 / head-detail-rank-3..5 pattern).
+fn plan_colossus(p: &BossParams) -> BossRig {
+    let s = p.size.clamp(0.4, 8.0);
+    let bulk = 1.0 + 0.5 * p.menace.clamp(0.0, 1.0);
+    let armor = p.armor.clamp(0.0, 1.0);
+    let plates = p.plates.clamp(0.0, 1.0);
+    let horns = p.horns.clamp(0.0, 1.0);
+    let v = Vec3::new;
+    let mut r = RigBuilder::new();
+    let mut parts = Vec::new();
+    let mut weak_points = Vec::new();
+
+    // trunk (rank 0/1): a TALL, narrow-ish stone torso (a towering golem
+    // reads tall-and-heavy, not wide-and-round) — biped_brute's layout
+    // stretched up, with long legs underneath doing most of the height.
+    let hips = r.joint(None, "hips", v(0.0, 1.05 * s, 0.0));
+    let spine = r.joint(Some(hips), "spine", v(0.0, 1.30 * s, 0.0));
+    let chest = r.joint(Some(spine), "chest", v(0.0, 1.62 * s, -0.05 * s));
+    let neck = r.joint(Some(chest), "neck", v(0.0, 1.86 * s, 0.04 * s));
+    let head = r.joint(Some(neck), "head", v(0.0, 2.08 * s, 0.10 * s));
+    // NOTE: the trunk radii are kept DELIBERATELY modest relative to the
+    // arm/leg socket offsets below (`bk` only thickens a LITTLE beyond
+    // `bulk`, 0.1 not 0.3 per armor point): an oversized flat shoulder plate
+    // or barrel torso swallows the limbs into one featureless blob (the
+    // "engulfment" failure — visually a web even though skinning is clean),
+    // and separately widened limb sockets keep the trunk/limb SKIN families
+    // geometrically separated (the union-find "web" failure). "Heavy armor"
+    // instead reads through the dedicated pauldron/chestplate primitives
+    // pushed after `finish`, which sit ON TOP of (not inside) the silhouette.
+    let bk = bulk * (1.0 + 0.1 * armor);
+    r.ellip(hips, chest, 0.22 * s * bk, 0.06 * s, 0, 0.14 * s);
+    r.cone(hips, chest, 0.19 * s * bk, 0.24 * s * bk, 0, 0.14 * s);
+    r.flat(
+        chest,
+        chest,
+        v(0.32 * s * bk, 0.22 * s, 0.24 * s),
+        0,
+        0.1 * s,
+    ); // shoulders — narrower than the arm socket offset (0.46*s) so the
+    // arms read as attached limbs, not absorbed mass
+    r.cone(chest, neck, 0.14 * s, 0.11 * s, 1, 0.07 * s);
+    r.cone(neck, head, 0.10 * s, 0.14 * s, 1, 0.06 * s);
+    r.ellip(head, head, 0.16 * s, 0.0, 1, 0.05 * s);
+    parts.push(PartMeta {
+        name: "head".into(),
+        joint: "head".into(),
+        destructible: true,
+    });
+
+    // legs (rank 2, LONG thick planted pillars — grounding, not named parts,
+    // and most of the "towering" height reads through their length).
+    let mut legs = Vec::new();
+    for side in [-1.0f32, 1.0] {
+        let th = r.joint(Some(hips), "thigh", v(side * 0.22 * s, 0.95 * s, 0.0));
+        let sn = r.joint(Some(th), "shin", v(side * 0.23 * s, 0.5 * s, 0.02 * s));
+        let ft = r.joint(Some(sn), "foot", v(side * 0.24 * s, 0.04 * s, 0.15 * s));
+        r.cone(th, sn, 0.17 * s * bulk, 0.13 * s, 2, 0.02 * s);
+        r.cone(sn, ft, 0.13 * s, 0.09 * s, 2, 0.03 * s);
+        legs.push(vec![th, sn, ft]);
+    }
+
+    // arms (rank 2, each its OWN family since left/right never share a
+    // rank>=2 primitive) — chunky segmented limbs, named `arm.l`/`arm.r`,
+    // destructible.
+    for (side, name) in [(-1.0f32, "arm.l"), (1.0f32, "arm.r")] {
+        let sh = r.joint(
+            Some(chest),
+            &format!("{name}_upper"),
+            v(side * 0.46 * s, 1.58 * s, 0.0),
+        );
+        let el = r.joint(
+            Some(sh),
+            &format!("{name}_fore"),
+            v(side * 0.66 * s, 1.28 * s, 0.10 * s),
+        );
+        let hn = r.joint(
+            Some(el),
+            &format!("{name}_hand"),
+            v(side * 0.76 * s, 0.94 * s, 0.16 * s),
+        );
+        r.cone(sh, el, 0.17 * s * bulk, 0.135 * s * bulk, 2, 0.03 * s);
+        r.cone(el, hn, 0.135 * s, 0.11 * s, 2, 0.035 * s);
+        r.ellip(hn, hn, 0.13 * s, 0.0, 2, 0.03 * s); // huge stone fist
+        parts.push(PartMeta {
+            name: name.into(),
+            joint: format!("{name}_fore"),
+            destructible: true,
+        });
+    }
+
+    // chest core joint (rank 0/1-free: added to the builder now purely so it
+    // exists as a real skeleton joint for the weak point; its glowing prim is
+    // pushed AFTER `finish` with an explicit high fold rank + Eye tint so it
+    // never folds into the rank-0/1 trunk band). Positioned at 0.88x the
+    // chest cone's own forward radius so the glow sphere pokes clear of the
+    // stone surface — an EXPOSED core in a chest cavity, not one buried
+    // inside the torso where it would never be visible.
+    let chest_r2 = 0.24 * s * bk;
+    let core = r.joint(
+        Some(chest),
+        "core",
+        v(0.0, 1.60 * s, -0.05 * s + 0.88 * chest_r2),
+    );
+    // trunk anchor: a tiny near-invisible rank-1 spoke from chest to core so
+    // `core` is classified `is_trunk` (rigid to the spine chain) — the
+    // GLOWING sphere pushed after `finish` is still its own higher-rank
+    // family visually, but the joint's skin binding rides with the torso
+    // instead of racing the nearest-limb-family classifier against the arms
+    // (which sit right next to it and DO move independently under a pose).
+    r.cone(chest, core, 0.02 * s, 0.02 * s, 1, 0.02 * s);
+
+    if p.weak_points {
+        weak_points.push(WeakPointMeta {
+            name: "weak_point.core".into(),
+            joint: "core".into(),
+            collider: ColliderJson::Sphere {
+                radius: (0.22 + 0.06 * plates) * s,
+            },
+            offset: [0.0, 0.0, 0.0],
+            destructible: true,
+            phase: 2,
+        });
+    }
+
+    let gait = GaitDesc {
+        legs,
+        spine: vec![hips, spine, chest, neck, head],
+        wings: Vec::new(),
+        tail: Vec::new(),
+        head: Some(head),
+        style: Gait::Walk,
+    };
+    let mut rig = r.finish(gait);
+
+    // The glowing exposed core (own rank 3 family): a bright sphere set into
+    // the chest cavity, tinted Eye so the boss-level emissive floor (0.12)
+    // lights it regardless of the `emissive` knob.
+    push_flat(
+        &mut rig,
+        core,
+        core,
+        v(
+            (0.20 + 0.05 * plates) * s,
+            (0.20 + 0.05 * plates) * s,
+            (0.20 + 0.05 * plates) * s,
+        ),
+        3,
+        0.06 * s,
+        PrimTint::Eye,
+    );
+
+    // Escalated armor: heavy shoulder pauldrons flanking the core (rank 4,
+    // Horn tint = stone plating, NOT glowing) — these are the "phase 1
+    // covered by plates" reading over the core, and a small back-plate ridge.
+    add_armor_plates(&mut rig, chest, core, s, 0.5 + 0.5 * armor.max(plates));
+    add_horn_crown(&mut rig, head, s, horns);
+
+    rig.bounds = crate::generators::monster::rig::compute_bounds(&rig);
+
+    BossRig {
+        rig,
+        weak_points,
+        parts,
+    }
+}
+
+/// Heavy stone shoulder pauldrons flanking the chest core, plus a small
+/// spine-ridge plate — `intensity` (0..1, from `armor`/`plates` knobs) scales
+/// their size. Own rank-4 family per plate (children of `chest`), so they
+/// never web to the trunk or to each other.
+fn add_armor_plates(rig: &mut MonsterRig, chest: usize, core: usize, s: f32, intensity: f32) {
+    let v = Vec3::new;
+    let cp = rig.joint_world(chest);
+    let k = 0.12 + 0.09 * intensity;
+    for side in [-1.0f32, 1.0] {
+        let pb = add_joint(
+            rig,
+            chest,
+            "pauldron",
+            cp + v(side * 0.44 * s, 0.14 * s, 0.0),
+        );
+        // trunk anchor (see `core`'s spoke above): keeps the pauldron rigid
+        // to the torso instead of racing the nearby arm for nearest-family.
+        push_cone(
+            rig,
+            chest,
+            pb,
+            0.02 * s,
+            0.02 * s,
+            1,
+            0.02 * s,
+            PrimTint::Body,
+        );
+        push_flat(
+            rig,
+            pb,
+            pb,
+            v(k * s, k * 0.7 * s, k * 0.9 * s),
+            4,
+            0.05 * s,
+            PrimTint::Horn,
+        );
+    }
+    // a small brow-plate ridge just above the core, reinforcing the "phase 1
+    // covered by plates" silhouette without occluding the glow entirely.
+    let core_p = rig.joint_world(core);
+    let bp = add_joint(
+        rig,
+        chest,
+        "chestplate",
+        core_p + v(0.0, 0.16 * s, -0.03 * s),
+    );
+    push_cone(
+        rig,
+        chest,
+        bp,
+        0.02 * s,
+        0.02 * s,
+        1,
+        0.02 * s,
+        PrimTint::Body,
+    );
+    push_flat(
+        rig,
+        bp,
+        bp,
+        v((0.30 + 0.1 * intensity) * s, 0.08 * s, 0.05 * s),
+        4,
+        0.05 * s,
+        PrimTint::Horn,
+    );
+}
+
+/// A small ring of stubby stone horns around the head crown — `horns` (0..1)
+/// scales count/size. Own rank-5 family, children of `head`.
+fn add_horn_crown(rig: &mut MonsterRig, head: usize, s: f32, horns: f32) {
+    if horns <= 0.0 {
+        return;
+    }
+    let v = Vec3::new;
+    let hp = rig.joint_world(head);
+    let n = 2 + (horns * 2.0).round() as usize; // 2..4
+    for i in 0..n {
+        let f = (i as f32 / n.max(1) as f32) * std::f32::consts::TAU;
+        let dir = v(f.cos(), 0.0, f.sin());
+        let hb = add_joint(
+            rig,
+            head,
+            "horn",
+            hp + v(0.0, 0.18 * s, 0.0) + dir * 0.05 * s,
+        );
+        let ht = add_joint(
+            rig,
+            hb,
+            "horn_tip",
+            hp + v(0.0, (0.18 + 0.16 * horns) * s, 0.0) + dir * 0.09 * s,
+        );
+        push_cone(
+            rig,
+            hb,
+            ht,
+            0.035 * s * horns.max(0.3),
+            0.008 * s,
+            5,
+            0.012 * s,
+            PrimTint::Horn,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -365,6 +644,94 @@ mod tests {
             }
         }
         m
+    }
+
+    #[test]
+    fn colossus_rig_is_wellformed() {
+        let br = build_boss_rig(&boss(r#"{"kind":"boss","archetype":"colossus"}"#));
+        let n = br.rig.skeleton.joints.len();
+        assert!(br.rig.prims.iter().all(|d| d.joint_a < n && d.joint_b < n));
+        assert!(br.rig.prims.iter().any(|d| d.fold_rank == 0), "has a core");
+        assert!(
+            br.parts.iter().any(|p| p.name == "arm.l" && p.destructible),
+            "has destructible arm.l"
+        );
+        assert!(
+            br.parts.iter().any(|p| p.name == "arm.r" && p.destructible),
+            "has destructible arm.r"
+        );
+        assert!(br.parts.iter().any(|p| p.name == "head"), "has head part");
+        assert!(
+            br.weak_points
+                .iter()
+                .any(|w| w.name == "weak_point.core" && w.joint == "core" && w.destructible)
+        );
+        assert!(
+            br.rig.skeleton.joints.iter().any(|j| j.name == "core"),
+            "has a core joint"
+        );
+    }
+
+    #[test]
+    fn colossus_hostile_input_cannot_panic() {
+        let br = build_boss_rig(&boss(
+            r#"{"kind":"boss","archetype":"colossus","size":1e30,"phases":999,"eyes":999999,"horns":1e30,"plates":1e30,"armor":1e30}"#,
+        ));
+        let n = br.rig.skeleton.joints.len();
+        assert!(br.rig.prims.iter().all(|d| d.joint_a < n && d.joint_b < n));
+        assert!(n < 2000, "joint count bounded: {n}");
+    }
+
+    #[test]
+    fn colossus_skinning_has_no_webs() {
+        let p = boss(r#"{"kind":"boss","archetype":"colossus","element":"necrotic"}"#);
+        let br = build_boss_rig(&p);
+        let pal = crate::palette::by_name("necrotic");
+        let mut mesh = super::super::body::build_body(&br.rig, p.size, p.detail, p.seed, 0.0, &pal);
+        mesh.validate()
+            .expect("bind mesh valid (no degenerate/zero-area tris)");
+        crate::generators::monster::skin_body(&mut mesh, &br.rig);
+        assert!(mesh.is_skinned(), "boss mesh must be skinned");
+
+        // synthetic clip: swing both arms + bend one leg so the destructible
+        // limb junctions actually move relative to the torso — the web risk
+        // this probe targets.
+        let skel = &br.rig.skeleton;
+        let mut channels = Vec::new();
+        for (i, j) in skel.joints.iter().enumerate() {
+            if j.name.contains("upper") || j.name.contains("fore") || j.name == "thigh" {
+                channels.push(crate::gltf::Channel {
+                    joint: i,
+                    times: vec![0.0, 1.0],
+                    data: crate::gltf::ChannelData::Rotation(vec![
+                        Quat::IDENTITY,
+                        Quat::from_rotation_x(0.6),
+                    ]),
+                });
+            }
+        }
+        let clip = crate::gltf::AnimationClip {
+            name: "probe".into(),
+            channels,
+        };
+        let globals = crate::anim::pose_at(skel, &clip, 1.0);
+        let ibms: Vec<Mat4> = (0..skel.joints.len())
+            .map(|i| skel.global(i).inverse())
+            .collect();
+        let posed = crate::anim::skin_mesh(&mesh, &globals, &ibms);
+
+        let moved = mesh
+            .positions
+            .iter()
+            .zip(&posed.positions)
+            .any(|(a, b)| a.distance(*b) > 0.01);
+        assert!(moved, "limb bend pose should deform the mesh");
+
+        let stretch = max_edge_stretch(&mesh, &posed);
+        assert!(
+            stretch < 8.0,
+            "edge stretch {stretch} indicates a skinning web between arms/core/torso"
+        );
     }
 
     #[test]

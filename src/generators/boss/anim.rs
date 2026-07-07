@@ -431,7 +431,7 @@ mod tests {
         let names: Vec<_> = clips.iter().map(|c| c.name.as_str()).collect();
         for want in [
             "idle",
-            "slither", // hydra locomotion (gait style = Slither)
+            "walk", // colossus locomotion (biped, gait style = Walk)
             "telegraph",
             "phase_transition",
             "enrage",
