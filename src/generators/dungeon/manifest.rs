@@ -53,6 +53,12 @@ pub struct DoorEntry {
 pub struct SpawnEntry {
     pub kind: String,
     pub pos: [f32; 3],
+    /// Asset the spawn should instantiate (currently only the boss spawn,
+    /// when the dungeon carries an inline `boss`). Absent for every other
+    /// spawn kind, and `skip_serializing_if` keeps the key out of the JSON
+    /// entirely so boss-less manifests stay byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 pub fn theme_name(t: DungeonTheme) -> &'static str {
@@ -105,6 +111,7 @@ pub fn create(m: &DungeonModel) -> Manifest {
         .map(|s| SpawnEntry {
             kind: s.kind.name().into(),
             pos: [s.pos.x, s.pos.y, s.pos.z],
+            file: None,
         })
         .collect();
     Manifest {
@@ -133,7 +140,26 @@ pub fn write_dir(m: &DungeonModel, dir: &Path) -> Result<(), String> {
         let path = dir.join(room_file(room.id));
         std::fs::write(&path, &glb).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
     }
-    let man = create(m);
+    let mut man = create(m);
+    if let Some(bp) = &m.p.boss {
+        let room = m
+            .rooms
+            .iter()
+            .find(|r| r.kind == super::model::RoomKind::Boss)
+            .ok_or("dungeon has a `boss` but no boss room (single-room layout?)")?;
+        let spawn = m
+            .spawns
+            .iter()
+            .find(|s| s.kind == super::model::SpawnKind::Boss)
+            .ok_or("dungeon has a `boss` but no boss spawn point")?;
+        let asset = super::place_boss(bp, room, spawn.pos);
+        let glb = crate::gltf::to_glb(&asset);
+        let path = dir.join("boss.glb");
+        std::fs::write(&path, &glb).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+        if let Some(entry) = man.spawn_points.iter_mut().find(|s| s.kind == "boss") {
+            entry.file = Some("boss.glb".into());
+        }
+    }
     let json = serde_json::to_string_pretty(&man).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("manifest.json"), json)
         .map_err(|e| format!("cannot write manifest.json: {e}"))?;
@@ -173,6 +199,17 @@ pub fn validate_dir(dir: &Path) -> Result<String, String> {
             Some(n) => tris_total += n,
             None => tris_known = false,
         }
+    }
+    for s in &man.spawn_points {
+        let Some(f) = &s.file else { continue };
+        let path = dir.join(f);
+        if !path.exists() {
+            return Err(format!("spawn '{}' references missing file {f}", s.kind));
+        }
+        crate::validate::validate_glb(&path).map_err(|e| format!("{f}: {e}"))?;
+        let bytes =
+            std::fs::read(&path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        crate::validate::validate_boss_bytes(&bytes).map_err(|e| format!("{f}: {e}"))?;
     }
     // Keep the tri count a diagnostic: report it only when every room's GLB
     // summary parsed cleanly, so an unexpected format never masquerades as 0.
@@ -233,6 +270,32 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("imaginu_dtest_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         write_dir(&m, &dir).unwrap();
+        let summary = validate_dir(&dir).unwrap();
+        assert!(summary.contains("rooms"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dungeon_emits_and_references_inline_boss() {
+        let p = params(
+            r#"{"kind":"dungeon","type":"crypt","size":"small","boss":{"archetype":"hydra","element":"necrotic"}}"#,
+        );
+        assert!(p.boss.is_some());
+        let m = DungeonModel::new(&p, &by_name("necrotic")).unwrap();
+        let dir = std::env::temp_dir().join(format!("imaginu_boss_dtest_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write_dir(&m, &dir).unwrap();
+        assert!(dir.join("boss.glb").exists());
+
+        let text = std::fs::read_to_string(dir.join("manifest.json")).unwrap();
+        let man: Manifest = serde_json::from_str(&text).unwrap();
+        let boss_spawn = man
+            .spawn_points
+            .iter()
+            .find(|s| s.kind == "boss")
+            .expect("boss spawn present");
+        assert_eq!(boss_spawn.file.as_deref(), Some("boss.glb"));
+
         let summary = validate_dir(&dir).unwrap();
         assert!(summary.contains("rooms"));
         let _ = std::fs::remove_dir_all(&dir);

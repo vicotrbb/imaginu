@@ -395,7 +395,7 @@ pub enum BossElement {
 /// Palette an element maps to (used only when the recipe left the default
 /// palette). Every arm MUST be a name in `palette::PALETTES`
 /// (verdant, autumn, arctic, volcanic, desert, mystic, necrotic, infernal, fungal).
-fn element_palette(e: BossElement) -> &'static str {
+pub(crate) fn element_palette(e: BossElement) -> &'static str {
     match e {
         BossElement::Infernal => "infernal",
         BossElement::Necrotic => "necrotic",
@@ -521,6 +521,10 @@ pub struct DungeonParams {
     /// Tessellation multiplier 0.5..2.0.
     #[serde(default = "d_one")]
     pub detail: f32,
+    /// Optional inline boss: when set, the boss room's `Boss` spawn also
+    /// emits+places a scaled `boss.glb` and references it in the manifest.
+    #[serde(default)]
+    pub boss: Option<BossParams>,
 }
 fn d_loops() -> f32 {
     0.3
