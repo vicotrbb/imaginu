@@ -210,7 +210,42 @@ fn wardrobe(r: &mut Rand, pal: &Palette, class: CharacterClass, tone: Option<u32
 /// never grab arm bones — the phase-2 flying-shoulder lesson) with the
 /// pelvis/glutes rigid to HIPS so strides can't tear the crotch.
 #[allow(clippy::too_many_arguments)]
-fn organic_body(
+/// Body-part family, used both to bucket the hierarchical SDF blend and to
+/// restrict skinning weights to anatomically-plausible bone groups.
+#[derive(Clone, Copy, PartialEq)]
+enum Fam {
+    Pelvis,
+    Torso,
+    ArmL,
+    ArmR,
+    LegL,
+    LegR,
+}
+
+enum Shape {
+    Sphere(Vec3, f32),
+    Cone(Vec3, Vec3, f32, f32),
+    ConeScaled(Vec3, Vec3, f32, f32, Vec3, Vec3),
+    Ellipsoid(Vec3, Vec3),
+}
+impl Shape {
+    fn eval(&self, p: Vec3) -> f32 {
+        use crate::sdf::{sd_ellipsoid, sd_round_cone, sd_sphere};
+        match *self {
+            Shape::Sphere(c, r) => sd_sphere(p, c, r),
+            Shape::Cone(a, b, r1, r2) => sd_round_cone(p, a, b, r1, r2),
+            Shape::ConeScaled(a, b, r1, r2, o, s) => {
+                crate::sdf::sd_round_cone_scaled(p, a, b, r1, r2, o, s)
+            }
+            Shape::Ellipsoid(c, r) => sd_ellipsoid(p, c, r),
+        }
+    }
+}
+
+/// Build the body's SDF part list: hips/torso/limbs as a flat vec of
+/// (family, color, shape) tuples. Shared by the body mesher and by garment
+/// shells, which offset-inflate this same field so cloth follows anatomy.
+fn body_parts(
     rig: &Rig,
     h: f32,
     bulk: f32,
@@ -218,9 +253,7 @@ fn organic_body(
     pr: &Proportions,
     w: &Wardrobe,
     forearm_col: Vec3,
-    det: f32,
-) -> Mesh {
-    use crate::sdf::{sd_ellipsoid, sd_round_cone, sd_sphere, smin};
+) -> Vec<(Fam, Vec3, Shape)> {
     let jw = |i: usize| rig.world[i];
     let (hips, spine, chest, neck) = (jw(HIPS), jw(SPINE), jw(CHEST), jw(NECK));
     let arm_r = pr.arm_r;
@@ -233,33 +266,6 @@ fn organic_body(
     let waist_k = pr.waist / baseline.waist;
     let hip_k = pr.hip_w / baseline.hip_w;
 
-    #[derive(Clone, Copy, PartialEq)]
-    enum Fam {
-        Pelvis,
-        Torso,
-        ArmL,
-        ArmR,
-        LegL,
-        LegR,
-    }
-    enum Shape {
-        Sphere(Vec3, f32),
-        Cone(Vec3, Vec3, f32, f32),
-        ConeScaled(Vec3, Vec3, f32, f32, Vec3, Vec3),
-        Ellipsoid(Vec3, Vec3),
-    }
-    impl Shape {
-        fn eval(&self, p: Vec3) -> f32 {
-            match *self {
-                Shape::Sphere(c, r) => sd_sphere(p, c, r),
-                Shape::Cone(a, b, r1, r2) => sd_round_cone(p, a, b, r1, r2),
-                Shape::ConeScaled(a, b, r1, r2, o, s) => {
-                    crate::sdf::sd_round_cone_scaled(p, a, b, r1, r2, o, s)
-                }
-                Shape::Ellipsoid(c, r) => sd_ellipsoid(p, c, r),
-            }
-        }
-    }
     let mut parts: Vec<(Fam, Vec3, Shape)> = Vec::new();
     // hips & seat
     parts.push((
@@ -462,16 +468,33 @@ fn organic_body(
             ),
         ));
     }
+    parts
+}
 
-    // hierarchical blending: soft flesh fillets WITHIN the trunk and within
-    // each limb, but a tight junction BETWEEN trunk and limbs — a deep
-    // armpit/groin crease instead of a webbed bridge that stretches when
-    // the limb swings
+/// Hierarchical-blend SDF over a body part list: soft flesh fillets WITHIN
+/// the trunk and within each limb, but a tight junction BETWEEN trunk and
+/// limbs — a deep armpit/groin crease instead of a webbed bridge that
+/// stretches when the limb swings. `spine_y`/`chest_y` drive the
+/// shoulder-ramped arm fillet.
+///
+/// ORDER MATTERS: legs fold into the trunk FIRST (soft flesh at the groin),
+/// and arms fold LAST with a shoulder-ramped fillet that hits hard-min below
+/// the chest — otherwise the hand hanging beside the thigh fuses to it
+/// through the leg blend and every big arm swing drags a membrane along
+/// (found via stretched-triangle probe: forearm-weighted verts sharing
+/// triangles with thigh-weighted ones).
+fn body_sdf(
+    parts: &[(Fam, Vec3, Shape)],
+    h: f32,
+    spine_y: f32,
+    chest_y: f32,
+) -> impl Fn(Vec3) -> f32 + '_ {
+    use crate::sdf::smin;
     let k_soft = h * 0.022;
     let k_tight = h * 0.008;
-    let field = |p: Vec3| -> f32 {
+    move |p: Vec3| -> f32 {
         let mut groups = [f32::INFINITY; 6];
-        for (f, _, s) in &parts {
+        for (f, _, s) in parts {
             let i = match f {
                 Fam::Pelvis => 0usize,
                 Fam::Torso => 0, // pelvis+torso are one flesh mass
@@ -483,44 +506,45 @@ fn organic_body(
             groups[i] = smin(groups[i], s.eval(p), k_soft);
         }
         let mut d = groups[0];
-        // ORDER MATTERS: legs fold into the trunk FIRST (soft flesh at the
-        // groin), and arms fold LAST with a shoulder-ramped fillet that
-        // hits hard-min below the chest — otherwise the hand hanging beside
-        // the thigh fuses to it through the leg blend and every big arm
-        // swing drags a membrane along (found via stretched-triangle probe:
-        // forearm-weighted verts sharing triangles with thigh-weighted ones)
         for g in [groups[4], groups[5]] {
             d = smin(d, g, h * 0.016);
         }
-        let shoulder_t = ((p.y - spine.y) / (chest.y - spine.y)).clamp(0.0, 1.0);
+        let shoulder_t = ((p.y - spine_y) / (chest_y - spine_y)).clamp(0.0, 1.0);
         let k_arm = k_tight * shoulder_t * shoulder_t;
         for g in [groups[2], groups[3]] {
             d = smin(d, g, k_arm);
         }
         d
-    };
+    }
+}
+
+/// Body v7: ONE smoothly-blended SDF (pelvis, glutes, belly, chest, traps,
+/// deltoids, tapered limbs under smooth-min) meshed with surface nets — a
+/// single continuous organic surface, no part seams. Colors resolve by the
+/// dominant sub-field; skin weights are family-restricted (torso verts can
+/// never grab arm bones — the phase-2 flying-shoulder lesson) with the
+/// pelvis/glutes rigid to HIPS so strides can't tear the crotch.
+#[allow(clippy::too_many_arguments)]
+fn organic_body(
+    rig: &Rig,
+    h: f32,
+    bulk: f32,
+    sw: f32,
+    pr: &Proportions,
+    w: &Wardrobe,
+    forearm_col: Vec3,
+    det: f32,
+) -> Mesh {
+    let jw = |i: usize| rig.world[i];
+    let (hips, spine, chest, neck) = (jw(HIPS), jw(SPINE), jw(CHEST), jw(NECK));
+    let parts = body_parts(rig, h, bulk, sw, pr, w, forearm_col);
+    let field = body_sdf(&parts, h, spine.y, chest.y);
     // family classifier: min distance per family, with limbs biased so
     // smooth-min blend zones (hand-near-hip, neck-chest) resolve to the
     // trunk instead of flipping noisily — this drives BOTH color regions
     // and weight families, so a hip vertex can never grab an arm bone
-    let fi = |f: Fam| match f {
-        Fam::Pelvis => 0,
-        Fam::Torso => 1,
-        Fam::ArmL => 2,
-        Fam::ArmR => 3,
-        Fam::LegL => 4,
-        Fam::LegR => 5,
-    };
-    let fam_dists = |p: Vec3| -> [f32; 6] {
-        let mut d = [f32::INFINITY; 6];
-        for (f, _, s) in &parts {
-            let i = fi(*f);
-            d[i] = d[i].min(s.eval(p));
-        }
-        d
-    };
     let fam_of = |p: Vec3| -> Fam {
-        let d = fam_dists(p);
+        let d = fam_dists(&parts, p);
         let bias = h * 0.008;
         let ranked = [
             (d[0], Fam::Pelvis),
@@ -589,98 +613,126 @@ fn organic_body(
     let hi = Vec3::new(sw + h * 0.07, neck.y + h * 0.09, h * 0.13 * bulk + h * 0.03);
     let mut m = crate::sdf::mesh_field(lo, hi, cell, &field, &color);
 
-    // family-restricted smooth weights: inverse-distance over the family's
-    // bone segments only; pelvis/glutes rigid to HIPS
-    let seg_w = |p: Vec3, pairs: &[(usize, usize)]| -> ([u16; 4], [f32; 4]) {
-        let mut joints = [0u16; 4];
-        let mut weights = [0f32; 4];
-        let mut sum = 0.0;
-        for (i, &(ja, jb)) in pairs.iter().enumerate().take(4) {
-            let (a, b) = (jw(ja), jw(jb));
-            let ab = b - a;
-            let t = if ab.length_squared() < 1e-12 {
-                0.0
-            } else {
-                ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
-            };
-            let d = p.distance(a + ab * t);
-            let wgt = 1.0 / (d + 1e-4).powi(4);
-            joints[i] = ja as u16;
-            weights[i] = wgt;
-            sum += wgt;
-        }
-        for w in &mut weights {
-            *w /= sum;
-        }
-        (joints, weights)
-    };
     m.joints = Vec::with_capacity(m.positions.len());
     m.weights = Vec::with_capacity(m.positions.len());
-    // strongest two influences of a 4-slot weight set
-    let top2 = |j: [u16; 4], w: [f32; 4]| -> [(u16, f32); 2] {
-        let mut v: Vec<(u16, f32)> = j.iter().copied().zip(w.iter().copied()).collect();
-        v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
-        [v[0], v[1]]
-    };
     for &p in &m.positions.clone() {
-        let d = fam_dists(p);
-        // trunk weights (pelvis rigid, torso on the spine chain)
-        let trunk_d = d[0].min(d[1]);
-        let trunk: ([u16; 4], [f32; 4]) = if d[0] < d[1] {
-            ([HIPS as u16, 0, 0, 0], [1.0, 0.0, 0.0, 0.0])
-        } else {
-            seg_w(p, &[(HIPS, SPINE), (SPINE, CHEST), (CHEST, NECK)])
-        };
-        // nearest limb family
-        let limbs = [
-            (d[2], [(ARM_L, FOREARM_L), (FOREARM_L, HAND_L)]),
-            (d[3], [(ARM_R, FOREARM_R), (FOREARM_R, HAND_R)]),
-            (d[4], [(THIGH_L, SHIN_L), (SHIN_L, FOOT_L)]),
-            (d[5], [(THIGH_R, SHIN_R), (SHIN_R, FOOT_R)]),
-        ];
-        let (limb_d, limb_pairs) = limbs
-            .iter()
-            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap())
-            .map(|(dd, pr)| (*dd, *pr))
-            .unwrap();
-        // smooth transition across the junction: hard switches leave a
-        // stretched membrane in the armpit the moment an arm is raised
-        // blend ONLY at true junctions (both families within reach) —
-        // otherwise even 10% cross-weight smears a surface into a web the
-        // moment the limb rotates far from its bind pose
-        let near = h * 0.012;
-        let tw = h * 0.020;
-        let s = ((trunk_d - limb_d) / tw * 0.5 + 0.5).clamp(0.0, 1.0);
-        let s = s * s * (3.0 - 2.0 * s);
-        let (j, wt) = if trunk_d <= limb_d && limb_d > near {
-            trunk
-        } else if limb_d < trunk_d && trunk_d > near {
-            seg_w(p, &limb_pairs)
-        } else if s <= 0.001 {
-            trunk
-        } else if s >= 0.999 {
-            seg_w(p, &limb_pairs)
-        } else {
-            let t2 = top2(trunk.0, trunk.1);
-            let l = seg_w(p, &limb_pairs);
-            let l2 = top2(l.0, l.1);
-            let joints = [t2[0].0, t2[1].0, l2[0].0, l2[1].0];
-            let mut weights = [
-                t2[0].1 * (1.0 - s),
-                t2[1].1 * (1.0 - s),
-                l2[0].1 * s,
-                l2[1].1 * s,
-            ];
-            let sum: f32 = weights.iter().sum();
-            for w in &mut weights {
-                *w /= sum;
-            }
-            (joints, weights)
-        };
+        let (j, wt) = skin_weights(rig, &parts, h, p);
         m.joints.push(j);
         m.weights.push(wt);
     }
     m
+}
+
+/// Min distance to each of the 6 body-part families, at point `p`.
+fn fam_dists(parts: &[(Fam, Vec3, Shape)], p: Vec3) -> [f32; 6] {
+    let fi = |f: Fam| match f {
+        Fam::Pelvis => 0,
+        Fam::Torso => 1,
+        Fam::ArmL => 2,
+        Fam::ArmR => 3,
+        Fam::LegL => 4,
+        Fam::LegR => 5,
+    };
+    let mut d = [f32::INFINITY; 6];
+    for (f, _, s) in parts {
+        let i = fi(*f);
+        d[i] = d[i].min(s.eval(p));
+    }
+    d
+}
+
+/// Family-restricted smooth weights: inverse-distance over the family's
+/// bone segments only; pelvis/glutes rigid to HIPS.
+fn seg_w(rig: &Rig, p: Vec3, pairs: &[(usize, usize)]) -> ([u16; 4], [f32; 4]) {
+    let jw = |i: usize| rig.world[i];
+    let mut joints = [0u16; 4];
+    let mut weights = [0f32; 4];
+    let mut sum = 0.0;
+    for (i, &(ja, jb)) in pairs.iter().enumerate().take(4) {
+        let (a, b) = (jw(ja), jw(jb));
+        let ab = b - a;
+        let t = if ab.length_squared() < 1e-12 {
+            0.0
+        } else {
+            ((p - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
+        };
+        let d = p.distance(a + ab * t);
+        let wgt = 1.0 / (d + 1e-4).powi(4);
+        joints[i] = ja as u16;
+        weights[i] = wgt;
+        sum += wgt;
+    }
+    for w in &mut weights {
+        *w /= sum;
+    }
+    (joints, weights)
+}
+
+/// Strongest two influences of a 4-slot weight set.
+fn top2(j: [u16; 4], w: [f32; 4]) -> [(u16, f32); 2] {
+    let mut v: Vec<(u16, f32)> = j.iter().copied().zip(w.iter().copied()).collect();
+    v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
+    [v[0], v[1]]
+}
+
+/// Per-vertex skinning weights shared by the body mesh and garment shells:
+/// trunk (pelvis/spine chain) vs. nearest limb, smoothly blended across the
+/// armpit/groin junction so cloth and skin move together with the rig.
+fn skin_weights(rig: &Rig, parts: &[(Fam, Vec3, Shape)], h: f32, p: Vec3) -> ([u16; 4], [f32; 4]) {
+    let d = fam_dists(parts, p);
+    // trunk weights (pelvis rigid, torso on the spine chain)
+    let trunk_d = d[0].min(d[1]);
+    let trunk: ([u16; 4], [f32; 4]) = if d[0] < d[1] {
+        ([HIPS as u16, 0, 0, 0], [1.0, 0.0, 0.0, 0.0])
+    } else {
+        seg_w(rig, p, &[(HIPS, SPINE), (SPINE, CHEST), (CHEST, NECK)])
+    };
+    // nearest limb family
+    let limbs = [
+        (d[2], [(ARM_L, FOREARM_L), (FOREARM_L, HAND_L)]),
+        (d[3], [(ARM_R, FOREARM_R), (FOREARM_R, HAND_R)]),
+        (d[4], [(THIGH_L, SHIN_L), (SHIN_L, FOOT_L)]),
+        (d[5], [(THIGH_R, SHIN_R), (SHIN_R, FOOT_R)]),
+    ];
+    let (limb_d, limb_pairs) = limbs
+        .iter()
+        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap())
+        .map(|(dd, pr)| (*dd, *pr))
+        .unwrap();
+    // smooth transition across the junction: hard switches leave a
+    // stretched membrane in the armpit the moment an arm is raised
+    // blend ONLY at true junctions (both families within reach) —
+    // otherwise even 10% cross-weight smears a surface into a web the
+    // moment the limb rotates far from its bind pose
+    let near = h * 0.012;
+    let tw = h * 0.020;
+    let s = ((trunk_d - limb_d) / tw * 0.5 + 0.5).clamp(0.0, 1.0);
+    let s = s * s * (3.0 - 2.0 * s);
+    if trunk_d <= limb_d && limb_d > near {
+        trunk
+    } else if limb_d < trunk_d && trunk_d > near {
+        seg_w(rig, p, &limb_pairs)
+    } else if s <= 0.001 {
+        trunk
+    } else if s >= 0.999 {
+        seg_w(rig, p, &limb_pairs)
+    } else {
+        let t2 = top2(trunk.0, trunk.1);
+        let l = seg_w(rig, p, &limb_pairs);
+        let l2 = top2(l.0, l.1);
+        let joints = [t2[0].0, t2[1].0, l2[0].0, l2[1].0];
+        let mut weights = [
+            t2[0].1 * (1.0 - s),
+            t2[1].1 * (1.0 - s),
+            l2[0].1 * s,
+            l2[1].1 * s,
+        ];
+        let sum: f32 = weights.iter().sum();
+        for w in &mut weights {
+            *w /= sum;
+        }
+        (joints, weights)
+    }
 }
 
 /// Boot: sculpted from a shared-vertex icosphere (cuboids are flat-shaded
