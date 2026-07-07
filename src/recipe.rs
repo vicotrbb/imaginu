@@ -259,6 +259,168 @@ fn d_char_h() -> f32 {
     1.7
 }
 
+fn d_zero() -> f32 {
+    0.0
+}
+/// Sentinel meaning "let the body plan / class decide" for optional f32 knobs.
+fn d_neg1() -> f32 {
+    -1.0
+}
+/// Sentinel meaning "let the body plan / class decide" for the eye count.
+fn d_neg1_i32() -> i32 {
+    -1
+}
+
+/// Monster body plan — the skeleton template that drives limb count/placement,
+/// gait, and collider shape.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BodyPlan {
+    BipedBrute,
+    #[default]
+    QuadrupedBeast,
+    #[serde(alias = "wyrm")]
+    Serpent,
+    Arachnid,
+    WingedFlyer,
+    #[serde(alias = "blob")]
+    Ooze,
+    Insectoid,
+    Aberration,
+}
+
+/// Preset bundle over the monster knobs, like character `class`. `None` leaves
+/// every knob at its plan default.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MonsterClass {
+    #[default]
+    None,
+    Predator,
+    Brute,
+    Elemental,
+    Undead,
+    Aberration,
+    Swarm,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MonsterParams {
+    #[serde(default = "d_seed")]
+    pub seed: u64,
+    /// One of the 8 body plans (accepts `species` as an alias).
+    #[serde(default, alias = "species")]
+    pub body: BodyPlan,
+    /// Preset bundle applied before the plan builds (explicit knobs still win).
+    #[serde(default)]
+    pub class: MonsterClass,
+    /// Overall scale — drives geometry, collider size, and mass (accepts `bulk`).
+    #[serde(default = "d_one", alias = "bulk")]
+    pub size: f32,
+    /// 0..1 — horn prominence.
+    #[serde(default = "d_zero")]
+    pub horns: f32,
+    /// 0..1 — dorsal spike ridge.
+    #[serde(default = "d_zero")]
+    pub spikes: f32,
+    /// 0..1 — armor plating.
+    #[serde(default = "d_zero")]
+    pub plates: f32,
+    /// 0..1 tail length; `-1` = plan default, `0` disables.
+    #[serde(default = "d_neg1")]
+    pub tail: f32,
+    /// 0..1 wing size; `-1` = plan default, `0` disables.
+    #[serde(default = "d_neg1")]
+    pub wings: f32,
+    /// Eye count; `-1` = plan/class default.
+    #[serde(default = "d_neg1_i32")]
+    pub eyes: i32,
+    /// 0..1 jaw/teeth prominence; `-1` = plan default.
+    #[serde(default = "d_neg1")]
+    pub maw: f32,
+    /// 0..1 — proportion slider (heavier, more threatening build).
+    #[serde(default = "d_zero")]
+    pub menace: f32,
+    /// 0..1 — wear/erosion detail (ancient, undead reads).
+    #[serde(default = "d_zero")]
+    pub age: f32,
+    /// 0..1 fraction of the body lit with the palette accent as emissive
+    /// markings; `-1` = class default.
+    #[serde(default = "d_neg1")]
+    pub emissive: f32,
+    /// Tessellation multiplier 0.5..2.0.
+    #[serde(default = "d_one")]
+    pub detail: f32,
+    #[serde(default = "d_true")]
+    pub animate: bool,
+}
+
+impl Default for MonsterParams {
+    /// Serde defaults for every field (body = QuadrupedBeast, etc.).
+    fn default() -> Self {
+        serde_json::from_str("{}").expect("monster defaults deserialize")
+    }
+}
+
+/// Dungeon theme — palette + wall material + prop set + shape bias
+/// (orthogonal rooms vs. organic caves).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DungeonTheme {
+    #[default]
+    Crypt,
+    Cavern,
+    Sewer,
+    Mine,
+    Temple,
+    Fortress,
+}
+
+/// Target dungeon extent (drives room count / footprint).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DungeonSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DungeonParams {
+    #[serde(default = "d_seed")]
+    pub seed: u64,
+    /// One of the 6 themes (JSON key is `type`).
+    #[serde(default, rename = "type")]
+    pub theme: DungeonTheme,
+    #[serde(default)]
+    pub size: DungeonSize,
+    /// Explicit room cap (overrides the size-derived count when set).
+    #[serde(default)]
+    pub rooms: Option<u32>,
+    /// 0..1 — extra corridor edges beyond the spanning tree (loopiness).
+    #[serde(default = "d_loops")]
+    pub loops: f32,
+    /// 0..1 — how much dressing (props) rooms receive.
+    #[serde(default = "d_density")]
+    pub density: f32,
+    /// Tessellation multiplier 0.5..2.0.
+    #[serde(default = "d_one")]
+    pub detail: f32,
+}
+fn d_loops() -> f32 {
+    0.3
+}
+fn d_density() -> f32 {
+    0.5
+}
+
+impl Default for DungeonParams {
+    fn default() -> Self {
+        serde_json::from_str("{}").expect("dungeon defaults deserialize")
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Recipe {
@@ -304,11 +466,48 @@ pub enum Recipe {
         #[serde(flatten)]
         params: CharacterParams,
     },
+    Monster {
+        #[serde(default = "d_palette")]
+        palette: String,
+        #[serde(flatten)]
+        params: MonsterParams,
+    },
+    Dungeon {
+        #[serde(default = "d_palette")]
+        palette: String,
+        #[serde(flatten)]
+        params: DungeonParams,
+    },
     /// Fully generic declarative geometry DSL — build anything.
     Custom {
         #[serde(flatten)]
         params: crate::generators::custom::CustomParams,
     },
+}
+
+/// A monster class's preferred palette, used only when the recipe left the
+/// default palette. Keeps the class read cohesive (glowing infernal elementals,
+/// necrotic undead, fungal aberrations) without a palette field on the params.
+fn preferred_palette(class: MonsterClass) -> Option<&'static str> {
+    match class {
+        MonsterClass::Elemental => Some("infernal"),
+        MonsterClass::Undead => Some("necrotic"),
+        MonsterClass::Aberration => Some("fungal"),
+        _ => None,
+    }
+}
+
+/// A dungeon theme's default palette, used only when the recipe left the
+/// default palette (an explicit palette always wins).
+fn theme_palette(theme: DungeonTheme) -> &'static str {
+    match theme {
+        DungeonTheme::Crypt => "necrotic",
+        DungeonTheme::Cavern => "fungal",
+        DungeonTheme::Sewer => "fungal",
+        DungeonTheme::Mine => "volcanic",
+        DungeonTheme::Temple => "mystic",
+        DungeonTheme::Fortress => "volcanic",
+    }
 }
 
 impl Recipe {
@@ -324,8 +523,30 @@ impl Recipe {
             | Recipe::Crystal { palette, .. }
             | Recipe::Building { palette, .. }
             | Recipe::Prop { palette, .. }
-            | Recipe::Character { palette, .. } => palette,
+            | Recipe::Character { palette, .. }
+            | Recipe::Monster { palette, .. }
+            | Recipe::Dungeon { palette, .. } => palette,
             Recipe::Custom { .. } => "verdant",
+        }
+    }
+
+    /// The palette actually used to build this recipe. Usually the recipe's
+    /// own `palette`, but a monster class or dungeon theme substitutes a
+    /// thematic default when the user left the palette unset — an explicit
+    /// palette always wins. Exposed so the CLI's dungeon path resolves the
+    /// palette exactly as `build` does.
+    pub fn resolved_palette(&self) -> &str {
+        // A monster class carries a preferred palette (Elemental->infernal,
+        // Undead->necrotic, Aberration->fungal); a dungeon theme carries one
+        // too. Substitute it ONLY when the user left the default palette.
+        match self {
+            Recipe::Monster { palette, params } if *palette == d_palette() => {
+                preferred_palette(params.class).unwrap_or(palette.as_str())
+            }
+            Recipe::Dungeon { palette, params } if *palette == d_palette() => {
+                theme_palette(params.theme)
+            }
+            _ => self.palette_name(),
         }
     }
 
@@ -338,7 +559,8 @@ impl Recipe {
                 palette::PALETTES.join(", ")
             ));
         }
-        let pal = palette::by_name(self.palette_name());
+        let pal_name: &str = self.resolved_palette();
+        let pal = palette::by_name(pal_name);
         let asset = match self {
             Recipe::Terrain { params, .. } => crate::generators::terrain::generate(params, &pal),
             Recipe::Tree { params, .. } => crate::generators::tree::generate(params, &pal),
@@ -349,6 +571,8 @@ impl Recipe {
             Recipe::Character { params, .. } => {
                 crate::generators::character::generate(params, &pal)
             }
+            Recipe::Monster { params, .. } => crate::generators::monster::generate(params, &pal),
+            Recipe::Dungeon { params, .. } => crate::generators::dungeon::generate(params, &pal)?,
             Recipe::Custom { params } => crate::generators::custom::generate(params)?,
         };
         asset.validate()?;
@@ -680,5 +904,124 @@ mod tests {
         let a = crate::gltf::to_glb(&Recipe::parse(j).unwrap().build().unwrap());
         let b = crate::gltf::to_glb(&Recipe::parse(j).unwrap().build().unwrap());
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn monster_parses_and_builds() {
+        let r =
+            Recipe::parse(r#"{"kind":"monster","species":"wyrm","palette":"infernal"}"#).unwrap();
+        let asset = r.build().expect("monster builds");
+        assert!(!asset.parts.is_empty());
+        assert!(asset.physics.is_some());
+        // aliases resolve: body/serpent and bulk
+        Recipe::parse(r#"{"kind":"monster","body":"serpent","bulk":1.5}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        // blob alias for ooze
+        Recipe::parse(r#"{"kind":"monster","body":"blob"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    fn monster_is_deterministic() {
+        let json = r#"{"kind":"monster","body":"wyrm","seed":7,"class":"elemental"}"#;
+        let a = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
+        let b = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn dungeon_parses_and_builds_single_glb() {
+        let r = Recipe::parse(r#"{"kind":"dungeon","type":"crypt","rooms":1}"#).unwrap();
+        let asset = r.build().expect("1-room dungeon builds a single asset");
+        assert!(!asset.parts.is_empty());
+        assert!(asset.physics.is_some());
+        // theme default palette applies (crypt -> necrotic) without erroring
+        Recipe::parse(r#"{"kind":"dungeon","type":"cavern"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        // explicit palette still honored
+        Recipe::parse(r#"{"kind":"dungeon","type":"mine","palette":"arctic"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    fn dungeon_is_deterministic() {
+        for json in [
+            r#"{"kind":"dungeon","type":"cavern","seed":9}"#,
+            r#"{"kind":"dungeon","type":"crypt","size":"medium","seed":9}"#,
+        ] {
+            let a = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
+            let b = crate::gltf::to_glb(&Recipe::parse(json).unwrap().build().unwrap());
+            assert_eq!(a, b, "dungeon output must be byte-identical: {json}");
+        }
+    }
+
+    #[test]
+    fn dungeon_survives_hostile_input() {
+        for json in [
+            r#"{"kind":"dungeon","loops":1e9,"density":-5.0,"rooms":100000000}"#,
+            r#"{"kind":"dungeon","type":"cavern","detail":1e30,"rooms":100000000}"#,
+            r#"{"kind":"dungeon","type":"fortress","loops":-9.0,"density":50.0}"#,
+        ] {
+            Recipe::parse(json).unwrap().build().unwrap();
+        }
+    }
+
+    #[test]
+    fn every_dungeon_theme_and_size_builds() {
+        for theme in ["crypt", "cavern", "sewer", "mine", "temple", "fortress"] {
+            for size in ["small", "medium", "large"] {
+                let j = format!(r#"{{"kind":"dungeon","type":"{theme}","size":"{size}"}}"#);
+                Recipe::parse(&j).unwrap().build().unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn monster_survives_hostile_input() {
+        // absurd numeric values must clamp, not panic or explode the grid
+        for json in [
+            r#"{"kind":"monster","size":1e30,"detail":1e30,"horns":-5.0,"eyes":999999}"#,
+            r#"{"kind":"monster","body":"arachnid","size":-1.0,"maw":1e30,"spikes":-9.0}"#,
+            r#"{"kind":"monster","body":"aberration","class":"aberration","emissive":50.0}"#,
+        ] {
+            Recipe::parse(json).unwrap().build().unwrap();
+        }
+    }
+
+    #[test]
+    fn every_body_plan_and_class_builds() {
+        for body in [
+            "biped_brute",
+            "quadruped_beast",
+            "serpent",
+            "arachnid",
+            "winged_flyer",
+            "ooze",
+            "insectoid",
+            "aberration",
+        ] {
+            let j = format!(r#"{{"kind":"monster","body":"{body}"}}"#);
+            Recipe::parse(&j).unwrap().build().unwrap();
+        }
+        for class in [
+            "none",
+            "predator",
+            "brute",
+            "elemental",
+            "undead",
+            "aberration",
+            "swarm",
+        ] {
+            let j = format!(r#"{{"kind":"monster","class":"{class}"}}"#);
+            Recipe::parse(&j).unwrap().build().unwrap();
+        }
     }
 }

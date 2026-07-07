@@ -1,0 +1,9 @@
+{
+ "kind": "monster",
+ "body": "arachnid",
+ "palette": "necrotic",
+ "size": 1.1,
+ "eyes": 6,
+ "menace": 0.5,
+ "seed": 5
+}

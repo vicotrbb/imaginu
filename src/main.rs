@@ -118,6 +118,22 @@ enum Cmd {
     },
     /// Validate a world output directory (manifest + all chunk GLBs).
     ValidateWorld { dir: PathBuf },
+    /// Compile a `{"kind":"dungeon"}` recipe into a themed layout: one merged
+    /// GLB for a single room, otherwise a directory of per-room GLBs +
+    /// manifest.json.
+    Dungeon {
+        /// Recipe file path, or inline JSON starting with '{'
+        recipe: String,
+        /// Output directory (created if missing)
+        #[arg(short, long, default_value = "dungeon_out")]
+        out: PathBuf,
+        /// Render a near-top-down, ceiling-less beauty shot of the interior
+        /// to <out>/overview.png
+        #[arg(long)]
+        overview: bool,
+    },
+    /// Validate a dungeon output directory (manifest + all room GLBs).
+    ValidateDungeon { dir: PathBuf },
 }
 
 fn load_recipe(s: &str) -> Result<Recipe, String> {
@@ -481,6 +497,29 @@ fn run() -> Result<(), String> {
             println!("OK   {}  {}", dir.display(), summary);
             Ok(())
         }
+        Cmd::Dungeon {
+            recipe,
+            out,
+            overview,
+        } => {
+            let r = load_recipe(&recipe)?;
+            let params = match &r {
+                Recipe::Dungeon { params, .. } => params.clone(),
+                _ => {
+                    return Err(
+                        "recipe is not a dungeon (expected \"kind\":\"dungeon\")".to_string()
+                    );
+                }
+            };
+            let pal_name = r.resolved_palette().to_string();
+            build_dungeon(&params, &pal_name, &out, overview)?;
+            Ok(())
+        }
+        Cmd::ValidateDungeon { dir } => {
+            let summary = imaginu::generators::dungeon::manifest::validate_dir(&dir)?;
+            println!("OK   {}  {}", dir.display(), summary);
+            Ok(())
+        }
         Cmd::Validate { files } => {
             let mut failures = 0;
             for f in &files {
@@ -577,9 +616,61 @@ fn fly_over(
     Ok(())
 }
 
+/// Build a dungeon from resolved params + palette into `out`. A single-room
+/// dungeon writes one merged `dungeon.glb`; anything larger writes per-room
+/// GLBs + `manifest.json`. `--overview` adds a ceiling-less top-down render.
+/// Factored out of the CLI arm so it is unit-testable.
+fn build_dungeon(
+    params: &imaginu::recipe::DungeonParams,
+    pal_name: &str,
+    out: &std::path::Path,
+    overview: bool,
+) -> Result<(), String> {
+    use imaginu::generators::dungeon;
+    if !imaginu::palette::PALETTES.contains(&pal_name) {
+        return Err(format!(
+            "unknown palette '{pal_name}' (available: {})",
+            imaginu::palette::PALETTES.join(", ")
+        ));
+    }
+    let pal = imaginu::palette::by_name(pal_name);
+    let model = dungeon::model::DungeonModel::new(params, &pal)?;
+    std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    if model.rooms.len() <= 1 {
+        let asset = dungeon::merged_asset(&model);
+        let glb = imaginu::gltf::to_glb(&asset);
+        let path = out.join("dungeon.glb");
+        std::fs::write(&path, &glb).map_err(|e| e.to_string())?;
+        let tris: usize = asset.parts.iter().map(|p| p.mesh.triangle_count()).sum();
+        println!(
+            "wrote {} ({} KiB, {tris} triangles)",
+            path.display(),
+            glb.len() / 1024
+        );
+    } else {
+        dungeon::manifest::write_dir(&model, out)?;
+        println!(
+            "wrote {}/manifest.json + {} room GLB(s) ({} corridors, {} doors)",
+            out.display(),
+            model.rooms.len(),
+            model.corridors.len(),
+            model.doors.len()
+        );
+    }
+    if overview {
+        let asset = dungeon::overview_asset(&model);
+        let cam = auto_camera(&asset, 40.0, 68.0, 1.0);
+        let path = out.join("overview.png");
+        render_png(&asset, &cam, 1400, 1000, &path).map_err(|e| e.to_string())?;
+        println!("wrote {}", path.display());
+    }
+    Ok(())
+}
+
 const SCHEMA_HELP: &str = r##"imaginu recipe cheat-sheet (JSON, all fields except "kind" optional):
 
-palettes: verdant | autumn | arctic | volcanic | desert | mystic
+palettes: verdant | autumn | arctic | volcanic | desert | mystic | necrotic | infernal | fungal
+  (necrotic/infernal/fungal carry emissive accents for undead/fire/cavern reads)
 
 {"kind":"terrain","palette":"verdant","seed":1,"size":48,"resolution":110,
  "mountainousness":1.0,"water_level":0.28,"scatter":true,"scatter_density":1.0,
@@ -667,6 +758,43 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic
  // smooth subdivision bodies, mitten hands, faces (eyes/brows/nose/mouth),
  // facial morph targets: smile, blink, angry, surprised (glTF blend shapes)
 
+{"kind":"monster","body":"quadruped_beast","class":"none","size":1.0,"seed":1,
+ "horns":0,"spikes":0,"plates":0,"tail":-1,"wings":-1,"eyes":-1,"maw":-1,
+ "menace":0,"age":0,"emissive":-1,"detail":1.0,"animate":true}
+ // body (alias "species"): biped_brute | quadruped_beast | serpent (alias
+ //   wyrm) | arachnid | winged_flyer | ooze (alias blob) | insectoid |
+ //   aberration - each a skeleton template driving limb count, gait, collider
+ // class: none | predator | brute | elemental | undead | aberration | swarm -
+ //   a preset bundle over the knobs (explicit fields still win); elemental,
+ //   undead, aberration also default the palette to infernal/necrotic/fungal
+ // size (alias "bulk"): scales geometry, collider, and mass (mass ~ size^3)
+ // knobs 0..1: horns, spikes (dorsal ridge), plates (armor), menace, age,
+ //   emissive (glowing accent markings); maw = jaw/teeth prominence
+ // tail/wings/maw/emissive: -1 = let the body plan/class decide (0 disables)
+ // eyes: -1 = plan default; else 0..12 emissive eyes (glow with the accent)
+ // gaits/clips per plan: idle + walk|slither|fly|crawl|pulse + attack, hurt,
+ //   death (+ roar when the plan has a head). Family-restricted skinning.
+ // collider auto-fits the plan (capsule/box/elongated-capsule/trimesh).
+
+{"kind":"dungeon","type":"crypt","size":"medium","seed":1,
+ "rooms":null,"loops":0.3,"density":0.5,"detail":1.0}
+ // type: crypt | cavern | sewer | mine | temple | fortress - each sets the
+ //   palette, wall material, prop set, and shape bias. cavern is meshed as
+ //   ORGANIC SDF caves (blobby chambers + curved tunnels); the other five are
+ //   orthogonal rooms. Default palette per theme (crypt->necrotic,
+ //   cavern/sewer->fungal, mine/fortress->volcanic, temple->mystic); an
+ //   explicit "palette" overrides.
+ // size: small | medium | large (target room count / footprint)
+ // rooms: optional explicit room cap (overrides size). loops: 0..1 extra
+ //   corridor edges beyond the spanning tree. density: 0..1 dressing amount.
+ // Layout is a pure function of seed: BSP rooms + MST corridors (+loops),
+ //   integer-meter aligned. Dressing: pillars, torch brackets (emissive
+ //   lighting cues), doors, portcullis, sarcophagi, chests, rubble.
+ // A one-room dungeon builds a single GLB; multi-room writes a directory:
+ //   imaginu dungeon <recipe> -o out [--overview]   (per-room GLBs +
+ //   manifest.json with rooms/corridors/doors/spawn_points/colliders)
+ //   imaginu validate-dungeon <dir>                 (structural round-trip)
+
 {"kind":"custom","name":"anything","seed":1,
  "physics":{"collider":"auto|box|sphere|capsule|trimesh","mass":0,
             "friction":0.6,"restitution":0},
@@ -738,3 +866,44 @@ Channel easing: "ease":"cubic_in|cubic_out|cubic_in_out" (baked to dense keys);
 multi-axis rotation via "keys_euler":[[x,y,z]deg,...].
 See animation frames: imaginu render <recipe> --animation walk [--at 0.5]
 Film a clip:         imaginu showcase <recipe> --animation dance -o dance.mp4"##;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use imaginu::recipe::DungeonParams;
+
+    fn dungeon_params(json: &str) -> DungeonParams {
+        match Recipe::parse(json).unwrap() {
+            Recipe::Dungeon { params, .. } => params,
+            _ => panic!("expected a dungeon recipe"),
+        }
+    }
+
+    #[test]
+    fn build_dungeon_writes_a_validatable_directory() {
+        let params = dungeon_params(r#"{"kind":"dungeon","type":"crypt","size":"medium"}"#);
+        let dir = std::env::temp_dir().join(format!("imaginu_maintest_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        build_dungeon(&params, "necrotic", &dir, false).unwrap();
+        let manifest = dir.join("manifest.json");
+        assert!(manifest.exists(), "manifest.json must exist");
+        let summary =
+            imaginu::generators::dungeon::manifest::validate_dir(&dir).expect("dir validates");
+        assert!(summary.contains("rooms"), "summary: {summary}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_dungeon_single_room_writes_one_glb() {
+        let params = dungeon_params(r#"{"kind":"dungeon","type":"crypt","rooms":1}"#);
+        let dir = std::env::temp_dir().join(format!("imaginu_maintest1_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        build_dungeon(&params, "necrotic", &dir, false).unwrap();
+        assert!(
+            dir.join("dungeon.glb").exists(),
+            "single-room GLB must exist"
+        );
+        assert!(!dir.join("manifest.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

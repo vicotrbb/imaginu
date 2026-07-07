@@ -1,0 +1,9 @@
+{
+ "kind": "monster",
+ "body": "biped_brute",
+ "class": "brute",
+ "horns": 0.8,
+ "spikes": 0.4,
+ "eyes": 2,
+ "seed": 4
+}

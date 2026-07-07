@@ -1,6 +1,6 @@
 ---
 name: imaginu
-description: Use when you need a 3D asset for a game or Babylon.js scene - a tree, rock, crystal, prop, building, terrain, an animated character, a custom rigged object, or a whole streaming world. imaginu compiles a small JSON recipe into a deterministic, game-ready GLB (with PBR vertex colors and physics metadata) and can render a PNG so you can look at the result and iterate.
+description: Use when you need a 3D asset for a game or Babylon.js scene - a tree, rock, crystal, prop, building, terrain, an animated character, an animated monster, a themed navigable dungeon, a custom rigged object, or a whole streaming world. imaginu compiles a small JSON recipe into a deterministic, game-ready GLB (with PBR vertex colors and physics metadata) and can render a PNG so you can look at the result and iterate.
 ---
 
 # imaginu - compile JSON recipes into game-ready GLB
@@ -37,9 +37,9 @@ imaginu schema
 ```
 
 It prints every `kind` (`terrain`, `tree`, `rock`, `crystal`, `building`,
-`prop`, `character`, `custom`, `world`), all fields (all optional except
-`kind`), the palettes, animation clips, and the physics/extras contract. Treat
-its output as ground truth for this version.
+`prop`, `character`, `monster`, `dungeon`, `custom`, `world`), all fields (all
+optional except `kind`), the palettes, animation clips, and the physics/extras
+contract. Treat its output as ground truth for this version.
 
 ## 3. The core loop
 
@@ -68,6 +68,18 @@ imaginu generate '{"kind":"character","class":"warrior","animate":true}' -o hero
 # Look at a specific animation pose (4 phases, or one --at time):
 imaginu render '{"kind":"character","class":"mage","animate":true}' --animation walk -o frames/
 imaginu render '{"kind":"character","class":"mage"}' --expression smile -o frames/
+
+# A rigged, animated monster - 8 body plans (biped_brute/quadruped_beast/
+# serpent(wyrm)/arachnid/winged_flyer/ooze(blob)/insectoid/aberration) + a
+# `class` preset layer (predator/brute/elemental/undead/aberration/swarm),
+# composable knobs (horns/spikes/plates/eyes/maw/wings/tail/emissive/size):
+imaginu generate '{"kind":"monster","body":"wyrm","class":"elemental"}' -o wyrm.glb --preview
+
+# A themed, navigable dungeon → directory of per-room GLBs + manifest.json
+# (rooms/corridors/doors/spawn_points). Themes: crypt/cavern/sewer/mine/temple/
+# fortress. --overview renders a ceiling-less top-down of the interior:
+imaginu dungeon '{"kind":"dungeon","type":"crypt","size":"medium"}' -o crypt/ --overview
+imaginu validate-dungeon crypt/
 
 # A whole seamless streaming map → a directory of chunk GLBs + manifest.json:
 imaginu world '{"kind":"world","name":"everdale","size":2048}' -o everdale/ --map

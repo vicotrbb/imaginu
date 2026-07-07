@@ -317,7 +317,7 @@ footer{border-top:1px solid var(--line);padding:38px 0 60px}
     <div class="sec-head reveal">
       <span class="eyebrow">Showcase</span>
       <h2>Loop-perfect turntables, all self-rendered.</h2>
-      <p>Every clip below was filmed by imaginu's own software renderer - no GPU, no external engine. Props, characters with real animation clips, and whole streaming worlds.</p>
+      <p>Every clip below was filmed by imaginu's own software renderer - no GPU, no external engine. Props, characters and monsters with real animation clips, themed dungeons, and whole streaming worlds.</p>
     </div>
     <div class="gallery" id="galleryGrid"></div>
   </div>
@@ -456,6 +456,10 @@ const RECIPES=[
   {name:'crystal',img:'crystal',recipe:{kind:'crystal',palette:'mystic',seed:3},cap:'6 emissive shards on a rock base · 51 KiB'},
   {name:'oak tree',img:'tree_oak',recipe:{kind:'tree',style:'oak',seed:9},cap:'canopy + trunk + capsule collider · 444 KiB'},
   {name:'hedge mage',img:'char_hedge_mage',recipe:{kind:'character',class:'mage',palette:'mystic',seed:31,detail:2.0,hair:'long',beard:'long',outfit:'robe',trim_motif:'runes',accessories:['staff','necklace']},cap:'rigged, 8 clips, painted robe with rune trim'},
+  {name:'fire wyrm',img:'fire_wyrm',recipe:{kind:'monster',body:'wyrm',class:'elemental',horns:0.7,spikes:0.5,eyes:2},cap:'rigged serpent, molten hide, slither/attack/hurt/death clips'},
+  {name:'void horror',img:'void_horror',recipe:{kind:'monster',body:'aberration',class:'aberration',size:1.3},cap:'tentacled aberration, bioluminescent fungal hide, pulse clips'},
+  {name:'crypt',img:'crypt',recipe:{kind:'dungeon',type:'crypt',size:'medium',density:0.6},cap:'9 rooms, corridors, doors, spawn points + manifest.json'},
+  {name:'cavern',img:'cavern',recipe:{kind:'dungeon',type:'cavern',size:'medium',density:0.6},cap:'organic SDF caves, blobby chambers + curved tunnels'},
   {name:'canyon',img:'terrain_canyon',recipe:{kind:'terrain',palette:'desert',shape:'canyon',seed:9,terrace:8,water_level:0.12},cap:'terraced strata + heightfield collider'},
 ];
 function hl(obj){
@@ -488,6 +492,9 @@ const CLIPS=[
   {f:'dance',t:'Character · dance',k:'animation'},
   {f:'windmill',t:'Windmill',k:'custom DSL'},
   {f:'hedge_mage_walk',t:'Hedge mage · walk',k:'character'},
+  {f:'fire_wyrm',t:'Fire wyrm · slither',k:'monster'},
+  {f:'cave_spider',t:'Cave spider · crawl',k:'monster'},
+  {f:'void_horror',t:'Void horror · pulse',k:'monster'},
   {f:'island',t:'Island terrain',k:'terrain'},
   {f:'everdale_city',t:'Everdale city',k:'world'},
 ];
@@ -516,6 +523,8 @@ const MODELS=[
   {id:'crystal',label:'crystal',file:'crystal.glb'},
   {id:'tree',label:'oak tree',file:'tree_oak.glb'},
   {id:'warrior',label:'character',file:'char_warrior.glb'},
+  {id:'wyrm',label:'monster',file:'fire_wyrm.glb'},
+  {id:'spider',label:'arachnid',file:'cave_spider.glb'},
   {id:'terrain',label:'terrain',file:'terrain_island.glb'},
   {id:'rock',label:'rock',file:'rock.glb'},
   {id:'barrel',label:'prop',file:'barrel.glb'},

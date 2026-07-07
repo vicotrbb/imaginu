@@ -1,0 +1,7 @@
+{
+ "kind": "dungeon",
+ "type": "cavern",
+ "size": "medium",
+ "density": 0.6,
+ "seed": 3
+}

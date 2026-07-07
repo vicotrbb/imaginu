@@ -6,6 +6,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-06
+
+Two new first-class recipe kinds - **monster** and **dungeon** - plus three new
+palettes. Determinism holds byte-for-byte and every prior kind is unchanged.
+
+### Added
+
+- **`monster` recipe.** A rigged, animated, collider-bearing creature built by
+  generalizing the character body pipeline (SDF round-cones/ellipsoids fused
+  with smooth-min, surface-net meshed, family-restricted skinning). Eight body
+  plans: `biped_brute`, `quadruped_beast`, `serpent` (alias `wyrm`), `arachnid`,
+  `winged_flyer`, `ooze` (alias `blob`), `insectoid`, `aberration`. Composable
+  feature knobs (`horns`, `spikes`, `plates`, `tail`, `wings`, `eyes`, `maw`,
+  `menace`, `age`, `emissive`, `size`, `detail`) and a `class` preset layer
+  (`predator`, `brute`, `elemental`, `undead`, `aberration`, `swarm`) that also
+  picks a themed palette. Procedural clips per plan: `idle`, a gait-appropriate
+  locomotion clip (`walk`/`slither`/`fly`/`crawl`/`pulse`), `attack`, `hurt`,
+  `death`, and `roar` where the plan has a head.
+- **`dungeon` recipe.** A themed, navigable underground layout. Six themes:
+  `crypt`, `cavern`, `sewer`, `mine`, `temple`, `fortress` - `cavern` is meshed
+  as organic SDF caves, the rest as orthogonal rooms with CSG-carved doorways.
+  Seed-pure layout (BSP rooms + minimum-spanning-tree corridors with optional
+  loops, integer-meter aligned), dressing props (pillars, emissive torch
+  brackets, doors, portcullis, sarcophagi, chests, rubble), and spawn points
+  (player/enemy/loot/boss). A one-room dungeon builds a single GLB; multi-room
+  writes a directory with per-room GLBs and a `manifest.json`.
+- **`dungeon` / `validate-dungeon` subcommands.** `imaginu dungeon <recipe> -o
+  dir [--overview]` writes the manifest directory and an optional ceiling-less
+  overview render; `imaginu validate-dungeon <dir>` structurally round-trips it.
+- **Three palettes.** `necrotic` (undead/crypt), `infernal` (fire/forge),
+  `fungal` (cavern/ooze), each with an emissive accent for glow markings.
+
 ## [0.1.0] - 2026-07-06
 
 First public release: a deterministic, AI-drivable procedural 3D asset compiler

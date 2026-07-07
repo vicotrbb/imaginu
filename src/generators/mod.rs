@@ -5,6 +5,8 @@ pub mod building;
 pub mod character;
 pub mod crystal;
 pub mod custom;
+pub mod dungeon;
+pub mod monster;
 pub mod prop;
 pub mod rock;
 pub mod terrain;
