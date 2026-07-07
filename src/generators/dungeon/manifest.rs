@@ -153,6 +153,7 @@ pub fn validate_dir(dir: &Path) -> Result<String, String> {
     }
     let mut seen = std::collections::BTreeSet::new();
     let mut tris_total = 0u64;
+    let mut tris_known = true;
     for r in &man.rooms {
         if !seen.insert(r.id) {
             return Err(format!("duplicate room id {}", r.id));
@@ -168,19 +169,36 @@ pub fn validate_dir(dir: &Path) -> Result<String, String> {
         }
         let summary =
             crate::validate::validate_glb(&path).map_err(|e| format!("{}: {e}", r.file))?;
-        tris_total += summary
-            .split_whitespace()
-            .next()
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(0);
+        match parse_tris(&summary) {
+            Some(n) => tris_total += n,
+            None => tris_known = false,
+        }
     }
+    // Keep the tri count a diagnostic: report it only when every room's GLB
+    // summary parsed cleanly, so an unexpected format never masquerades as 0.
+    let tris = if tris_known {
+        format!(", {tris_total} tris total")
+    } else {
+        String::new()
+    };
     Ok(format!(
-        "{} rooms, {} corridors, {} doors, {} spawns, {tris_total} tris total",
+        "{} rooms, {} corridors, {} doors, {} spawns{tris}",
         man.rooms.len(),
         man.corridors.len(),
         man.doors.len(),
         man.spawn_points.len()
     ))
+}
+
+/// Pull the triangle count out of a `validate_glb` summary, whose format is
+/// `"{tris} tris, {clips} clips, {imgs} images"`. Returns `None` if the summary
+/// doesn't match that shape rather than silently coercing to 0.
+fn parse_tris(summary: &str) -> Option<u64> {
+    let (num, rest) = summary.split_once(' ')?;
+    if !rest.starts_with("tris") {
+        return None;
+    }
+    num.parse::<u64>().ok()
 }
 
 #[cfg(test)]

@@ -134,9 +134,15 @@ pub fn build(p: DungeonParams, pal: Palette) -> Result<DungeonModel, String> {
     for (ci, &(a, b)) in edges.iter().enumerate() {
         let ca = centers[a];
         let cb = centers[b];
-        let corner = Vec3::new(cb.x, 0.0, ca.z);
-        let door_a = door_on_room(&rooms[a], corner);
-        let door_b = door_on_room(&rooms[b], corner);
+        // Pick each door from the TRUE centre-to-centre direction (not the
+        // L-corner, which zeroes one axis and mis-picks the wall for collinear
+        // rooms). Room A leaves along X, room B along Z; the corner then bends
+        // between them. `corner` is derived from the doors so a straight
+        // (collinear) corridor collapses cleanly via `dedup`.
+        let dir = cb - ca;
+        let door_a = door_on_room(&rooms[a], dir, true);
+        let door_b = door_on_room(&rooms[b], -dir, false);
+        let corner = Vec3::new(door_b.x, 0.0, door_a.z);
         doors.push(Door {
             room: a,
             corridor: ci,
@@ -218,12 +224,20 @@ pub fn build(p: DungeonParams, pal: Palette) -> Result<DungeonModel, String> {
     })
 }
 
-/// Where the segment from a room's center toward `toward` pierces the room
-/// wall — integer-aligned since centers and rooms are integer.
-fn door_on_room(room: &Room, toward: Vec3) -> Vec3 {
+/// Which wall the corridor pierces on this room, and where — integer-aligned
+/// since centers and rooms are integer.
+///
+/// `dir` points from this room's center toward its neighbour. `leg_x` is true
+/// when this room's corridor leg runs along X (an east/west door) and false
+/// when it runs along Z (a north/south door); the two rooms of an L-corridor
+/// take opposite legs. When the rooms are collinear the preferred axis has zero
+/// separation, so we fall back to the other axis — that guarantees the door
+/// always sits on a wall the corridor actually runs into, never on an
+/// orthogonal wall with no corridor behind it.
+fn door_on_room(room: &Room, dir: Vec3, leg_x: bool) -> Vec3 {
     let c = room.center_i();
-    let dir = toward - c;
-    if dir.x.abs() >= dir.z.abs() {
+    let use_x = if leg_x { dir.x != 0.0 } else { dir.z == 0.0 };
+    if use_x {
         let x = if dir.x >= 0.0 { room.max.x } else { room.min.x };
         Vec3::new(x, 0.0, c.z)
     } else {
@@ -293,6 +307,67 @@ mod tests {
                 assert_eq!(pt.x, pt.x.round());
                 assert_eq!(pt.z, pt.z.round());
             }
+        }
+    }
+
+    fn room_at(min: Vec3, max: Vec3) -> Room {
+        Room {
+            id: 0,
+            kind: RoomKind::Normal,
+            min,
+            max,
+        }
+    }
+
+    #[test]
+    fn door_faces_neighbor_for_collinear_rooms() {
+        let ceil = DungeonModel::ceiling(DungeonTheme::Crypt);
+        // --- same column (shared x): B is due north of A ---
+        let a = room_at(Vec3::new(0.0, 0.0, 0.0), Vec3::new(10.0, ceil, 10.0));
+        let b = room_at(Vec3::new(0.0, 0.0, 20.0), Vec3::new(10.0, ceil, 30.0));
+        let dir = b.center_i() - a.center_i(); // (0, 0, +)
+        let door_a = door_on_room(&a, dir, true);
+        let door_b = door_on_room(&b, -dir, false);
+        // A's door on its NORTH wall (max.z), facing B — not on an x-wall.
+        assert_eq!(door_a.z, a.max.z, "A door should be on north wall");
+        assert_eq!(door_a.x, a.center_i().x, "A door must not be on an x-wall");
+        assert_ne!(door_a.x, a.max.x);
+        assert_ne!(door_a.x, a.min.x);
+        // B's door on its SOUTH wall (min.z), facing A.
+        assert_eq!(door_b.z, b.min.z, "B door should be on south wall");
+        assert_eq!(door_b.x, b.center_i().x, "B door must not be on an x-wall");
+
+        // --- same row (shared z): C is due east of A ---
+        let c = room_at(Vec3::new(20.0, 0.0, 0.0), Vec3::new(30.0, ceil, 10.0));
+        let dir = c.center_i() - a.center_i(); // (+, 0, 0)
+        let door_a = door_on_room(&a, dir, true);
+        let door_c = door_on_room(&c, -dir, false);
+        // A's door on its EAST wall (max.x), facing C.
+        assert_eq!(door_a.x, a.max.x, "A door should be on east wall");
+        assert_eq!(door_a.z, a.center_i().z, "A door must not be on a z-wall");
+        // C's door on its WEST wall (min.x), facing A — not on a z-wall.
+        assert_eq!(door_c.x, c.min.x, "C door should be on west wall");
+        assert_eq!(door_c.z, c.center_i().z, "C door must not be on a z-wall");
+        assert_ne!(door_c.z, c.max.z);
+        assert_ne!(door_c.z, c.min.z);
+    }
+
+    #[test]
+    fn every_door_lies_on_its_room_boundary() {
+        // Whatever the layout, each door must sit on one of its room's four
+        // walls (a boundary coordinate), never floating on an interior point.
+        let p = params(r#"{"kind":"dungeon","type":"crypt","size":"medium"}"#);
+        let m = DungeonModel::new(&p, &by_name("necrotic")).unwrap();
+        for d in &m.doors {
+            let rm = &m.rooms[d.room];
+            let on_x_wall = d.pos.x == rm.min.x || d.pos.x == rm.max.x;
+            let on_z_wall = d.pos.z == rm.min.z || d.pos.z == rm.max.z;
+            assert!(
+                on_x_wall || on_z_wall,
+                "door {:?} not on any wall of room {}",
+                d.pos,
+                d.room
+            );
         }
     }
 
