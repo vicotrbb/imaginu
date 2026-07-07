@@ -149,3 +149,189 @@ pub fn validate_glb_bytes(data: &[u8]) -> Result<String, String> {
     let n_imgs = doc["images"].as_array().map(|a| a.len()).unwrap_or(0);
     Ok(format!("{tris} tris, {n_anims} clips, {n_imgs} images"))
 }
+
+/// Structural GLB validation plus boss-specific checks on the
+/// `nodes[0].extras.imaginu_boss` metadata block (format `imaginu-boss/1`).
+pub fn validate_boss_bytes(data: &[u8]) -> Result<String, String> {
+    use serde_json::Value;
+    validate_glb_bytes(data)?;
+
+    let json_len = u32::from_le_bytes(data[12..16].try_into().unwrap()) as usize;
+    let doc: Value =
+        serde_json::from_slice(&data[20..20 + json_len]).map_err(|e| format!("bad JSON: {e}"))?;
+
+    let boss = doc["nodes"][0]["extras"]["imaginu_boss"].as_object();
+    let boss = match boss {
+        Some(b) => b,
+        None => return Err("not a boss asset: missing imaginu_boss extras".into()),
+    };
+
+    if boss.get("format").and_then(|v| v.as_str()) != Some("imaginu-boss/1") {
+        return Err(format!(
+            "unexpected imaginu_boss format: {:?}",
+            boss.get("format")
+        ));
+    }
+
+    // Collect valid joint names from the skin (skins[0].joints -> node names).
+    let mut joint_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if let Some(skin) = doc["skins"].get(0) {
+        if let Some(joints) = skin["joints"].as_array() {
+            for j in joints {
+                if let Some(idx) = j.as_u64() {
+                    if let Some(name) = doc["nodes"][idx as usize]["name"].as_str() {
+                        joint_names.insert(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let archetype = boss
+        .get("archetype")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+
+    let phases = boss
+        .get("phases")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if phases.is_empty() {
+        return Err("imaginu_boss: phases must be non-empty".into());
+    }
+    let mut last_id: Option<u64> = None;
+    for p in &phases {
+        let id = p["id"].as_u64().ok_or("imaginu_boss: phase missing id")?;
+        if let Some(prev) = last_id {
+            if id < prev {
+                return Err(format!(
+                    "imaginu_boss: phases not ordered by ascending id ({prev} then {id})"
+                ));
+            }
+        }
+        last_id = Some(id);
+        for ability in p["abilities"].as_array().unwrap_or(&Vec::new()) {
+            for key in ["telegraph_s", "active_s", "recover_s"] {
+                let v = ability[key]
+                    .as_f64()
+                    .ok_or_else(|| format!("imaginu_boss: ability missing {key}"))?;
+                if v < 0.0 {
+                    return Err(format!("imaginu_boss: ability {key} must be >= 0, got {v}"));
+                }
+            }
+        }
+    }
+
+    let weak_points = boss
+        .get("weak_points")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    for wp in &weak_points {
+        let joint = wp["joint"]
+            .as_str()
+            .ok_or("imaginu_boss: weak point missing joint")?;
+        if !joint_names.contains(joint) {
+            return Err(format!(
+                "imaginu_boss: weak point references nonexistent joint {joint:?}"
+            ));
+        }
+    }
+
+    let parts = boss
+        .get("parts")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    for part in &parts {
+        let joint = part["joint"]
+            .as_str()
+            .ok_or("imaginu_boss: part missing joint")?;
+        if !joint_names.contains(joint) {
+            return Err(format!(
+                "imaginu_boss: part references nonexistent joint {joint:?}"
+            ));
+        }
+    }
+
+    let radius = boss["arena"]["recommended_radius"]
+        .as_f64()
+        .ok_or("imaginu_boss: arena.recommended_radius missing")?;
+    if radius <= 0.0 {
+        return Err(format!(
+            "imaginu_boss: arena.recommended_radius must be > 0, got {radius}"
+        ));
+    }
+
+    Ok(format!(
+        "boss: {archetype}, {} phases, {} weak points, {} parts",
+        phases.len(),
+        weak_points.len(),
+        parts.len()
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_boss_accepts_hydra() {
+        let asset = crate::recipe::Recipe::parse(r#"{"kind":"boss","archetype":"hydra"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        let glb = crate::gltf::to_glb(&asset);
+        let summary = validate_boss_bytes(&glb);
+        assert!(summary.is_ok(), "{:?}", summary);
+        assert!(summary.unwrap().starts_with("boss: hydra"));
+    }
+
+    #[test]
+    fn validate_boss_rejects_non_boss_asset() {
+        let asset = crate::recipe::Recipe::parse(r#"{"kind":"tree","style":"oak"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        let glb = crate::gltf::to_glb(&asset);
+        let err = validate_boss_bytes(&glb).unwrap_err();
+        assert!(err.contains("missing imaginu_boss"), "{err}");
+    }
+
+    #[test]
+    fn validate_boss_rejects_bad_joint() {
+        let asset = crate::recipe::Recipe::parse(r#"{"kind":"boss","archetype":"hydra"}"#)
+            .unwrap()
+            .build()
+            .unwrap();
+        let glb = crate::gltf::to_glb(&asset);
+
+        // Doctor the JSON chunk: repoint the first weak point's joint at a
+        // nonexistent name, then re-encode as a GLB with the same BIN chunk.
+        let json_len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
+        let mut doc: serde_json::Value = serde_json::from_slice(&glb[20..20 + json_len]).unwrap();
+        doc["nodes"][0]["extras"]["imaginu_boss"]["weak_points"][0]["joint"] =
+            serde_json::Value::String("__no_such_joint__".into());
+        let new_json = serde_json::to_vec(&doc).unwrap();
+        let padded_len = new_json.len().div_ceil(4) * 4;
+        let mut new_json = new_json;
+        new_json.resize(padded_len, b' ');
+
+        let bin_hdr = 20 + json_len;
+        let bin_chunk = &glb[bin_hdr..];
+
+        let mut out = Vec::new();
+        out.extend_from_slice(b"glTF");
+        out.extend_from_slice(&2u32.to_le_bytes()); // version
+        let total = 12 + 8 + new_json.len() + bin_chunk.len();
+        out.extend_from_slice(&(total as u32).to_le_bytes());
+        out.extend_from_slice(&(new_json.len() as u32).to_le_bytes());
+        out.extend_from_slice(b"JSON");
+        out.extend_from_slice(&new_json);
+        out.extend_from_slice(bin_chunk);
+
+        let err = validate_boss_bytes(&out).unwrap_err();
+        assert!(err.contains("nonexistent joint"), "{err}");
+    }
+}

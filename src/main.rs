@@ -134,6 +134,12 @@ enum Cmd {
     },
     /// Validate a dungeon output directory (manifest + all room GLBs).
     ValidateDungeon { dir: PathBuf },
+    /// Structural GLB validation plus boss-specific checks (weak points,
+    /// phase ordering, ability timings, arena) on the imaginu_boss extras.
+    ValidateBoss {
+        /// Boss GLB file to check
+        file: PathBuf,
+    },
 }
 
 fn load_recipe(s: &str) -> Result<Recipe, String> {
@@ -536,6 +542,16 @@ fn run() -> Result<(), String> {
             }
             Ok(())
         }
+        Cmd::ValidateBoss { file } => {
+            let data = std::fs::read(&file).map_err(|e| e.to_string())?;
+            match imaginu::validate::validate_boss_bytes(&data) {
+                Ok(summary) => {
+                    println!("OK   {}  {}", file.display(), summary);
+                    Ok(())
+                }
+                Err(e) => Err(format!("{}  {}", file.display(), e)),
+            }
+        }
     }
 }
 
@@ -775,6 +791,31 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic | necrotic | in
  // gaits/clips per plan: idle + walk|slither|fly|crawl|pulse + attack, hurt,
  //   death (+ roar when the plan has a head). Family-restricted skinning.
  // collider auto-fits the plan (capsule/box/elongated-capsule/trimesh).
+
+{"kind":"boss","archetype":"hydra","element":"infernal","size":3.0,"seed":1,
+ "phases":2,"phase":null,"weak_points":true,
+ "armor":-1,"plates":-1,"crown":-1,"regalia":-1,
+ "horns":-1,"spikes":-1,"eyes":-1,"maw":-1,"wings":-1,"tail":-1,
+ "menace":-1,"emissive":-1,"detail":1.3,"animate":true}
+ // archetype: hydra | colossus | lich | swarm_queen | dragon_lord - each a
+ //   multi-part, multi-phase encounter template (own skeleton/geometry plan)
+ // element: infernal | necrotic | fungal | arctic | volcanic | verdant |
+ //   autumn | desert | mystic - maps to one of the 9 real palettes unless
+ //   "palette" is set explicitly
+ // size (alias "bulk"): overall scale (default LARGE per archetype)
+ // phases: number of baked phase metadata blocks (clamped 1..=4)
+ // phase: optional single-phase geometry selector (build just that phase)
+ // weak_points: bake destructible weak-point colliders (default true)
+ // armor/plates/crown/regalia: 0..1 escalation knobs; -1 = archetype default
+ // reused knobs 0..1 (-1 = plan/class default, 0 disables): horns, spikes,
+ //   menace, emissive; eyes: -1 default else 0..12; maw/wings/tail as monster
+ // detail: hero tessellation multiplier (default 1.3)
+ // Output GLB embeds nodes[0].extras.imaginu_boss (format "imaginu-boss/1"):
+ //   phases (id/name/hp_fraction/enrage/active_weak_points/abilities with
+ //   telegraph_s/active_s/recover_s timings), weak_points (joint + collider +
+ //   destructible), parts (destructible geometry by joint), arena
+ //   (recommended_radius + spawn_offset). Check output:
+ //   imaginu validate-boss <glb>
 
 {"kind":"dungeon","type":"crypt","size":"medium","seed":1,
  "rooms":null,"loops":0.3,"density":0.5,"detail":1.0}
