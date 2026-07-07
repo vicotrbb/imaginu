@@ -5,6 +5,7 @@
 //! (the render / small-dungeon path); `manifest::write_dir` emits a per-room
 //! directory + `manifest.json` (the streaming path, wired by the CLI later).
 
+mod cavern;
 mod dress;
 mod geom;
 mod layout;
@@ -18,7 +19,7 @@ use crate::mesh::Mesh;
 use crate::palette::Palette;
 use crate::recipe::DungeonParams;
 
-use model::{Door, DungeonModel, Room};
+use model::{Corridor, Door, DungeonModel, Room};
 
 /// Emissive torch glow (matches `dress::TORCH_GLOW`).
 const TORCH_GLOW: Vec3 = Vec3::new(1.0, 0.55, 0.18);
@@ -102,20 +103,36 @@ fn assemble(opaque: Mesh, emissive: Mesh) -> Asset {
 fn build_merged(model: &DungeonModel, include_ceiling: bool) -> Asset {
     let mut opaque = Mesh::new();
     let mut emissive = Mesh::new();
-    for room in &model.rooms {
-        opaque.merge(&carved_room(model, room, include_ceiling));
-        let (o, e) = dress_meshes(model, room);
-        opaque.merge(&o);
-        emissive.merge(&e);
-    }
-    for c in &model.corridors {
-        opaque.merge(&geom::corridor_mesh(
-            c,
-            model.p.theme,
+    let cavern = matches!(model.p.theme, crate::recipe::DungeonTheme::Cavern);
+    // Cavern renders as one organic SDF void (rooms + corridors fused); the
+    // other themes keep the boxy carved shells.
+    if cavern {
+        opaque.merge(&cavern::cavern_mesh(
+            &model.rooms,
+            &model.corridors,
             &model.pal,
             model.p.detail,
             include_ceiling,
         ));
+    }
+    for room in &model.rooms {
+        if !cavern {
+            opaque.merge(&carved_room(model, room, include_ceiling));
+        }
+        let (o, e) = dress_meshes(model, room);
+        opaque.merge(&o);
+        emissive.merge(&e);
+    }
+    if !cavern {
+        for c in &model.corridors {
+            opaque.merge(&geom::corridor_mesh(
+                c,
+                model.p.theme,
+                &model.pal,
+                model.p.detail,
+                include_ceiling,
+            ));
+        }
     }
     assemble(opaque, emissive)
 }
@@ -136,12 +153,26 @@ pub fn overview_asset(model: &DungeonModel) -> Asset {
 /// Self-contained asset for one room (its carved shell + dressing + the
 /// corridors it owns), for the per-room directory output.
 pub(crate) fn room_asset(model: &DungeonModel, room: &Room) -> Asset {
-    let mut opaque = carved_room(model, room, true);
-    // own the corridors whose lower-id endpoint is this room, so each corridor
-    // is written exactly once across the room set
-    for c in &model.corridors {
-        if c.a.min(c.b) == room.id {
-            opaque.merge(&geom::corridor_mesh(
+    let cavern = matches!(model.p.theme, crate::recipe::DungeonTheme::Cavern);
+    // corridors this room owns (lower-id endpoint), so each is written once.
+    let owned: Vec<Corridor> = model
+        .corridors
+        .iter()
+        .filter(|c| c.a.min(c.b) == room.id)
+        .cloned()
+        .collect();
+    let mut opaque = if cavern {
+        cavern::cavern_mesh(
+            std::slice::from_ref(room),
+            &owned,
+            &model.pal,
+            model.p.detail,
+            true,
+        )
+    } else {
+        let mut m = carved_room(model, room, true);
+        for c in &owned {
+            m.merge(&geom::corridor_mesh(
                 c,
                 model.p.theme,
                 &model.pal,
@@ -149,7 +180,8 @@ pub(crate) fn room_asset(model: &DungeonModel, room: &Room) -> Asset {
                 true,
             ));
         }
-    }
+        m
+    };
     let (o, e) = dress_meshes(model, room);
     opaque.merge(&o);
     assemble(opaque, e)
