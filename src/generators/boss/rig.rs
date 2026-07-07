@@ -4,7 +4,7 @@
 //! named joints. This is the template archetype (hydra); Tasks 7-10 add the
 //! remaining archetypes following the same shape.
 
-use core::f32::consts::{FRAC_PI_2, TAU};
+use core::f32::consts::{FRAC_PI_2, PI, TAU};
 
 use glam::{Mat4, Quat, Vec3};
 
@@ -673,70 +673,100 @@ fn plan_lich(p: &BossParams) -> BossRig {
     let mut parts = Vec::new();
     let mut weak_points = Vec::new();
 
-    // trunk (rank 0/1): a TALL, GAUNT robed torso — a slender barrel with
-    // narrow, bony shoulders (deliberately NOT biped_brute's broad hunch), a
-    // thin neck, and a narrow skull. A wide flowing hem (rank 0, trunk band,
-    // soft `k`) reads as long necrotic robes sweeping to the ground and
-    // hiding the thin legs beneath — the "gaunt caster" silhouette.
+    // GAUNT ROBED SORCERER-KING. An UPRIGHT, slender column of a body —
+    // narrow shoulders, a narrow waist — wrapped in a long necrotic robe: a
+    // distinct A-line SKIRT that stays narrow down the upper body and FLARES
+    // only near the ground (two stacked cones = a concave flare), plus
+    // vertical robe-fold ridges. Deliberately NOT the smooth teardrop /
+    // bowling-pin a single hip->floor taper produces.
     let hips = r.joint(None, "hips", v(0.0, 0.98 * s, 0.0));
-    let spine = r.joint(Some(hips), "spine", v(0.0, 1.22 * s, 0.0));
-    let chest = r.joint(Some(spine), "chest", v(0.0, 1.5 * s, 0.02 * s));
-    let neck = r.joint(Some(chest), "neck", v(0.0, 1.64 * s, 0.05 * s));
-    let head = r.joint(Some(neck), "head", v(0.0, 1.78 * s, 0.08 * s));
-    let hem = r.joint(Some(hips), "hem", v(0.0, 0.02 * s, 0.06 * s));
-    r.ellip(hips, chest, 0.13 * s, 0.03 * s, 0, 0.09 * s); // slender torso
-    r.cone(hips, chest, 0.11 * s, 0.13 * s, 0, 0.09 * s);
-    // flowing robe hem: starts AT the hip radius (no extra bulge at the
-    // waist) and tapers out to a wide skirt at the ground, with a tighter
-    // blend `k` so the profile reads as a straight flared cone (a robe),
-    // not a soft melted droplet.
-    r.cone(hips, hem, 0.13 * s, 0.3 * s, 0, 0.11 * s);
-    r.flat(chest, chest, v(0.19 * s, 0.13 * s, 0.11 * s), 0, 0.07 * s); // narrow bony shoulders
-    r.cone(chest, neck, 0.06 * s, 0.055 * s, 1, 0.04 * s); // thin neck
-    r.cone(neck, head, 0.055 * s, 0.085 * s, 1, 0.035 * s);
-    r.ellip(head, head, 0.105 * s, 0.0, 1, 0.03 * s); // gaunt narrow skull
+    let waist = r.joint(Some(hips), "waist", v(0.0, 1.18 * s, 0.0));
+    let chest = r.joint(Some(waist), "chest", v(0.0, 1.48 * s, 0.02 * s));
+    let neck = r.joint(Some(chest), "neck", v(0.0, 1.66 * s, 0.05 * s));
+    let head = r.joint(Some(neck), "head", v(0.0, 1.82 * s, 0.07 * s));
+    let skirt_mid = r.joint(Some(hips), "skirt_mid", v(0.0, 0.5 * s, 0.02 * s));
+    let hem = r.joint(Some(skirt_mid), "hem", v(0.0, 0.02 * s, 0.04 * s));
+    // upper body: a NARROW vertical column (waist -> chest), tight `k` so it
+    // reads as a slim robed torso, not a barrel.
+    r.cone(waist, chest, 0.1 * s, 0.115 * s, 0, 0.045 * s);
+    r.ellip(waist, chest, 0.09 * s, 0.02 * s, 0, 0.045 * s);
+    // skirt: narrow from the hips to mid-thigh, a GENTLE taper below (a small
+    // bottom cap, NOT a big round-cone sphere — that sphere cap was the
+    // teardrop bulb), then a WIDE, FLAT hem ellipsoid (thin on Y) that flares
+    // the skirt into an A-line bell with a flat cloth hem, not a bowling pin.
+    r.cone(hips, skirt_mid, 0.11 * s, 0.14 * s, 0, 0.05 * s);
+    r.cone(skirt_mid, hem, 0.14 * s, 0.16 * s, 0, 0.05 * s);
+    r.flat(hem, hem, v(0.31 * s, 0.11 * s, 0.29 * s), 0, 0.06 * s);
+    // narrow bony shoulders (thin on Y so they read as clavicles, not a slab)
+    r.flat(chest, chest, v(0.2 * s, 0.075 * s, 0.11 * s), 0, 0.045 * s);
+    r.cone(chest, neck, 0.05 * s, 0.048 * s, 1, 0.03 * s); // thin neck
+    r.cone(neck, head, 0.048 * s, 0.06 * s, 1, 0.03 * s);
     parts.push(PartMeta {
         name: "head".into(),
         joint: "head".into(),
         destructible: true,
     });
 
-    // legs (rank 2, thin — mostly hidden under the robe hem but present so
+    // legs (rank 2, thin — hidden under the flared robe skirt but present so
     // the walk gait actually swings limbs under the cloth).
     let mut legs = Vec::new();
     for side in [-1.0f32, 1.0] {
-        let th = r.joint(Some(hips), "thigh", v(side * 0.09 * s, 0.62 * s, 0.0));
-        let sn = r.joint(Some(th), "shin", v(side * 0.09 * s, 0.32 * s, 0.02 * s));
-        let ft = r.joint(Some(sn), "foot", v(side * 0.1 * s, 0.03 * s, 0.1 * s));
-        r.cone(th, sn, 0.06 * s, 0.045 * s, 2, 0.018 * s);
-        r.cone(sn, ft, 0.045 * s, 0.03 * s, 2, 0.02 * s);
+        let th = r.joint(Some(hips), "thigh", v(side * 0.08 * s, 0.62 * s, 0.0));
+        let sn = r.joint(Some(th), "shin", v(side * 0.08 * s, 0.32 * s, 0.02 * s));
+        let ft = r.joint(Some(sn), "foot", v(side * 0.09 * s, 0.03 * s, 0.1 * s));
+        r.cone(th, sn, 0.055 * s, 0.04 * s, 2, 0.018 * s);
+        r.cone(sn, ft, 0.04 * s, 0.03 * s, 2, 0.02 * s);
         legs.push(vec![th, sn, ft]);
     }
 
-    // arms (rank 2, each its own family) — long, thin, skeletal limbs ending
-    // in bony hands, held slightly out from the body.
-    for side in [-1.0f32, 1.0] {
-        let sh = r.joint(
-            Some(chest),
-            "upperarm",
-            v(side * 0.22 * s, 1.46 * s, 0.02 * s),
-        );
-        let el = r.joint(Some(sh), "forearm", v(side * 0.32 * s, 1.1 * s, 0.12 * s));
-        let hn = r.joint(Some(el), "hand", v(side * 0.37 * s, 0.8 * s, 0.2 * s));
-        r.cone(sh, el, 0.05 * s, 0.038 * s, 2, 0.02 * s);
-        r.cone(el, hn, 0.038 * s, 0.028 * s, 2, 0.018 * s);
-        r.ellip(hn, hn, 0.04 * s, 0.0, 2, 0.014 * s); // bony fist
+    // TWO real gaunt arms, ASYMMETRIC (each its own rank-2 family). The LEFT
+    // is RAISED in a casting/summoning gesture — an open bony hand lifted
+    // toward the orbiting implements; the RIGHT hangs LOWERED at the hip.
+    // Both wear a wide draped SLEEVE (an ellipsoid bulge at the forearm) so
+    // they read as long robed arms, not skeletal sticks.
+    {
+        // LEFT — raised, open hand toward the implements
+        let sh = r.joint(Some(chest), "upperarm_l", v(-0.19 * s, 1.46 * s, 0.03 * s));
+        let el = r.joint(Some(sh), "forearm_l", v(-0.35 * s, 1.62 * s, 0.16 * s));
+        let hn = r.joint(Some(el), "hand_l", v(-0.42 * s, 1.86 * s, 0.3 * s));
+        r.cone(sh, el, 0.05 * s, 0.042 * s, 2, 0.02 * s);
+        r.cone(el, hn, 0.042 * s, 0.03 * s, 2, 0.018 * s);
+        r.ellip(el, el, 0.085 * s, 0.03 * s, 2, 0.025 * s); // wide draped sleeve
+        r.ellip(hn, hn, 0.05 * s, 0.0, 2, 0.014 * s); // open bony hand
+        parts.push(PartMeta {
+            name: "arm.l".into(),
+            joint: "forearm_l".into(),
+            destructible: true,
+        });
+    }
+    {
+        // RIGHT — lowered, draped at the hip
+        let sh = r.joint(Some(chest), "upperarm_r", v(0.19 * s, 1.44 * s, 0.03 * s));
+        let el = r.joint(Some(sh), "forearm_r", v(0.27 * s, 1.08 * s, 0.1 * s));
+        let hn = r.joint(Some(el), "hand_r", v(0.29 * s, 0.76 * s, 0.16 * s));
+        r.cone(sh, el, 0.05 * s, 0.042 * s, 2, 0.02 * s);
+        r.cone(el, hn, 0.042 * s, 0.03 * s, 2, 0.018 * s);
+        r.ellip(el, el, 0.09 * s, 0.04 * s, 2, 0.025 * s); // wide draped sleeve
+        r.ellip(hn, hn, 0.05 * s, 0.0, 2, 0.014 * s); // bony hand
+        parts.push(PartMeta {
+            name: "arm.r".into(),
+            joint: "forearm_r".into(),
+            destructible: true,
+        });
     }
 
     let gait = GaitDesc {
         legs,
-        spine: vec![hips, spine, chest, neck, head],
+        spine: vec![hips, waist, chest, neck, head],
         wings: Vec::new(),
         tail: Vec::new(),
         head: Some(head),
         style: Gait::Walk,
     };
     let mut rig = r.finish(gait);
+
+    add_lich_skull(&mut rig, head, s);
+    add_robe_folds(&mut rig, hips, s);
 
     // chest phylactery (own rank-3 family, Eye tint = full accent glow): a
     // small green orb set INTO the chest, popping against the dark robe —
@@ -829,19 +859,29 @@ fn plan_lich(p: &BossParams) -> BossRig {
     // never balloon to include the throne behind it.
     rig.bounds = crate::generators::monster::rig::compute_bounds(&rig);
 
-    // static throne joint, seated BEHIND the lich (a pedestal it sits in
-    // front of, not attached to any moving limb — it never animates). A
-    // small enclosing anchor primitive (own rank-7 family) gives
-    // `skin_body`'s nearest-primitive classifier something to bind the
-    // merged CSG throne mesh's vertices to.
-    let throne_pos = v(0.0, 0.52 * s, -1.05 * s);
+    // static throne joint, seated DIRECTLY BEHIND the lich on the SAME
+    // central axis (x = 0), pulled in close so the seat overlaps the caster's
+    // robe (the lich floats in FRONT of the throne, partly occluding the
+    // seat) — a single enthroned silhouette, not "a lich AND a chair". It is
+    // scaled UP so its carved backrest looms taller than the crown. The
+    // throne never animates. An anchor primitive on the BACKREST slab (own
+    // rank-7 family, kept thin-in-Z entirely behind the caster so it captures
+    // no robe vertex) gives `skin_body`'s nearest-primitive classifier a
+    // rigid static family to bind the merged CSG throne mesh's back verts to;
+    // the seat's front verts fall to the (also static) trunk.
+    let throne_pos = v(0.0, 0.62 * s, -0.24 * s);
     let throne = add_joint(&mut rig, hips, "throne", throne_pos);
-    let anchor_r = 0.34 * s;
-    push_flat(
+    let throne_back = add_joint(
         &mut rig,
         throne,
-        throne,
-        v(anchor_r, anchor_r, anchor_r),
+        "throne_back",
+        throne_pos + v(0.0, 0.9 * s, -0.32 * s),
+    );
+    push_flat(
+        &mut rig,
+        throne_back,
+        throne_back,
+        v(0.42 * s, 1.0 * s, 0.16 * s),
         7,
         0.02 * s,
         PrimTint::Body,
@@ -928,6 +968,97 @@ fn add_crown(rig: &mut MonsterRig, head: usize, s: f32, crown: f32, regalia: f32
     }
 }
 
+/// A gaunt, skeletal undead SKULL beneath the crown (rank-1 trunk band, so
+/// it rides rigidly with the `head` joint): a narrow tall cranium, a heavy
+/// BROW shelf overhanging the (glowing) eye sockets so they read as sunken,
+/// two sharp cheekbones, and a tapered pointed JAW — a skull, not a smooth
+/// ball. All `PrimTint::Body` (dark) so only the eyes/crown glow.
+fn add_lich_skull(rig: &mut MonsterRig, head: usize, s: f32) {
+    let v = Vec3::new;
+    let hp = rig.joint_world(head);
+    // cranium: a narrow, slightly tall skull dome
+    push_flat(
+        rig,
+        head,
+        head,
+        v(0.095 * s, 0.11 * s, 0.1 * s),
+        1,
+        0.025 * s,
+        PrimTint::Body,
+    );
+    // heavy brow shelf overhanging the eyes (sunken, menacing sockets)
+    let brow = add_joint(rig, head, "brow", hp + v(0.0, 0.035 * s, 0.07 * s));
+    push_flat(
+        rig,
+        brow,
+        brow,
+        v(0.1 * s, 0.028 * s, 0.045 * s),
+        1,
+        0.012 * s,
+        PrimTint::Body,
+    );
+    // sharp cheekbones
+    for side in [-1.0f32, 1.0] {
+        let ch = add_joint(
+            rig,
+            head,
+            "cheek",
+            hp + v(side * 0.062 * s, -0.02 * s, 0.06 * s),
+        );
+        push_flat(
+            rig,
+            ch,
+            ch,
+            v(0.028 * s, 0.03 * s, 0.03 * s),
+            1,
+            0.01 * s,
+            PrimTint::Body,
+        );
+    }
+    // tapered pointed jaw
+    let chin = add_joint(rig, head, "chin", hp + v(0.0, -0.14 * s, 0.05 * s));
+    push_cone(
+        rig,
+        head,
+        chin,
+        0.075 * s,
+        0.028 * s,
+        1,
+        0.02 * s,
+        PrimTint::Body,
+    );
+}
+
+/// Vertical robe-fold ridges running down the flared skirt (rank-0 trunk
+/// band, children of `hips`), wrapping the FRONT and SIDES (the back is left
+/// clear where the throne sits). Each is a thin proud `Body` cone that
+/// breaks the skirt's smooth surface into legible cloth folds.
+fn add_robe_folds(rig: &mut MonsterRig, hips: usize, s: f32) {
+    let v = Vec3::new;
+    let hipw = rig.joint_world(hips);
+    let n = 7usize;
+    for i in 0..n {
+        let frac = i as f32 / (n - 1) as f32;
+        let theta = (frac - 0.5) * PI * 1.35; // -121°..121° from +Z (skip the back)
+        let (top_y, r_top) = (0.5 * s, 0.15 * s);
+        let (bot_y, r_bot) = (0.06 * s, 0.31 * s);
+        let top = hipw + v(theta.sin() * r_top, top_y - hipw.y, theta.cos() * r_top);
+        let bot = hipw + v(theta.sin() * r_bot, bot_y - hipw.y, theta.cos() * r_bot);
+        let jt = add_joint(rig, hips, "robe_fold", top);
+        let jb = add_joint(rig, jt, "robe_fold_tip", bot);
+        push_cone(
+            rig,
+            jt,
+            jb,
+            0.02 * s,
+            0.03 * s,
+            0,
+            0.015 * s,
+            PrimTint::Body,
+        );
+    }
+}
+
 /// Build the lich's throne as a literal, CSG-carved closed-solid mesh (NOT
 /// an SDF primitive): a seat slab on four stubby feet, a tall backrest with
 /// a carved gothic arch window, and armrests with finial spikes. `pos` is
@@ -940,61 +1071,79 @@ fn build_throne_mesh(s: f32, pos: Vec3) -> Mesh {
     let v = Vec3::new;
     let stone = crate::palette::srgb(19, 24, 18); // near-black necrotic basalt
     let trim = crate::palette::srgb(46, 52, 40); // faint lighter trim, same dark hue
+    let w = 0.4 * s; // seat/back half-width
     let mut m = Mesh::new();
-    // seat slab
+    // wide seat slab (built around y = 0 at the seat, then translated by pos)
+    m.merge(&cuboid(v(0.0, 0.0, 0.0), v(w, 0.08 * s, 0.34 * s), stone));
+    // heavy tapered pedestal base grounding the throne
     m.merge(&cuboid(
-        v(0.0, -0.06 * s, 0.0),
-        v(0.3 * s, 0.1 * s, 0.26 * s),
+        v(0.0, -0.34 * s, -0.02 * s),
+        v(w * 0.9, 0.26 * s, 0.3 * s),
         stone,
     ));
-    // four stubby pedestal feet
-    for (dx, dz) in [
-        (-0.24f32, -0.18f32),
-        (0.24, -0.18),
-        (-0.24, 0.18),
-        (0.24, 0.18),
-    ] {
-        m.merge(&cuboid(
-            v(dx * s, -0.24 * s, dz * s),
-            v(0.05 * s, 0.1 * s, 0.05 * s),
-            stone,
-        ));
-    }
-    // tall backrest slab, with a carved gothic arch window
-    let mut back = cuboid(
-        v(0.0, 0.42 * s, -0.2 * s),
-        v(0.3 * s, 0.48 * s, 0.06 * s),
+    m.merge(&cuboid(
+        v(0.0, -0.6 * s, -0.02 * s),
+        v(w * 1.05, 0.06 * s, 0.36 * s),
         stone,
-    );
+    ));
+    // TALL backrest slab that looms JUST ABOVE the crown (not dwarfing the
+    // caster), with a carved gothic arch window. Backrest spans y ~0.1..1.6s
+    // -> world top ~2.24s (crown tips sit ~2.2s), and the finials add the
+    // looming apex above that.
+    let mut back = cuboid(v(0.0, 0.85 * s, -0.3 * s), v(w, 0.75 * s, 0.07 * s), stone);
+    // gothic arch cutter: a capped cylinder along Z (profile touches the axis
+    // r=0 at BOTH ends -> a CLOSED solid; an open tube would silently fail to
+    // carve). Sized to punch a tall window through the thin backrest slab,
+    // centered behind the caster's upper body so the glow reads against it.
     let mut bore = lathe(
         &[
-            (0.0, -0.34 * s),
-            (0.1 * s, -0.34 * s),
-            (0.1 * s, 0.3 * s),
-            (0.0, 0.34 * s),
+            (0.0, -0.4 * s),
+            (0.22 * s, -0.4 * s),
+            (0.22 * s, 0.42 * s),
+            (0.0, 0.5 * s),
         ],
-        10,
+        12,
         |_, _| stone,
     );
     bore.transform(Mat4::from_rotation_translation(
         Quat::from_rotation_x(FRAC_PI_2),
-        v(0.0, 0.44 * s, -0.2 * s),
+        v(0.0, 0.85 * s, -0.3 * s),
     ));
     back = crate::csg::subtract(&back, &bore);
     m.merge(&back);
-    // armrests + finial spikes
+    // vertical pilaster ridges framing the backrest edges (grandeur)
     for side in [-1.0f32, 1.0] {
         m.merge(&cuboid(
-            v(side * 0.3 * s, 0.14 * s, -0.02 * s),
-            v(0.05 * s, 0.05 * s, 0.22 * s),
-            trim,
-        ));
-        m.merge(&cuboid(
-            v(side * 0.3 * s, 0.94 * s, -0.22 * s),
-            v(0.045 * s, 0.1 * s, 0.045 * s),
+            v(side * (w - 0.03 * s), 0.85 * s, -0.28 * s),
+            v(0.05 * s, 0.75 * s, 0.08 * s),
             trim,
         ));
     }
+    // armrests + front supports + finial spikes
+    for side in [-1.0f32, 1.0] {
+        m.merge(&cuboid(
+            v(side * w, 0.28 * s, 0.02 * s),
+            v(0.06 * s, 0.06 * s, 0.3 * s),
+            trim,
+        ));
+        m.merge(&cuboid(
+            v(side * w, 0.08 * s, 0.3 * s),
+            v(0.06 * s, 0.2 * s, 0.06 * s),
+            stone,
+        ));
+        // corner finial spikes crowning the backrest
+        m.merge(&cuboid(
+            v(side * (w - 0.04 * s), 1.7 * s, -0.3 * s),
+            v(0.05 * s, 0.12 * s, 0.05 * s),
+            trim,
+        ));
+    }
+    // a taller central crowning finial so the throne reads as a looming apex
+    m.merge(&cuboid(
+        v(0.0, 1.78 * s, -0.3 * s),
+        v(0.06 * s, 0.18 * s, 0.06 * s),
+        trim,
+    ));
     m.translate(pos);
     m
 }
@@ -1270,7 +1419,7 @@ mod tests {
         let skel = &br.rig.skeleton;
         let mut channels = Vec::new();
         for (i, j) in skel.joints.iter().enumerate() {
-            if j.name == "upperarm" || j.name == "forearm" || j.name == "thigh" {
+            if j.name.contains("upperarm") || j.name.contains("forearm") || j.name == "thigh" {
                 channels.push(crate::gltf::Channel {
                     joint: i,
                     times: vec![0.0, 1.0],
@@ -1314,24 +1463,27 @@ mod tests {
             "edge stretch {stretch} indicates a skinning web between limbs/implements/torso"
         );
 
-        // the throne must stay put (rigid, unanimated family): its vertices
-        // should not move under a pose that only targets arms/legs/implements.
-        let throne_pos = Vec3::new(
-            0.0,
-            0.52 * p.size.clamp(0.4, 8.0),
-            -1.05 * p.size.clamp(0.4, 8.0),
-        );
+        // the throne must stay put (rigid, unanimated family): its BACKREST
+        // vertices should not move under a pose that only targets
+        // arms/legs/implements. Sample the region well behind the caster
+        // (z < -0.42*size) — the throne backrest lives there and NO animated
+        // lich part (arms/legs/orbiting implements all sit at z > -0.4*size)
+        // reaches it, so any motion there is a throne skinning web.
+        let sz = p.size.clamp(0.4, 8.0);
         let mut throne_moved = 0usize;
         let mut throne_checked = 0usize;
         for (a, b) in mesh.positions.iter().zip(&posed.positions) {
-            if a.distance(throne_pos) < 0.5 * p.size.clamp(0.4, 8.0) {
+            if a.z < -0.42 * sz {
                 throne_checked += 1;
                 if a.distance(*b) > 0.01 {
                     throne_moved += 1;
                 }
             }
         }
-        assert!(throne_checked > 0, "probe should sample throne vertices");
+        assert!(
+            throne_checked > 0,
+            "probe should sample throne backrest vertices"
+        );
         assert_eq!(
             throne_moved, 0,
             "throne must stay rigid/static under a pose"
