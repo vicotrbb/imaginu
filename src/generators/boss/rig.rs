@@ -332,77 +332,90 @@ fn plan_colossus(p: &BossParams) -> BossRig {
     let mut parts = Vec::new();
     let mut weak_points = Vec::new();
 
-    // trunk (rank 0/1): a TALL, narrow-ish stone torso (a towering golem
-    // reads tall-and-heavy, not wide-and-round) — biped_brute's layout
-    // stretched up, with long legs underneath doing most of the height.
-    let hips = r.joint(None, "hips", v(0.0, 1.05 * s, 0.0));
-    let spine = r.joint(Some(hips), "spine", v(0.0, 1.30 * s, 0.0));
-    let chest = r.joint(Some(spine), "chest", v(0.0, 1.62 * s, -0.05 * s));
-    let neck = r.joint(Some(chest), "neck", v(0.0, 1.86 * s, 0.04 * s));
-    let head = r.joint(Some(neck), "head", v(0.0, 2.08 * s, 0.10 * s));
+    // trunk (rank 0/1): a HULKING, hunched-forward stone torso — a broad
+    // blocky barrel that leans out over the viewer, with a heavy head sunk
+    // DOWN into the shoulders (almost no neck). The upper body steps forward
+    // in +Z (the hunch) so the golem looms rather than standing at attention.
+    let hips = r.joint(None, "hips", v(0.0, 1.02 * s, 0.0));
+    let spine = r.joint(Some(hips), "spine", v(0.0, 1.28 * s, 0.03 * s));
+    let chest = r.joint(Some(spine), "chest", v(0.0, 1.56 * s, 0.09 * s));
+    // short, thick neck: the heavy blocky head sits sunk between the shoulder
+    // slabs but its crown still clears them (the head must READ as a distinct
+    // craggy skull, not vanish into the shoulder mass) — thrust forward over
+    // the chest so the golem looms.
+    let neck = r.joint(Some(chest), "neck", v(0.0, 1.72 * s, 0.16 * s));
+    let head = r.joint(Some(neck), "head", v(0.0, 1.9 * s, 0.24 * s));
     // NOTE: the trunk radii are kept DELIBERATELY modest relative to the
     // arm/leg socket offsets below (`bk` only thickens a LITTLE beyond
     // `bulk`, 0.1 not 0.3 per armor point): an oversized flat shoulder plate
     // or barrel torso swallows the limbs into one featureless blob (the
     // "engulfment" failure — visually a web even though skinning is clean),
     // and separately widened limb sockets keep the trunk/limb SKIN families
-    // geometrically separated (the union-find "web" failure). "Heavy armor"
-    // instead reads through the dedicated pauldron/chestplate primitives
-    // pushed after `finish`, which sit ON TOP of (not inside) the silhouette.
+    // geometrically separated (the union-find "web" failure). The BROAD,
+    // heavy shoulder read instead comes from the big rank-4 pauldron stone
+    // slabs pushed after `finish`, which sit ON TOP of (not inside) the
+    // silhouette and skin rigidly to the torso.
     let bk = bulk * (1.0 + 0.1 * armor);
-    r.ellip(hips, chest, 0.22 * s * bk, 0.06 * s, 0, 0.14 * s);
-    r.cone(hips, chest, 0.19 * s * bk, 0.24 * s * bk, 0, 0.14 * s);
+    // low, tight k across the trunk = a harder, more faceted rock read (less
+    // soft molten blob) — the smin blend radius is what rounds junctions, so
+    // shrinking it keeps craggy stone edges.
+    r.ellip(hips, chest, 0.25 * s * bk, 0.05 * s, 0, 0.08 * s); // broad barrel
+    r.cone(hips, chest, 0.23 * s * bk, 0.26 * s * bk, 0, 0.08 * s);
     r.flat(
         chest,
         chest,
-        v(0.32 * s * bk, 0.22 * s, 0.24 * s),
+        v(0.4 * s * bk, 0.2 * s, 0.26 * s),
         0,
-        0.1 * s,
-    ); // shoulders — narrower than the arm socket offset (0.46*s) so the
-    // arms read as attached limbs, not absorbed mass
-    r.cone(chest, neck, 0.14 * s, 0.11 * s, 1, 0.07 * s);
-    r.cone(neck, head, 0.10 * s, 0.14 * s, 1, 0.06 * s);
-    r.ellip(head, head, 0.16 * s, 0.0, 1, 0.05 * s);
+        0.06 * s,
+    ); // broad blocky shoulders — half-width (0.40) still < the arm socket
+    // offset (0.52*s) so the arms read as attached limbs, not absorbed mass
+    r.cone(chest, neck, 0.16 * s, 0.15 * s, 1, 0.04 * s); // thick stump neck
+    r.cone(neck, head, 0.15 * s, 0.16 * s, 1, 0.04 * s);
+    // heavy BLOCKY head (an anisotropic slab, not a round ball) with a jutting
+    // craggy brow, thrust forward and clearing the shoulder slabs.
+    r.flat(head, head, v(0.24 * s, 0.24 * s, 0.28 * s), 1, 0.035 * s);
     parts.push(PartMeta {
         name: "head".into(),
         joint: "head".into(),
         destructible: true,
     });
 
-    // legs (rank 2, LONG thick planted pillars — grounding, not named parts,
-    // and most of the "towering" height reads through their length).
+    // legs (rank 2, thick planted stone PILLARS in a wide braced stance —
+    // grounding, not named parts. Blocky feet anchor the mass.).
     let mut legs = Vec::new();
     for side in [-1.0f32, 1.0] {
-        let th = r.joint(Some(hips), "thigh", v(side * 0.22 * s, 0.95 * s, 0.0));
-        let sn = r.joint(Some(th), "shin", v(side * 0.23 * s, 0.5 * s, 0.02 * s));
-        let ft = r.joint(Some(sn), "foot", v(side * 0.24 * s, 0.04 * s, 0.15 * s));
-        r.cone(th, sn, 0.17 * s * bulk, 0.13 * s, 2, 0.02 * s);
-        r.cone(sn, ft, 0.13 * s, 0.09 * s, 2, 0.03 * s);
+        let th = r.joint(Some(hips), "thigh", v(side * 0.26 * s, 0.86 * s, 0.0));
+        let sn = r.joint(Some(th), "shin", v(side * 0.27 * s, 0.44 * s, 0.02 * s));
+        let ft = r.joint(Some(sn), "foot", v(side * 0.28 * s, 0.05 * s, 0.18 * s));
+        r.cone(th, sn, 0.22 * s * bulk, 0.19 * s, 2, 0.02 * s);
+        r.cone(sn, ft, 0.19 * s, 0.14 * s, 2, 0.025 * s);
+        r.flat(ft, ft, v(0.17 * s, 0.09 * s, 0.24 * s), 2, 0.02 * s); // blocky foot
         legs.push(vec![th, sn, ft]);
     }
 
     // arms (rank 2, each its OWN family since left/right never share a
-    // rank>=2 primitive) — chunky segmented limbs, named `arm.l`/`arm.r`,
-    // destructible.
+    // rank>=2 primitive) — heavy blocky segmented limbs hanging forward and
+    // low in a hunched, ape-like set, ending in BIG stone fists near the
+    // knees. Named `arm.l`/`arm.r`, destructible.
     for (side, name) in [(-1.0f32, "arm.l"), (1.0f32, "arm.r")] {
         let sh = r.joint(
             Some(chest),
             &format!("{name}_upper"),
-            v(side * 0.46 * s, 1.58 * s, 0.0),
+            v(side * 0.52 * s, 1.5 * s, 0.06 * s),
         );
         let el = r.joint(
             Some(sh),
             &format!("{name}_fore"),
-            v(side * 0.66 * s, 1.28 * s, 0.10 * s),
+            v(side * 0.62 * s, 1.08 * s, 0.18 * s),
         );
         let hn = r.joint(
             Some(el),
             &format!("{name}_hand"),
-            v(side * 0.76 * s, 0.94 * s, 0.16 * s),
+            v(side * 0.66 * s, 0.72 * s, 0.24 * s),
         );
-        r.cone(sh, el, 0.17 * s * bulk, 0.135 * s * bulk, 2, 0.03 * s);
-        r.cone(el, hn, 0.135 * s, 0.11 * s, 2, 0.035 * s);
-        r.ellip(hn, hn, 0.13 * s, 0.0, 2, 0.03 * s); // huge stone fist
+        r.cone(sh, el, 0.2 * s * bulk, 0.18 * s * bulk, 2, 0.025 * s);
+        r.cone(el, hn, 0.18 * s, 0.16 * s, 2, 0.03 * s);
+        r.flat(hn, hn, v(0.2 * s, 0.19 * s, 0.2 * s), 2, 0.025 * s); // BIG blocky fist
         parts.push(PartMeta {
             name: name.into(),
             joint: format!("{name}_fore"),
@@ -413,15 +426,14 @@ fn plan_colossus(p: &BossParams) -> BossRig {
     // chest core joint (rank 0/1-free: added to the builder now purely so it
     // exists as a real skeleton joint for the weak point; its glowing prim is
     // pushed AFTER `finish` with an explicit high fold rank + Eye tint so it
-    // never folds into the rank-0/1 trunk band). Positioned at 0.88x the
-    // chest cone's own forward radius so the glow sphere pokes clear of the
-    // stone surface — an EXPOSED core in a chest cavity, not one buried
-    // inside the torso where it would never be visible.
-    let chest_r2 = 0.24 * s * bk;
+    // never folds into the rank-0/1 trunk band). Positioned so the glow
+    // sphere pokes clear of the chest's forward stone surface — an EXPOSED,
+    // large, central molten core, not one buried inside the torso.
+    let chest_r2 = 0.26 * s * bk;
     let core = r.joint(
         Some(chest),
         "core",
-        v(0.0, 1.60 * s, -0.05 * s + 0.88 * chest_r2),
+        v(0.0, 1.52 * s, 0.09 * s + 0.78 * chest_r2),
     );
     // trunk anchor: a tiny near-invisible rank-1 spoke from chest to core so
     // `core` is classified `is_trunk` (rigid to the spine chain) — the
@@ -454,27 +466,25 @@ fn plan_colossus(p: &BossParams) -> BossRig {
     };
     let mut rig = r.finish(gait);
 
-    // The glowing exposed core (own rank 3 family): a bright sphere set into
-    // the chest cavity, tinted Eye so the boss-level emissive floor (0.12)
-    // lights it regardless of the `emissive` knob.
+    // The glowing exposed core (own rank 3 family): a LARGE, central molten
+    // sphere in the chest cavity, tinted Eye so it paints full accent albedo
+    // and reads as the boss's brightest element against the dark stone body.
+    let core_r = (0.24 + 0.05 * plates) * s;
     push_flat(
         &mut rig,
         core,
         core,
-        v(
-            (0.20 + 0.05 * plates) * s,
-            (0.20 + 0.05 * plates) * s,
-            (0.20 + 0.05 * plates) * s,
-        ),
+        v(core_r, core_r, core_r),
         3,
-        0.06 * s,
+        0.05 * s,
         PrimTint::Eye,
     );
 
-    // Escalated armor: heavy shoulder pauldrons flanking the core (rank 4,
-    // Horn tint = stone plating, NOT glowing) — these are the "phase 1
-    // covered by plates" reading over the core, and a small back-plate ridge.
-    add_armor_plates(&mut rig, chest, core, s, 0.5 + 0.5 * armor.max(plates));
+    // Escalated armor: big ANGULAR stone pauldron slabs capping the shoulders
+    // (rank 4, Body tint = dark rock, NOT pale bone) that broaden the
+    // silhouette into a hulking wedge, plus a heavy stone brow-plate arching
+    // over the core. These are the "phase 1 covered by plates" reading.
+    add_armor_plates(&mut rig, chest, core, s, 0.6 + 0.4 * armor.max(plates));
     add_horn_crown(&mut rig, head, s, horns);
 
     rig.bounds = crate::generators::monster::rig::compute_bounds(&rig);
@@ -486,20 +496,26 @@ fn plan_colossus(p: &BossParams) -> BossRig {
     }
 }
 
-/// Heavy stone shoulder pauldrons flanking the chest core, plus a small
-/// spine-ridge plate — `intensity` (0..1, from `armor`/`plates` knobs) scales
-/// their size. Own rank-4 family per plate (children of `chest`), so they
-/// never web to the trunk or to each other.
+/// Big ANGULAR stone pauldron slabs capping the shoulders, plus a heavy
+/// stone brow-plate arching over the core — `intensity` (0..1, from
+/// `armor`/`plates` knobs) scales their size. Body tint (dark rock, not pale
+/// bone) so they read as part of the stone golem, and a small tight `k` keeps
+/// them slab-edged rather than melting into the torso. Own rank-4 family per
+/// plate (children of `chest`) with a rank-1 trunk-anchor spoke so they skin
+/// rigidly to the torso and never web to the trunk, the arms, or each other.
 fn add_armor_plates(rig: &mut MonsterRig, chest: usize, core: usize, s: f32, intensity: f32) {
     let v = Vec3::new;
     let cp = rig.joint_world(chest);
-    let k = 0.12 + 0.09 * intensity;
+    let g = 0.16 + 0.08 * intensity; // base slab half-extent
     for side in [-1.0f32, 1.0] {
+        // slab sits at shoulder level (below the head crown) and OUTBOARD of
+        // the shoulder, overhanging the arm socket to broaden the silhouette
+        // into a hulking wedge.
         let pb = add_joint(
             rig,
             chest,
             "pauldron",
-            cp + v(side * 0.44 * s, 0.14 * s, 0.0),
+            cp + v(side * 0.5 * s, 0.1 * s, 0.02 * s),
         );
         // trunk anchor (see `core`'s spoke above): keeps the pauldron rigid
         // to the torso instead of racing the nearby arm for nearest-family.
@@ -513,24 +529,54 @@ fn add_armor_plates(rig: &mut MonsterRig, chest: usize, core: usize, s: f32, int
             0.02 * s,
             PrimTint::Body,
         );
+        // a WIDE, deep, shallow slab (thin on Y) = a flat stone shoulder
+        // plate; a second slab canted outboard-and-down breaks the round
+        // silhouette into an angular, faceted two-plate pauldron.
         push_flat(
             rig,
             pb,
             pb,
-            v(k * s, k * 0.7 * s, k * 0.9 * s),
+            v(g * 1.5 * s, g * 0.6 * s, g * 1.25 * s),
             4,
-            0.05 * s,
-            PrimTint::Horn,
+            0.025 * s,
+            PrimTint::Body,
+        );
+        let po = add_joint(
+            rig,
+            pb,
+            "pauldron_out",
+            cp + v(side * 0.72 * s, -0.04 * s, 0.0),
+        );
+        // trunk-anchor `po` too (it sits right beside the arm socket; without
+        // an anchor it would form a stray single-joint limb family and web).
+        push_cone(
+            rig,
+            chest,
+            po,
+            0.02 * s,
+            0.02 * s,
+            1,
+            0.02 * s,
+            PrimTint::Body,
+        );
+        push_flat(
+            rig,
+            po,
+            po,
+            v(g * 0.75 * s, g * 0.5 * s, g * 1.0 * s),
+            4,
+            0.025 * s,
+            PrimTint::Body,
         );
     }
-    // a small brow-plate ridge just above the core, reinforcing the "phase 1
-    // covered by plates" silhouette without occluding the glow entirely.
+    // a heavy stone brow-plate arching just above the core — reinforces the
+    // "core set in an armored chest cavity" read without occluding the glow.
     let core_p = rig.joint_world(core);
     let bp = add_joint(
         rig,
         chest,
         "chestplate",
-        core_p + v(0.0, 0.16 * s, -0.03 * s),
+        core_p + v(0.0, 0.24 * s, -0.02 * s),
     );
     push_cone(
         rig,
@@ -546,46 +592,49 @@ fn add_armor_plates(rig: &mut MonsterRig, chest: usize, core: usize, s: f32, int
         rig,
         bp,
         bp,
-        v((0.30 + 0.1 * intensity) * s, 0.08 * s, 0.05 * s),
+        v((0.34 + 0.1 * intensity) * s, 0.1 * s, 0.08 * s),
         4,
-        0.05 * s,
-        PrimTint::Horn,
+        0.03 * s,
+        PrimTint::Body,
     );
 }
 
-/// A small ring of stubby stone horns around the head crown — `horns` (0..1)
-/// scales count/size. Own rank-5 family, children of `head`.
+/// A pair of short, thick, back-swept craggy stone horns low on the brow —
+/// `horns` (0..1) scales their length. Deliberately NOT tall upright antennae
+/// (which read comical on a golem): low Y-rise, strong rearward sweep, stubby.
+/// Own rank-5 family, children of `head`.
 fn add_horn_crown(rig: &mut MonsterRig, head: usize, s: f32, horns: f32) {
     if horns <= 0.0 {
         return;
     }
     let v = Vec3::new;
     let hp = rig.joint_world(head);
-    let n = 2 + (horns * 2.0).round() as usize; // 2..4
-    for i in 0..n {
-        let f = (i as f32 / n.max(1) as f32) * std::f32::consts::TAU;
-        let dir = v(f.cos(), 0.0, f.sin());
+    let len = 0.06 + 0.1 * horns;
+    for side in [-1.0f32, 1.0] {
         let hb = add_joint(
             rig,
             head,
             "horn",
-            hp + v(0.0, 0.18 * s, 0.0) + dir * 0.05 * s,
+            hp + v(side * 0.14 * s, 0.12 * s, 0.06 * s),
         );
         let ht = add_joint(
             rig,
             hb,
             "horn_tip",
-            hp + v(0.0, (0.18 + 0.16 * horns) * s, 0.0) + dir * 0.09 * s,
+            hp + v(side * 0.18 * s, (0.12 + 0.5 * len) * s, (0.06 - len) * s),
         );
+        // Body tint (dark rock), NOT bone/pale: a golem's horns are craggy
+        // stone protrusions, not keratin — a pale nub reads as an odd bright
+        // dot on the dark head.
         push_cone(
             rig,
             hb,
             ht,
-            0.035 * s * horns.max(0.3),
-            0.008 * s,
+            0.06 * s,
+            0.015 * s,
             5,
-            0.012 * s,
-            PrimTint::Horn,
+            0.01 * s,
+            PrimTint::Body,
         );
     }
 }
@@ -684,9 +733,9 @@ mod tests {
 
     #[test]
     fn colossus_skinning_has_no_webs() {
-        let p = boss(r#"{"kind":"boss","archetype":"colossus","element":"necrotic"}"#);
+        let p = boss(r#"{"kind":"boss","archetype":"colossus","element":"volcanic"}"#);
         let br = build_boss_rig(&p);
-        let pal = crate::palette::by_name("necrotic");
+        let pal = crate::palette::by_name("volcanic");
         let mut mesh = super::super::body::build_body(&br.rig, p.size, p.detail, p.seed, 0.0, &pal);
         mesh.validate()
             .expect("bind mesh valid (no degenerate/zero-area tris)");

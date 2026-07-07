@@ -48,11 +48,27 @@ pub fn generate(p: &BossParams, pal: &Palette) -> Asset {
         .prims
         .iter()
         .any(|d| d.tint == crate::generators::monster::rig::PrimTint::Eye);
-    let emissive = p
-        .emissive
-        .clamp(0.0, 1.0)
-        .max(if eye_glow { 0.12 } else { 0.0 });
-    let mut mesh = body::build_body(&br.rig, p.size, p.detail, p.seed, emissive, pal);
+    let e = p.emissive.clamp(0.0, 1.0);
+    // `emissive` here drives BOTH (a) the fraction of BODY vertices painted
+    // full accent albedo in `build_body` (`body_accent`) and (b) the UNIFORM
+    // material emissive the renderer adds to every surface. For most bosses
+    // these are one value. The colossus DECOUPLES them: a dark stone golem
+    // must read dark with the glow CONCENTRATED at the molten core (an
+    // Eye-tinted prim that always paints full accent regardless of these
+    // knobs) and in sparse crevice cracks — NOT measled bright accent all
+    // over (the green-on-green / washed-out failure). So its body gets only a
+    // few percent accent speckle and a LOW uniform emissive floor that lets
+    // the core+eye albedo pop without washing the rock.
+    let colossus = matches!(p.archetype, crate::recipe::BossArchetype::Colossus);
+    let (body_accent, emissive) = if colossus {
+        (
+            (e * 0.12).clamp(0.03, 0.07),
+            if eye_glow { 0.11 } else { 0.0 },
+        )
+    } else {
+        (e, e.max(if eye_glow { 0.12 } else { 0.0 }))
+    };
+    let mut mesh = body::build_body(&br.rig, p.size, p.detail, p.seed, body_accent, pal);
     crate::generators::monster::skin_body(&mut mesh, &br.rig);
     mesh.validate().expect("boss mesh invalid");
     // Whole-body collider reuses the monster fit; boss body plan approximated
