@@ -757,21 +757,26 @@ palettes: verdant | autumn | arctic | volcanic | desert | mystic | necrotic | in
 {"kind":"prop","prop":"barrel|crate|lantern|campfire","size":1.0,"seed":1}
 
 {"kind":"character","class":"villager|warrior|mage|rogue","height":1.7,
- "bulk":1.0,"animate":true,"seed":1,"detail":1.0,
+ "bulk":1.0,"build":"slim|average|heavy|heroic","frame":"masculine|feminine|neutral",
+ "animate":true,"seed":1,"detail":1.0,
  "hair":"short|ponytail|bun|bald|long|topknot","beard":"none|mustache|short|long",
  "hair_color":"#eae7e0","skin_tone":0,"expressions":true,
  "outfit":"robe|tunic|plain","ornamentation":0.6,"age":0.8,
  "accessories":["necklace","belt_knot","staff"],
  "trim_motif":"meander|zigzag|dots|diamonds|scroll|runes"}
+ // build/frame: proportion canon knobs (both optional, default average/
+ // neutral = identical to prior geometry); build scales limb/torso radii
+ // and mass, frame scales hip/shoulder width ratio - see Proportions::derive
  // outfits: lofted painted garment stacks (under-robe, open coat, hanging
  // sleeves, sash + tail, mantle) with hem/cuff trim bands, brocade motifs,
  // painted cloth folds - skinned to the skeleton, deform with every clip
- // detail: 0.5..2.0 tessellation multiplier (2.0 = hero close-ups, ~24k tris)
- // body v5: sculpted boots w/ soles+toe caps, framed buckle, hip pouch,
- // collar, shirt buttons, fingered mittens; class gear: cuirass rivets +
- // rim + bracers (warrior), draped hood + hip dagger (rogue), hat band +
- // smooth robe skirt (mage)
- // smooth subdivision bodies, mitten hands, faces (eyes/brows/nose/mouth),
+ // detail: 0.5..2.0 tessellation multiplier (2.0 = hero close-ups)
+ // body v6: anatomical landmarks at higher field resolution, sculpted SDF
+ // head with geometry eyes/ears/nose, four-finger hands with staff grip,
+ // sculpted boots w/ soles+toe caps, framed buckle, hip pouch, collar,
+ // shirt buttons; class gear: cuirass rivets + rim + bracers (warrior),
+ // draped hood + hip dagger (rogue), hat band + smooth robe skirt (mage)
+ // smooth subdivision bodies, faces (eyes/brows/nose/mouth),
  // facial morph targets: smile, blink, angry, surprised (glTF blend shapes)
 
 {"kind":"monster","body":"quadruped_beast","class":"none","size":1.0,"seed":1,
