@@ -4,31 +4,38 @@
 //! named joints. This is the template archetype (hydra); Tasks 7-10 add the
 //! remaining archetypes following the same shape.
 
-use glam::Vec3;
+use core::f32::consts::{FRAC_PI_2, TAU};
+
+use glam::{Mat4, Quat, Vec3};
 
 use crate::generators::monster::rig::{
     Gait, GaitDesc, MonsterRig, PrimTint, RigBuilder, add_joint, push_cone, push_flat,
 };
+use crate::mesh::{Mesh, cuboid, lathe};
 use crate::recipe::{BossArchetype, BossParams};
 
 use super::meta::{ColliderJson, PartMeta, WeakPointMeta};
 
 /// A planned boss: the underlying [`MonsterRig`] plus the weak points and
-/// destructible parts extracted from its named joints.
+/// destructible parts extracted from its named joints, plus an optional
+/// extra mesh (currently only the lich's CSG throne) that isn't part of the
+/// rig's SDF primitive field and must be merged into the body mesh directly
+/// (see `generate`).
 pub struct BossRig {
     pub rig: MonsterRig,
     pub weak_points: Vec<WeakPointMeta>,
     pub parts: Vec<PartMeta>,
+    pub extra_mesh: Option<Mesh>,
 }
 
-/// Dispatch on archetype. `Hydra` and `Colossus` have dedicated plans; the
-/// remaining archetypes fall back to `plan_hydra` so dispatch stays total
-/// until Tasks 8-10 land.
+/// Dispatch on archetype. `Hydra`, `Colossus`, and `Lich` have dedicated
+/// plans; the remaining archetypes fall back to `plan_hydra` so dispatch
+/// stays total until Tasks 9-10 land.
 pub fn build_boss_rig(p: &BossParams) -> BossRig {
     match p.archetype {
         BossArchetype::Hydra => plan_hydra(p),
         BossArchetype::Colossus => plan_colossus(p),
-        BossArchetype::Lich => plan_hydra(p),
+        BossArchetype::Lich => plan_lich(p),
         BossArchetype::SwarmQueen => plan_hydra(p),
         BossArchetype::DragonLord => plan_hydra(p),
     }
@@ -164,6 +171,7 @@ fn plan_hydra(p: &BossParams) -> BossRig {
         rig,
         weak_points,
         parts,
+        extra_mesh: None,
     }
 }
 
@@ -493,6 +501,7 @@ fn plan_colossus(p: &BossParams) -> BossRig {
         rig,
         weak_points,
         parts,
+        extra_mesh: None,
     }
 }
 
@@ -637,6 +646,357 @@ fn add_horn_crown(rig: &mut MonsterRig, head: usize, s: f32, horns: f32) {
             PrimTint::Body,
         );
     }
+}
+
+/// Lich / overlord (a GALLERY HERO — palette necrotic, never element-switched):
+/// a GAUNT robed caster on a slender biped skeleton (thin torso/limbs, a
+/// sweeping robe hem hiding the legs, a narrow skull), topped with a bony
+/// CROWN and glowing eye sockets. `core` (rank-3 own family, Eye tint) is a
+/// small glowing green phylactery set into the chest — the weak point. A
+/// hovering ring of 3 `implement.N` orbs/blades (each its own rank-6 family,
+/// a `pivot` co-located with `core` -> a tip offset by the orbit radius) spin
+/// slowly in `idle` (see `boss::anim::add_implement_orbit`). A static, CSG
+/// carved stone `throne` (built from real closed-solid booleans, NOT an SDF
+/// primitive — see `build_throne_mesh`) sits behind the lich as a pedestal;
+/// it is merged into the body mesh in `generate`, and a small enclosing
+/// rank-7 anchor primitive here gives `skin_body`'s nearest-primitive
+/// classifier something rigid to bind those merged vertices to. Bounds are
+/// captured BEFORE the throne anchor is added so the whole-body collider and
+/// the marching-cubes sample box stay tight to the caster, excluding the
+/// throne (per the brief).
+fn plan_lich(p: &BossParams) -> BossRig {
+    let s = p.size.clamp(0.4, 8.0);
+    let crown_k = p.crown.clamp(0.0, 1.0);
+    let regalia = p.regalia.clamp(0.0, 1.0);
+    let v = Vec3::new;
+    let mut r = RigBuilder::new();
+    let mut parts = Vec::new();
+    let mut weak_points = Vec::new();
+
+    // trunk (rank 0/1): a TALL, GAUNT robed torso — a slender barrel with
+    // narrow, bony shoulders (deliberately NOT biped_brute's broad hunch), a
+    // thin neck, and a narrow skull. A wide flowing hem (rank 0, trunk band,
+    // soft `k`) reads as long necrotic robes sweeping to the ground and
+    // hiding the thin legs beneath — the "gaunt caster" silhouette.
+    let hips = r.joint(None, "hips", v(0.0, 0.98 * s, 0.0));
+    let spine = r.joint(Some(hips), "spine", v(0.0, 1.22 * s, 0.0));
+    let chest = r.joint(Some(spine), "chest", v(0.0, 1.5 * s, 0.02 * s));
+    let neck = r.joint(Some(chest), "neck", v(0.0, 1.64 * s, 0.05 * s));
+    let head = r.joint(Some(neck), "head", v(0.0, 1.78 * s, 0.08 * s));
+    let hem = r.joint(Some(hips), "hem", v(0.0, 0.02 * s, 0.06 * s));
+    r.ellip(hips, chest, 0.13 * s, 0.03 * s, 0, 0.09 * s); // slender torso
+    r.cone(hips, chest, 0.11 * s, 0.13 * s, 0, 0.09 * s);
+    // flowing robe hem: starts AT the hip radius (no extra bulge at the
+    // waist) and tapers out to a wide skirt at the ground, with a tighter
+    // blend `k` so the profile reads as a straight flared cone (a robe),
+    // not a soft melted droplet.
+    r.cone(hips, hem, 0.13 * s, 0.3 * s, 0, 0.11 * s);
+    r.flat(chest, chest, v(0.19 * s, 0.13 * s, 0.11 * s), 0, 0.07 * s); // narrow bony shoulders
+    r.cone(chest, neck, 0.06 * s, 0.055 * s, 1, 0.04 * s); // thin neck
+    r.cone(neck, head, 0.055 * s, 0.085 * s, 1, 0.035 * s);
+    r.ellip(head, head, 0.105 * s, 0.0, 1, 0.03 * s); // gaunt narrow skull
+    parts.push(PartMeta {
+        name: "head".into(),
+        joint: "head".into(),
+        destructible: true,
+    });
+
+    // legs (rank 2, thin — mostly hidden under the robe hem but present so
+    // the walk gait actually swings limbs under the cloth).
+    let mut legs = Vec::new();
+    for side in [-1.0f32, 1.0] {
+        let th = r.joint(Some(hips), "thigh", v(side * 0.09 * s, 0.62 * s, 0.0));
+        let sn = r.joint(Some(th), "shin", v(side * 0.09 * s, 0.32 * s, 0.02 * s));
+        let ft = r.joint(Some(sn), "foot", v(side * 0.1 * s, 0.03 * s, 0.1 * s));
+        r.cone(th, sn, 0.06 * s, 0.045 * s, 2, 0.018 * s);
+        r.cone(sn, ft, 0.045 * s, 0.03 * s, 2, 0.02 * s);
+        legs.push(vec![th, sn, ft]);
+    }
+
+    // arms (rank 2, each its own family) — long, thin, skeletal limbs ending
+    // in bony hands, held slightly out from the body.
+    for side in [-1.0f32, 1.0] {
+        let sh = r.joint(
+            Some(chest),
+            "upperarm",
+            v(side * 0.22 * s, 1.46 * s, 0.02 * s),
+        );
+        let el = r.joint(Some(sh), "forearm", v(side * 0.32 * s, 1.1 * s, 0.12 * s));
+        let hn = r.joint(Some(el), "hand", v(side * 0.37 * s, 0.8 * s, 0.2 * s));
+        r.cone(sh, el, 0.05 * s, 0.038 * s, 2, 0.02 * s);
+        r.cone(el, hn, 0.038 * s, 0.028 * s, 2, 0.018 * s);
+        r.ellip(hn, hn, 0.04 * s, 0.0, 2, 0.014 * s); // bony fist
+    }
+
+    let gait = GaitDesc {
+        legs,
+        spine: vec![hips, spine, chest, neck, head],
+        wings: Vec::new(),
+        tail: Vec::new(),
+        head: Some(head),
+        style: Gait::Walk,
+    };
+    let mut rig = r.finish(gait);
+
+    // chest phylactery (own rank-3 family, Eye tint = full accent glow): a
+    // small green orb set INTO the chest, popping against the dark robe —
+    // the weak point.
+    let chest_wp = rig.joint_world(chest);
+    let core = add_joint(
+        &mut rig,
+        chest,
+        "core",
+        chest_wp + v(0.0, 0.02 * s, 0.11 * s),
+    );
+    let core_r = 0.075 * s;
+    push_flat(
+        &mut rig,
+        core,
+        core,
+        v(core_r, core_r, core_r),
+        3,
+        0.03 * s,
+        PrimTint::Eye,
+    );
+
+    add_lich_eyes(&mut rig, head, s);
+    add_crown(&mut rig, head, s, crown_k, regalia);
+
+    // floating implements: a hovering ring of 2-3 orbs/blades around the
+    // phylactery, each its OWN rank-6 family — a `pivot` joint co-located
+    // with `core` -> an `implement.N` tip offset by the orbit radius, so
+    // rotating `pivot` in `idle` spins the tip around `core` with no
+    // geometry spanning the gap (no visible rod poking through the body).
+    let core_wp = rig.joint_world(core);
+    for i in 0..3usize {
+        let phase = i as f32 / 3.0 * TAU;
+        let radius = (0.5 + 0.04 * i as f32) * s;
+        let y = 0.12 * s * (i as f32 - 1.0);
+        let pivot = add_joint(&mut rig, core, "implement_pivot", core_wp);
+        let tip = add_joint(
+            &mut rig,
+            pivot,
+            &format!("implement.{}", i + 1),
+            core_wp + v(radius * phase.cos(), y, radius * phase.sin()),
+        );
+        if i % 2 == 0 {
+            // a floating glowing orb
+            let orb_r = 0.075 * s;
+            push_flat(
+                &mut rig,
+                tip,
+                tip,
+                v(orb_r, orb_r, orb_r),
+                6,
+                0.02 * s,
+                PrimTint::Eye,
+            );
+        } else {
+            // a floating blade: a thin flat anisotropic sliver
+            push_flat(
+                &mut rig,
+                tip,
+                tip,
+                v(0.02 * s, 0.16 * s, 0.05 * s),
+                6,
+                0.015 * s,
+                PrimTint::Horn,
+            );
+        }
+        parts.push(PartMeta {
+            name: format!("implement.{}", i + 1),
+            joint: format!("implement.{}", i + 1),
+            destructible: true,
+        });
+    }
+
+    if p.weak_points {
+        weak_points.push(WeakPointMeta {
+            name: "weak_point.phylactery".into(),
+            joint: "core".into(),
+            collider: ColliderJson::Sphere {
+                radius: core_r * 1.4,
+            },
+            offset: [0.0, 0.0, 0.0],
+            destructible: true,
+            phase: 2,
+        });
+    }
+
+    // Capture bounds NOW — body + crown + eyes + implements, the real
+    // silhouette — BEFORE the throne anchor below, so `fit_collider` and
+    // `build_body`'s marching-cubes sample box stay tight to the caster and
+    // never balloon to include the throne behind it.
+    rig.bounds = crate::generators::monster::rig::compute_bounds(&rig);
+
+    // static throne joint, seated BEHIND the lich (a pedestal it sits in
+    // front of, not attached to any moving limb — it never animates). A
+    // small enclosing anchor primitive (own rank-7 family) gives
+    // `skin_body`'s nearest-primitive classifier something to bind the
+    // merged CSG throne mesh's vertices to.
+    let throne_pos = v(0.0, 0.52 * s, -1.05 * s);
+    let throne = add_joint(&mut rig, hips, "throne", throne_pos);
+    let anchor_r = 0.34 * s;
+    push_flat(
+        &mut rig,
+        throne,
+        throne,
+        v(anchor_r, anchor_r, anchor_r),
+        7,
+        0.02 * s,
+        PrimTint::Body,
+    );
+    parts.push(PartMeta {
+        name: "throne".into(),
+        joint: "throne".into(),
+        destructible: true,
+    });
+
+    BossRig {
+        rig,
+        weak_points,
+        parts,
+        extra_mesh: Some(build_throne_mesh(s, throne_pos)),
+    }
+}
+
+/// Two small glowing green eye sockets sunk into the gaunt skull, each an
+/// Eye-tinted rank-4 family.
+fn add_lich_eyes(rig: &mut MonsterRig, head: usize, s: f32) {
+    let v = Vec3::new;
+    let hp = rig.joint_world(head);
+    for side in [-1.0f32, 1.0] {
+        let eb = add_joint(
+            rig,
+            head,
+            "eye",
+            hp + v(side * 0.045 * s, 0.01 * s, 0.07 * s),
+        );
+        push_flat(
+            rig,
+            eb,
+            eb,
+            v(0.018 * s, 0.018 * s, 0.018 * s),
+            4,
+            0.006 * s,
+            PrimTint::Eye,
+        );
+    }
+}
+
+/// A fan of thin bone-toned crown spikes across the brow (`crown` scales
+/// their height) plus a thin circlet band wrapping the skull (`regalia`
+/// scales its thickness) — the "regalia" read. Own rank-5 family, children
+/// of `head`.
+fn add_crown(rig: &mut MonsterRig, head: usize, s: f32, crown: f32, regalia: f32) {
+    let v = Vec3::new;
+    let hp = rig.joint_world(head);
+    let n = 5usize;
+    let h = (0.1 + 0.16 * crown) * s;
+    for i in 0..n {
+        let f = (i as f32 / (n - 1) as f32 - 0.5) * 2.0; // -1..1 fan across the brow
+        let base = hp + v(f * 0.085 * s, 0.09 * s, 0.03 * s - 0.02 * f.abs() * s);
+        let b0 = add_joint(rig, head, "crown_spike", base);
+        let b1 = add_joint(
+            rig,
+            b0,
+            "crown_spike_tip",
+            base + v(f * 0.02 * s, h, -0.02 * s),
+        );
+        push_cone(
+            rig,
+            b0,
+            b1,
+            0.026 * s,
+            0.007 * s,
+            5,
+            0.014 * s,
+            PrimTint::Horn,
+        );
+    }
+    if regalia > 0.0 {
+        let band_r = (0.028 + 0.014 * regalia) * s;
+        push_flat(
+            rig,
+            head,
+            head,
+            v(0.11 * s, band_r, 0.11 * s),
+            5,
+            0.012 * s,
+            PrimTint::Horn,
+        );
+    }
+}
+
+/// Build the lich's throne as a literal, CSG-carved closed-solid mesh (NOT
+/// an SDF primitive): a seat slab on four stubby feet, a tall backrest with
+/// a carved gothic arch window, and armrests with finial spikes. `pos` is
+/// the throne joint's world position; the returned mesh is already
+/// translated there. The arch cutter is a CLOSED solid — the lathe profile
+/// touches the axis (`r=0`) at both ends, so revolving it yields a capped,
+/// watertight capsule, not an open tube; an open cutter would silently fail
+/// to carve (see the CSG closed-solids rule in the task brief).
+fn build_throne_mesh(s: f32, pos: Vec3) -> Mesh {
+    let v = Vec3::new;
+    let stone = crate::palette::srgb(19, 24, 18); // near-black necrotic basalt
+    let trim = crate::palette::srgb(46, 52, 40); // faint lighter trim, same dark hue
+    let mut m = Mesh::new();
+    // seat slab
+    m.merge(&cuboid(
+        v(0.0, -0.06 * s, 0.0),
+        v(0.3 * s, 0.1 * s, 0.26 * s),
+        stone,
+    ));
+    // four stubby pedestal feet
+    for (dx, dz) in [
+        (-0.24f32, -0.18f32),
+        (0.24, -0.18),
+        (-0.24, 0.18),
+        (0.24, 0.18),
+    ] {
+        m.merge(&cuboid(
+            v(dx * s, -0.24 * s, dz * s),
+            v(0.05 * s, 0.1 * s, 0.05 * s),
+            stone,
+        ));
+    }
+    // tall backrest slab, with a carved gothic arch window
+    let mut back = cuboid(
+        v(0.0, 0.42 * s, -0.2 * s),
+        v(0.3 * s, 0.48 * s, 0.06 * s),
+        stone,
+    );
+    let mut bore = lathe(
+        &[
+            (0.0, -0.34 * s),
+            (0.1 * s, -0.34 * s),
+            (0.1 * s, 0.3 * s),
+            (0.0, 0.34 * s),
+        ],
+        10,
+        |_, _| stone,
+    );
+    bore.transform(Mat4::from_rotation_translation(
+        Quat::from_rotation_x(FRAC_PI_2),
+        v(0.0, 0.44 * s, -0.2 * s),
+    ));
+    back = crate::csg::subtract(&back, &bore);
+    m.merge(&back);
+    // armrests + finial spikes
+    for side in [-1.0f32, 1.0] {
+        m.merge(&cuboid(
+            v(side * 0.3 * s, 0.14 * s, -0.02 * s),
+            v(0.05 * s, 0.05 * s, 0.22 * s),
+            trim,
+        ));
+        m.merge(&cuboid(
+            v(side * 0.3 * s, 0.94 * s, -0.22 * s),
+            v(0.045 * s, 0.1 * s, 0.045 * s),
+            trim,
+        ));
+    }
+    m.translate(pos);
+    m
 }
 
 #[cfg(test)]
@@ -833,6 +1193,148 @@ mod tests {
         assert!(
             stretch < 8.0,
             "edge stretch {stretch} indicates a skinning web between necks/torso"
+        );
+    }
+
+    #[test]
+    fn lich_rig_is_wellformed() {
+        let br = build_boss_rig(&boss(r#"{"kind":"boss","archetype":"lich"}"#));
+        let n = br.rig.skeleton.joints.len();
+        assert!(br.rig.prims.iter().all(|d| d.joint_a < n && d.joint_b < n));
+        assert!(br.rig.prims.iter().any(|d| d.fold_rank == 0), "has a core");
+        assert!(
+            br.rig.skeleton.joints.iter().any(|j| j.name == "core"),
+            "has a core joint"
+        );
+        assert!(br.parts.iter().any(|p| p.name == "head"), "has head part");
+        assert!(
+            br.parts.iter().any(|p| p.name == "throne"),
+            "has a throne part"
+        );
+        assert!(
+            br.rig.skeleton.joints.iter().any(|j| j.name == "throne"),
+            "has a throne joint"
+        );
+        assert!(
+            br.parts
+                .iter()
+                .filter(|p| p.name.starts_with("implement."))
+                .count()
+                >= 2,
+            "has floating implement parts"
+        );
+        assert!(
+            br.weak_points
+                .iter()
+                .any(|w| w.name == "weak_point.phylactery" && w.joint == "core" && w.destructible)
+        );
+        assert!(
+            br.extra_mesh.is_some(),
+            "throne is a merged CSG mesh, not an SDF primitive"
+        );
+        let throne = br.extra_mesh.as_ref().unwrap();
+        assert!(
+            throne.triangle_count() > 12,
+            "throne carve adds geometry: {}",
+            throne.triangle_count()
+        );
+        throne.validate().expect("throne mesh valid");
+    }
+
+    #[test]
+    fn lich_hostile_input_cannot_panic() {
+        let br = build_boss_rig(&boss(
+            r#"{"kind":"boss","archetype":"lich","size":1e30,"phases":999,"eyes":999999,"crown":1e30,"regalia":-1e30}"#,
+        ));
+        let n = br.rig.skeleton.joints.len();
+        assert!(br.rig.prims.iter().all(|d| d.joint_a < n && d.joint_b < n));
+        assert!(n < 2000, "joint count bounded: {n}");
+    }
+
+    #[test]
+    fn lich_skinning_has_no_webs() {
+        let p = boss(r#"{"kind":"boss","archetype":"lich","element":"necrotic"}"#);
+        let br = build_boss_rig(&p);
+        let pal = crate::palette::by_name("necrotic");
+        let mut mesh = super::super::body::build_body(&br.rig, p.size, p.detail, p.seed, 0.0, &pal);
+        if let Some(extra) = &br.extra_mesh {
+            mesh.merge(extra);
+        }
+        mesh.validate()
+            .expect("bind mesh valid (no degenerate/zero-area tris)");
+        crate::generators::monster::skin_body(&mut mesh, &br.rig);
+        assert!(mesh.is_skinned(), "boss mesh must be skinned");
+
+        // synthetic clip: swing both arms, bend one leg, and spin the
+        // implement pivots — the junctions this probe targets.
+        let skel = &br.rig.skeleton;
+        let mut channels = Vec::new();
+        for (i, j) in skel.joints.iter().enumerate() {
+            if j.name == "upperarm" || j.name == "forearm" || j.name == "thigh" {
+                channels.push(crate::gltf::Channel {
+                    joint: i,
+                    times: vec![0.0, 1.0],
+                    data: crate::gltf::ChannelData::Rotation(vec![
+                        Quat::IDENTITY,
+                        Quat::from_rotation_x(0.6),
+                    ]),
+                });
+            }
+            if j.name == "implement_pivot" {
+                channels.push(crate::gltf::Channel {
+                    joint: i,
+                    times: vec![0.0, 1.0],
+                    data: crate::gltf::ChannelData::Rotation(vec![
+                        Quat::IDENTITY,
+                        Quat::from_rotation_y(1.2),
+                    ]),
+                });
+            }
+        }
+        let clip = crate::gltf::AnimationClip {
+            name: "probe".into(),
+            channels,
+        };
+        let globals = crate::anim::pose_at(skel, &clip, 1.0);
+        let ibms: Vec<Mat4> = (0..skel.joints.len())
+            .map(|i| skel.global(i).inverse())
+            .collect();
+        let posed = crate::anim::skin_mesh(&mesh, &globals, &ibms);
+
+        let moved = mesh
+            .positions
+            .iter()
+            .zip(&posed.positions)
+            .any(|(a, b)| a.distance(*b) > 0.01);
+        assert!(moved, "limb/implement pose should deform the mesh");
+
+        let stretch = max_edge_stretch(&mesh, &posed);
+        assert!(
+            stretch < 8.0,
+            "edge stretch {stretch} indicates a skinning web between limbs/implements/torso"
+        );
+
+        // the throne must stay put (rigid, unanimated family): its vertices
+        // should not move under a pose that only targets arms/legs/implements.
+        let throne_pos = Vec3::new(
+            0.0,
+            0.52 * p.size.clamp(0.4, 8.0),
+            -1.05 * p.size.clamp(0.4, 8.0),
+        );
+        let mut throne_moved = 0usize;
+        let mut throne_checked = 0usize;
+        for (a, b) in mesh.positions.iter().zip(&posed.positions) {
+            if a.distance(throne_pos) < 0.5 * p.size.clamp(0.4, 8.0) {
+                throne_checked += 1;
+                if a.distance(*b) > 0.01 {
+                    throne_moved += 1;
+                }
+            }
+        }
+        assert!(throne_checked > 0, "probe should sample throne vertices");
+        assert_eq!(
+            throne_moved, 0,
+            "throne must stay rigid/static under a pose"
         );
     }
 }

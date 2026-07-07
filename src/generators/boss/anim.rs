@@ -68,8 +68,13 @@ pub fn build_boss_clips(rig: &MonsterRig, p: &BossParams) -> Vec<AnimationClip> 
     // its own telegraph/active/recover window — so it is intentionally not
     // referenced by any `AbilityMeta.clip`. It is emitted here so the game has
     // the pose available; it is not a dangling/forgotten clip.
+    let mut idle = idle_clip(rig);
+    if matches!(p.archetype, BossArchetype::Lich) {
+        add_implement_orbit(rig, &mut idle);
+    }
+
     let mut clips = vec![
-        idle_clip(rig),
+        idle,
         locomotion_clip(rig),
         telegraph_clip(rig),
         signature_attack_clip(rig, p.archetype),
@@ -82,6 +87,38 @@ pub fn build_boss_clips(rig: &MonsterRig, p: &BossParams) -> Vec<AnimationClip> 
     // ordering stable for determinism (`Vec`, no reordering below).
     clips.retain(|c| !c.channels.is_empty() || c.name == "idle");
     clips
+}
+
+/// Lich only: a slow full-revolution spin on each `implement_pivot` joint
+/// (co-located with `core`, parent of an `implement.N` tip offset by the
+/// orbit radius — see `boss::rig::plan_lich`), appended onto the shared
+/// `idle_clip`'s channels. The duration is derived from the idle clip's own
+/// channel times (not a private constant reused across modules) and each
+/// pivot completes exactly one revolution over that duration, so `rot(0) ==
+/// rot(dur)` and the loop never pops.
+fn add_implement_orbit(rig: &MonsterRig, clip: &mut AnimationClip) {
+    let dur = clip
+        .channels
+        .iter()
+        .filter_map(|c| c.times.last().copied())
+        .fold(0.0f32, f32::max)
+        .max(1.0);
+    let t = keys(20, dur);
+    let pivots: Vec<usize> = rig
+        .skeleton
+        .joints
+        .iter()
+        .enumerate()
+        .filter(|(_, j)| j.name == "implement_pivot")
+        .map(|(i, _)| i)
+        .collect();
+    let n = pivots.len().max(1) as f32;
+    for (i, &j) in pivots.iter().enumerate() {
+        let ph = i as f32 / n * TAU;
+        clip.channels.push(rot_channel(j, &t, move |p| {
+            Quat::from_rotation_y(p * TAU + ph)
+        }));
+    }
 }
 
 /// Wind-up: the body coils back and tenses, then holds with a tremor —
@@ -445,6 +482,35 @@ mod tests {
                 .iter()
                 .any(|n| ["slam", "breath", "summon"].contains(n)),
             "has a signature attack"
+        );
+    }
+
+    #[test]
+    fn lich_idle_orbits_implements() {
+        let p: BossParams = serde_json::from_str(r#"{"archetype":"lich"}"#).unwrap();
+        let br = build_boss_rig(&p);
+        let clips = build_boss_clips(&br.rig, &p);
+        let idle = clips.iter().find(|c| c.name == "idle").expect("has idle");
+        let pivots = br
+            .rig
+            .skeleton
+            .joints
+            .iter()
+            .filter(|j| j.name == "implement_pivot")
+            .count();
+        assert!(pivots >= 2, "lich has implement pivots: {pivots}");
+        let orbit_channels = idle
+            .channels
+            .iter()
+            .filter(|c| br.rig.skeleton.joints[c.joint].name == "implement_pivot")
+            .count();
+        assert_eq!(
+            orbit_channels, pivots,
+            "every implement pivot gets an idle orbit channel"
+        );
+        assert!(
+            clips.iter().any(|c| c.name == "summon"),
+            "lich signature attack is summon"
         );
     }
 

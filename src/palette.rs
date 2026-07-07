@@ -75,6 +75,7 @@ pub fn vary(c: Vec3, amount: f32, r: f32) -> Vec3 {
     (c * v).clamp(Vec3::ZERO, Vec3::ONE)
 }
 
+#[derive(Clone, Copy)]
 pub struct Palette {
     pub name: &'static str,
     /// low -> high terrain ramp (also reused as generic gradient)
