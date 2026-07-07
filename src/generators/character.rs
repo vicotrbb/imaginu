@@ -2204,50 +2204,24 @@ fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
     };
     let mut parts = Vec::new();
 
-    // bodice: restored pre-shell loft construction (v0.3.0, commit
-    // 53cb001) for waist-up — collar/torso stations are hand-fit to the
-    // body and always read cleanly; the two full-torso offset-shell
-    // attempts (cd7d520, a6c492f) both collapsed into a shapeless sack
-    // once the shell had to also cover chest/neckline/arm roots, so that
-    // region goes back to the lofted stations. Radii must clear the
-    // elliptical torso lathe (x = r * 1.28) or the body pokes through.
-    let waist_y = jw(HIPS).y;
-    let bodice = [
-        st(waist_y, h * 0.128, h * 0.102),
-        st(jw(SPINE).y + h * 0.02, h * 0.120, h * 0.096),
-        st(jw(CHEST).y + h * 0.05, h * 0.138, h * 0.100),
-    ];
-    let bodice_segs: &[(usize, usize)] = &[(HIPS, SPINE), (SPINE, CHEST), (CHEST, NECK)];
-    // no hem band here — the bodice's bottom edge is tucked under the
-    // belt/sash and the skirt top, so the trim band belongs on the skirt
-    // hem only (see below)
-    parts.push(garment(
-        ctx,
-        &bodice,
-        360.0,
-        bodice_segs,
-        ground,
-        0.7,
-        Vec::new(),
-    ));
-
-    // skirt: the one region the offset-shell technique actually suits —
-    // below the waist the silhouette really is close to a body-hugging
-    // cone, so drape it as a body field inflated by cloth thickness, top
-    // even with the bodice hem (hidden under the belt/sash), hem flaring
-    // toward the bottom with seeded fold ripples. Robe -> ankle, tunic ->
-    // knee, matching the old lofted hem heights.
+    // under-robe: closed, hem -> chest; radii must clear the elliptical
+    // torso lathe (x = r * 1.28) or it pokes through
     let hem_y = if style == "tunic" {
         h * 0.26
     } else {
         h * 0.055
     };
-    // top of the skirt shell overlaps up into the bodice's lower stations
-    // (rather than stopping exactly at the belt line) so the two meshes'
-    // open rims overlap instead of leaving a sliver of bare skin between
-    // them if their radii don't match to the millimeter.
-    let skirt_top = waist_y + h * 0.045;
-    let skirt = cloth_shell(
+    let hem_rx = if style == "tunic" {
+        h * 0.15
+    } else {
+        h * 0.165
+    };
+    let _ = hem_rx; // superseded by the offset-shell hem flare below
+    // collar sits at the collarbone (just below NECK), not mid-chest — the
+    // previous CHEST+0.02 value landed well below the shoulder joint,
+    // reading as a neckline that had slid off the deltoid down to the ribs
+    let under_top = jw(NECK).y - h * 0.020;
+    let under = cloth_shell(
         ctx.rig,
         ctx.body_parts,
         h,
@@ -2256,22 +2230,15 @@ fn outfit_parts(ctx: &GarmentCtx, style: &str) -> Vec<Part> {
         ctx.spine_y,
         ctx.chest_y,
         hem_y,
-        skirt_top,
-        h * 0.075, // shell thickness floor: keep clear of the body at any
-        // pose. Higher than the old whole-torso shell's 0.054 —
-        // this span's top sits right at the trunk/leg smin
-        // "saddle" near the hips, where the fused body field
-        // dips closer to center than either primitive alone;
-        // without the extra clearance the hip skin pokes
-        // through right where the skirt starts (t≈0, before
-        // hem-flare has kicked in)
+        under_top,
+        h * 0.054, // shell thickness floor: keep clear of the body at any pose
         ctx.fold_n,
         ctx.flare_amt,
         ground,
         ctx.det,
     );
     parts.push(Part {
-        mesh: skirt,
+        mesh: under,
         material: Material {
             roughness: 0.85,
             double_sided: true,
