@@ -902,17 +902,18 @@ fn sculpted_head(
             ),
             r * 0.10,
         );
-        // nose: bridge + protruding tip
+        // nose: short straight bridge, tip just below eye level — long
+        // low-hanging tips read as a witch hook from 3/4 view
         d = smin(
             d,
             sd_round_cone(
                 p,
-                Vec3::new(0.0, r * 0.18, r * 0.80),
-                Vec3::new(0.0, -r * 0.16, r * 1.08),
-                r * 0.10,
-                r * 0.14,
+                Vec3::new(0.0, r * 0.20, r * 0.84),
+                Vec3::new(0.0, -r * 0.02, r * 1.00),
+                r * 0.065,
+                r * 0.095,
             ),
-            r * 0.08,
+            r * 0.06,
         );
         // ears
         for s in [-1.0f32, 1.0] {
@@ -1045,15 +1046,8 @@ fn face(c: Vec3, r: f32, w: &Wardrobe, expressions: bool) -> Mesh {
         });
     }
 
-    // nose: small smooth wedge
-    let mut nose = icosphere(r * 0.085, 2, w.skin * 1.04);
-    for v in nose.positions.iter_mut() {
-        v.x *= 0.7;
-        v.z *= 1.25;
-    }
-    nose.recompute_smooth_normals();
-    nose.translate(c + Vec3::new(0.0, -r * 0.08, r * 0.94));
-    push(nose, &|_| vec![]);
+    // (nose lives in the sculpted head SDF — a second painted-on wedge here
+    // doubled the schnoz)
 
     // mouth: smile lifts corners, angry drops them, surprised opens
     let mc = c + Vec3::new(0.0, -r * 0.38, r * 0.82);
